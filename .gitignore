@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 敏感数据：登录缓存、预约方案（含学号）、运行日志
+data/session.cache
+data/plans.yaml
+logs/
+
+# 系统
+.DS_Store
+Thumbs.db
