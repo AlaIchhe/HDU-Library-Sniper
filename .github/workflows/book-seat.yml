@@ -11,9 +11,9 @@ name: HDU Library Seat Booking
 
 on:
   schedule:
-    # 每天 07:59 触发（UTC 23:59 = CST 07:59）
+    # 每天 20:00 触发（UTC 12:00 = CST 20:00）
     # GitHub 官方调度平均有 30-90 秒排队延迟，放号场景下不可控
-    - cron: '59 23 * * *'
+    - cron: '0 12 * * *'
 
   # 手动触发调试用：Actions 页 → Run workflow
   workflow_dispatch:
@@ -70,16 +70,23 @@ jobs:
         continue-on-error: true
 
       - name: Push notification
-        if: always() && secrets.WEBHOOK_URL != ''
+        if: always()
         shell: bash
         run: |
+          # secrets 在 step if 中部分 parser 版本不支持（报 "Unrecognized named-value: 'secrets'"），
+          # 因此把 WEBHOOK_URL 的空判断挪到 shell 里做，行为和原来一致。
+          WEBHOOK_URL='${{ secrets.WEBHOOK_URL }}'
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "⚠ WEBHOOK_URL 未设置，跳过通知"
+            exit 0
+          fi
           outcome='${{ steps.booking.outcome }}'
           if [ "$outcome" = "success" ]; then
             text="[✅ HDU Sniper] 抢座任务成功"
           else
             text="[❌ HDU Sniper] 抢座任务失败 (run ${{ github.run_id }})"
           fi
-          curl -fsSL -X POST '${{ secrets.WEBHOOK_URL }}' \
+          curl -fsSL -X POST "$WEBHOOK_URL" \
             --data-urlencode "text=$text" \
             --data-urlencode "desp=时间: $(date -u +%F %T UTC)%0A结果: $outcome"
 
