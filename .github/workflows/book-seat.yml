@@ -1,0 +1,91 @@
+# GitHub Actions 每日抢座调度
+#
+# ⚠️ 跨境延迟注意：Runner 节点在日本/美国/欧洲，实际延迟 30～90 秒
+#    （GitHub 官方调度平均排队 30-90 秒 + 跨境网络抖动）。
+#    仅供不在意延迟的场景使用（备链路）。主力用 AutoSchedule.ps1 + 任务计划。
+#
+# ⚠️ 凭据安全：Cookie 是登录凭据 = 账户所有权，一律通过 Settings → Secrets 注入，
+#    绝对不要写进本文件、仓库代码、PR diff、或 commit message。
+
+name: HDU Library Seat Booking
+
+on:
+  schedule:
+    # 每天 07:59 触发（UTC 23:59 = CST 07:59）
+    # GitHub 官方调度平均有 30-90 秒排队延迟，放号场景下不可控
+    - cron: '59 23 * * *'
+
+  # 手动触发调试用：Actions 页 → Run workflow
+  workflow_dispatch:
+
+jobs:
+  book:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ---- 关键：把 Secrets 注入为项目读写所需的私有文件 ----
+      # data/session.cache / data/plans.yaml 已被 .gitignore 排除，Runner 上原本为空。
+      # 这里把它们从 Secrets 直接写入，下面一行 `python main.py --run-now` 即能正常跑。
+      - name: Inject secrets into cache files
+        env:
+          HDU_COOKIE:      ${{ secrets.HDU_COOKIE }}
+          HDU_PLANS_YAML:  ${{ secrets.HDU_PLANS_YAML }}
+          HDU_CONFIG_YAML: ${{ secrets.HDU_CONFIG_YAML }}
+        run: |
+          set -e
+          mkdir -m 0700 -p data logs
+          # Cookie 必须存在；plans/config 可选（不传即用仓库内默认值）
+          if [ -z "$HDU_COOKIE" ]; then
+            echo "::error::Secret HDU_COOKIE 未设置或为空，请先在 Settings → Secrets 添加。"
+            exit 1
+          fi
+          printf '%s' "$HDU_COOKIE" > data/session.cache
+          chmod 600 data/session.cache
+          if [ -n "$HDU_PLANS_YAML" ]; then
+            printf '%s' "$HDU_PLANS_YAML" > data/plans.yaml
+            chmod 600 data/plans.yaml
+          fi
+          if [ -n "$HDU_CONFIG_YAML" ]; then
+            printf '%s' "$HDU_CONFIG_YAML" > config/config.yaml
+          fi
+          echo "✔ cache files injected"
+
+      # ---- 核心抢座：和你本地跑的是同一条命令 ----
+      - name: Run booking
+        id: booking
+        run: python main.py --run-now
+        continue-on-error: true
+
+      - name: Push notification
+        if: always() && secrets.WEBHOOK_URL != ''
+        shell: bash
+        run: |
+          outcome='${{ steps.booking.outcome }}'
+          if [ "$outcome" = "success" ]; then
+            text="[✅ HDU Sniper] 抢座任务成功"
+          else
+            text="[❌ HDU Sniper] 抢座任务失败 (run ${{ github.run_id }})"
+          fi
+          curl -fsSL -X POST '${{ secrets.WEBHOOK_URL }}' \
+            --data-urlencode "text=$text" \
+            --data-urlencode "desp=时间: $(date -u +%F %T UTC)%0A结果: $outcome"
+
+      - name: Clear cache files
+        if: always()
+        run: |
+          rm -f data/session.cache data/plans.yaml
+          # 防止 runner /temp 残留敏感文件
+          echo "✔ cache cleared"
