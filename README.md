@@ -262,8 +262,8 @@ tail -f logs/libsniper.log            # 看运行器日志
 ├── AutoSchedule.ps1     # Windows 任务计划自动注册脚本（开箱即用）
 ├── requirements.txt     # 依赖：requests, pyyaml
 ├── config/              # 配置目录（config.yaml + setting.py）
-├── core/                # HTTP 客户端 / Notifier / PlanRepository / Sniper
-├── utils/               # 加密 / 时间同步 / 验证码
+├── core/                # HTTP 客户端 / 抢座编排包 (Sniper/Plan/Retry/Repository)
+├── utils/               # 加密 / 时间同步 / 验证码 / 通知 (Notifier)
 ├── data/                # 运行时数据（session.cache / plans.yaml，已 gitignore）
 ├── logs/                # 运行日志（已在 .gitignore）
 ├── scripts/

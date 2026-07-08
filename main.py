@@ -9,7 +9,8 @@ from datetime import datetime, time as dt_time, timedelta
 
 from config.setting import load_settings
 from core.client import CookieError, HduLibraryError, LibraryClient
-from core.sniper import BookingPlan, Notifier, PlanRepository, PlanStatus, Sniper
+from core.sniper import BookingPlan, PlanRepository, PlanStatus, Sniper
+from utils.notifier import Notifier
 from utils.time_sync import get_seat_lookup_time, now_cst
 
 if os.name == "nt":
