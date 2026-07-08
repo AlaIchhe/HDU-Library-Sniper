@@ -29,3 +29,6 @@ logs/
 # 系统
 .DS_Store
 Thumbs.db
+
+# 部署时冻结的调度配置(含路径)
+.libsniper.env

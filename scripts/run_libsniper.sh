@@ -12,6 +12,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(dirname "$SCRIPT_DIR")"
 
+# 加载 setup.sh 冻结的配置(时刻 / conda env / 时区 / 日志目录),不存在则用缺省
+ENV_FILE="$APP_DIR/.libsniper.env"
+if [[ -f "$ENV_FILE" ]]; then
+    set -a; . "$ENV_FILE"; set +a
+fi
+
 _detect_conda() {
     # 优先级:项目内 miniconda → ~/miniconda3 → ~/miniconda → PATH 中的 conda
     for c in "$APP_DIR/miniconda3" "$APP_DIR/miniconda" "$HOME/miniconda3" "$HOME/miniconda"; do

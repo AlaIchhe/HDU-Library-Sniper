@@ -1,0 +1,29 @@
+# 不打进镜像的文件(减小体积、避免泄露敏感数据)
+.git/
+.github/
+.gitignore
+.dockerignore
+Dockerfile
+README.md
+docs/
+
+# 运行时数据 / 日志(用 -v 挂卷持久化,不进镜像)
+data/
+logs/
+
+# 部署时冻结的本地配置(含绝对路径,不进镜像)
+.libsniper.env
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 本地 miniconda(镜像内用 pip 装依赖,不复制宿主机的 conda)
+miniconda3/
+miniconda/
+
+# Windows / macOS 脚本(镜像内用 Linux 调度器)
+AutoSchedule.ps1
