@@ -202,34 +202,39 @@ class LibraryClient:
             self.set_cookie_header(text)
 
     def validate_cookie(self) -> bool:
-        """验证当前 Session 中的 Cookie 是否仍有效。"""
+        """验证当前 Session 中的 Cookie 是否仍有效。
+
+        baseInfo 在未指定 LAB_JSON 时返回干净的 DATA 对象（服务器 _debug_info
+        会注明"没有指定LAB平台模板"），其中 is_login 与 uid 是平台明确的会话/
+        标识字段，直接判定即可，无需递归猜测。
+        """
         try:
-            # 显式关闭 LAB_JSON：该参数会让 user_base_info 返回"个人资料"页面的
-            # UI 渲染树而非用户数据，导致后续无法从中提取 uid（见 resolve_uid）。
             data = self._request("GET", self.urls["user_base_info"], params={"LAB_JSON": None})
         except HduLibraryError:
             return False
-        candidate = find_user_info(data)
-        return bool(candidate and candidate.get("uid"))
+        info = data.get("DATA")
+        if not isinstance(info, dict):
+            return False
+        return bool(info.get("is_login") and str(info.get("uid") or "").isdigit())
 
     def resolve_uid(self) -> str:
-        """当 UID 未知时，从用户信息接口自动探测。"""
+        """从 baseInfo 的 DATA.uid 读取当前登录用户 uid。"""
         if self.uid:
             return self.uid
-        for endpoint_key in ("user_base_info", "user_center"):
-            try:
-                # 同上：必须关闭 LAB_JSON，否则拿到的是页面结构树，
-                # find_user_info 只能从"借书证号"等字段误猜出学号当作 uid。
-                data = self._request("GET", self.urls[endpoint_key], params={"LAB_JSON": None})
-            except HduLibraryError:
-                continue
-            candidate = find_user_info(data)
-            if candidate and candidate.get("uid"):
-                self.uid = str(candidate["uid"])
-                if candidate.get("name") and not self.name:
-                    self.name = str(candidate["name"])
-                return self.uid
-        raise HduLibraryError("未能识别用户 uid，请在配置中填写 uid 或更新 Cookie。")
+        try:
+            data = self._request("GET", self.urls["user_base_info"], params={"LAB_JSON": None})
+        except HduLibraryError as exc:
+            raise HduLibraryError(f"用户信息请求失败：{exc}") from exc
+        info = data.get("DATA")
+        if not isinstance(info, dict) or not info.get("is_login"):
+            raise HduLibraryError("Cookie 无效或已过期，无法获取 uid。")
+        uid = str(info.get("uid") or "")
+        if not uid.isdigit():
+            raise HduLibraryError(
+                f"未能从接口识别 uid（got {uid!r}），请在配置中填写 uid 或更新 Cookie。"
+            )
+        self.uid = uid
+        return self.uid
 
     def get_room_types(self) -> list[dict[str, Any]]:
         """获取所有可用房间类型。"""
@@ -393,96 +398,3 @@ class AuthService:
             raise CookieError("Cookie 缓存无效或已过期")
         self.client.resolve_uid()
         return True
-
-
-def find_user_info(data: dict[str, Any]) -> dict[str, Any] | None:
-    """递归搜索 JSON 中最像当前用户信息的对象。"""
-    candidates: list[dict[str, Any]] = []
-
-    def walk(obj: object, hint: str = "") -> None:
-        if isinstance(obj, dict):
-            if "name" in obj and "value" in obj and isinstance(obj.get("value"), str):
-                walk(obj["value"], str(obj.get("name") or hint))
-            candidate = _user_info_from_dict(obj, hint)
-            if candidate:
-                candidates.append(candidate)
-            for key, value in obj.items():
-                walk(value, f"{hint}.{key}" if hint else str(key))
-        elif isinstance(obj, list):
-            for item in obj:
-                walk(item, hint)
-        elif isinstance(obj, str):
-            value = obj.strip()
-            if value and value[0] in "[{":
-                try:
-                    walk(json.loads(value), hint)
-                except Exception:
-                    pass
-
-    walk(data)
-    if not candidates:
-        return None
-    candidates.sort(key=lambda item: item.get("score", 0), reverse=True)
-    return candidates[0]
-
-
-def _user_info_from_dict(data: dict[str, Any], hint: str = "") -> dict[str, Any] | None:
-    # "uid"/"user_id"/"userId" 是平台明确的登录会话标识字段名，一旦命中即可信；
-    # "booker"/"id"/"textRight" 只是宽泛猜测（常用于抓取表格类 UI 文本），
-    # 容易被学号/证号等同样是数字的字段误命中，权重必须远低于精确字段名。
-    exact_id_keys = ("uid", "user_id", "userId")
-    fuzzy_id_keys = ("booker", "id", "textRight")
-    name_keys = (
-        "name",
-        "real_name",
-        "realName",
-        "bookerName",
-        "username",
-        "login_name",
-        "nickname",
-        "textRight",
-    )
-    title_keys = ("titleCenter", "titleLeft", "title", "titleRight")
-
-    uid = None
-    exact_match = False
-    for key in exact_id_keys:
-        value = data.get(key)
-        if value is not None and str(value).isdigit():
-            uid = str(value)
-            exact_match = True
-            break
-    if uid is None:
-        for key in fuzzy_id_keys:
-            value = data.get(key)
-            if value is not None and str(value).isdigit():
-                uid = str(value)
-                break
-
-    name = None
-    for key in name_keys:
-        value = data.get(key)
-        if value and not str(value).isdigit():
-            name = str(value)
-            break
-
-    title_context = ""
-    for key in title_keys:
-        value = data.get(key)
-        if value and isinstance(value, str):
-            title_context += value
-
-    score = 1 if name else 0
-    hint_lower = (hint + title_context).lower()
-    for keyword in ("current", "user", "login", "lab4", "身份", "认证", "姓名", "证号", "书证", "学号", "学工", "一卡通", "证件"):
-        if keyword in hint_lower:
-            score += 2
-    if "手机" in title_context:
-        score -= 3
-    # 精确字段名命中的登录 UID 必须压过任何关键词猜测得分，避免学号/证号等
-    # 恰好命中"学号"关键词而反超真实 uid（真实事故：曾把学号错当成 uid 提交预约）。
-    if exact_match:
-        score += 100
-    if uid and (score > 0 or name):
-        return {"uid": uid, "name": name, "score": max(score, 0)}
-    return None
