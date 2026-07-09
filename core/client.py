@@ -202,6 +202,21 @@ class LibraryClient:
         else:
             self.set_cookie_header(text)
 
+    def save_cookie_cache(self, cache_path: str | Path, cookie_string: str) -> None:
+        """把原始 Cookie 字符串写入 session.cache，供下次非交互模式复用。
+
+        写入失败（如磁盘不可写）静默忽略——缓存仅用于加速后续非交互登录，
+        失败不应阻断当前已成功的认证流程（与历史行为一致）。
+        """
+        try:
+            path = Path(cache_path).expanduser()
+            if not path.is_absolute():
+                path = Path.cwd() / path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(cookie_string, encoding="utf-8")
+        except OSError:
+            pass
+
     def validate_cookie(self) -> bool:
         """验证当前 Session 中的 Cookie 是否仍有效。
 
