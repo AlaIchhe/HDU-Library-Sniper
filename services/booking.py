@@ -13,7 +13,7 @@ from utils.notifier import Notifier
 
 
 class ExitCode:
-    """非交互模式 (--run-now) 退出码，与 scripts/scheduler.py 的 codes 字典对齐。"""
+    """非交互模式 (--run-now) 退出码。"""
 
     SUCCESS = 0
     ALL_FAILED = 1
