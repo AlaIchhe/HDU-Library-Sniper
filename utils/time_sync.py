@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 CST = ZoneInfo("Asia/Shanghai")
@@ -19,56 +19,6 @@ def build_begin_time(start_hour: int, book_days: int = 0) -> datetime:
     return (now + timedelta(days=book_days)).replace(
         hour=start_hour, minute=0, second=0, microsecond=0
     )
-
-
-def parse_plan_code(plan_text: str) -> dict[str, int | str]:
-    """解析 ``roomType:floorId:seatNum:startHour:durationHours`` 计划码。"""
-    try:
-        room_type, floor_id, seat_num, start_hour, duration_hours = plan_text.split(":")
-        return {
-            "room_type": int(room_type),
-            "floor_id": int(floor_id),
-            "seat_num": str(seat_num),
-            "start_hour": int(start_hour),
-            "duration_hours": int(duration_hours),
-        }
-    except Exception as exc:
-        raise ValueError("plan 格式应为 roomType:floorId:seatNum:startHour:durationHours") from exc
-
-
-def parse_execute_time(execute_at_str: str) -> time | None:
-    """解析 ``HH:MM`` 或 ``HH:MM:SS`` 执行时间。"""
-    text = str(execute_at_str or "").strip()
-    if not text:
-        return None
-    for fmt in ("%H:%M:%S", "%H:%M"):
-        try:
-            return datetime.strptime(text, fmt).time()
-        except ValueError:
-            pass
-    raise ValueError("execute_at 格式应为 HH:MM 或 HH:MM:SS")
-
-
-def build_execute_datetime(execute_at_str: str, now: datetime | None = None) -> datetime | None:
-    """构建下一次执行时间；如果今天已过，自动推迟到明天。"""
-    parsed = parse_execute_time(execute_at_str)
-    if parsed is None:
-        return None
-    now = now or now_cst()
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=CST)
-    target = now.replace(hour=parsed.hour, minute=parsed.minute, second=parsed.second, microsecond=0)
-    if target <= now:
-        target += timedelta(days=1)
-    return target
-
-
-def normalize_execute_time(value: str) -> str:
-    """将执行时间格式化为 ``HH:MM:SS``。"""
-    parsed = parse_execute_time(value)
-    if parsed is None:
-        return ""
-    return f"{parsed.hour:02d}:{parsed.minute:02d}:{parsed.second:02d}"
 
 
 def get_seat_lookup_time(now: datetime | None = None) -> datetime:

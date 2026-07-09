@@ -13,20 +13,6 @@ from core.sniper import BookingPlan, PlanRepository, PlanStatus, Sniper
 from utils.notifier import Notifier
 from utils.time_sync import get_seat_lookup_time, now_cst
 
-if os.name == "nt":
-    # Windows 控制台默认代码页是 GBK，强制切到 UTF-8 避免中文乱码。
-    # 注意：pythonw.exe 在无控制台环境（如任务计划程序以 SYSTEM 运行）下，
-    # sys.stdout/stderr/stdin 为 None，直接调用 reconfigure 会抛 AttributeError，
-    # 进程在导入阶段即崩溃退出（退出码 1，且因无 stderr 不会留下任何日志）。
-    # 故先判空，仅在存在真实流时才重配置编码。
-    if sys.stdout is not None:
-        os.system("chcp 65001 > nul")
-        sys.stdout.reconfigure(encoding="utf-8")
-    if sys.stderr is not None:
-        sys.stderr.reconfigure(encoding="utf-8")
-    if sys.stdin is not None:
-        sys.stdin.reconfigure(encoding="utf-8")
-
 
 def clear_screen() -> None:
     subprocess.run(["cmd", "/c", "cls"] if os.name == "nt" else ["clear"], check=False, shell=False)

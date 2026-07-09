@@ -8,20 +8,21 @@ from typing import Any
 from urllib.parse import unquote
 
 import requests
+from requests.cookies import create_cookie
 
 from utils.encrypt import generate_api_token
 
 URLS = {
     "book_seat": "https://hdu.huitu.zhishulib.com/Seat/Index/bookSeats",
-    "login": "https://hdu.huitu.zhishulib.com/User/Index/login",
+    # "login": "https://hdu.huitu.zhishulib.com/User/Index/login",  # 走 Cookie 认证，未使用
     "query_seats": "https://hdu.huitu.zhishulib.com/Seat/Index/searchSeats",
     "query_rooms": "https://hdu.huitu.zhishulib.com/Space/Category/list",
-    "index": "https://hdu.huitu.zhishulib.com/",
+    # "index": "https://hdu.huitu.zhishulib.com/",  # 未使用
     "user_base_info": "https://hdu.huitu.zhishulib.com/User/Center/baseInfo",
-    "user_center": "https://hdu.huitu.zhishulib.com/User/Center/index",
+    # "user_center": "https://hdu.huitu.zhishulib.com/User/Center/index",  # 未使用，实际用 user_base_info
     # 预约查询接口：在 bookSeats 超时后用于幂等确认（服务器可能已实际写入预约）。
     "today_schedule": "https://hdu.huitu.zhishulib.com/Seat/Index/todayUserBookSeat",
-    "book_history": "https://hdu.huitu.zhishulib.com/Seat/Index/historyBookSeat",
+    # "book_history": "https://hdu.huitu.zhishulib.com/Seat/Index/historyBookSeat",  # 未使用
 }
 
 DEFAULT_HEADERS = {
@@ -176,7 +177,7 @@ class LibraryClient:
             value = item.get("value")
             if not name or value is None:
                 continue
-            cookie = requests.cookies.create_cookie(
+            cookie = create_cookie(
                 name=str(name),
                 value=str(value),
                 domain=item.get("domain") or "hdu.huitu.zhishulib.com",
@@ -362,39 +363,4 @@ class LibraryClient:
 
         self.session.headers["Api-Token"] = api_token
         return self._request("POST", self.urls["book_seat"], payload)
-
-
-class AuthService:
-    """Cookie 认证封装。"""
-
-    def __init__(self, client: LibraryClient) -> None:
-        self.client = client
-
-    @property
-    def uid(self) -> str:
-        return self.client.uid
-
-    @property
-    def name(self) -> str:
-        return self.client.name
-
-    def authenticate_with_cookie(self, cookie_string: str, validate: bool = True) -> bool:
-        self.client.set_cookie_header(cookie_string)
-        if validate and not self.client.validate_cookie():
-            raise CookieError("Cookie 无效或已过期")
-        self.client.resolve_uid()
-        return True
-
-    def authenticate_with_cookie_file(self, json_path: str | Path, validate: bool = True) -> bool:
-        self.client.set_cookies_from_json_file(json_path)
-        if validate and not self.client.validate_cookie():
-            raise CookieError("Cookie 文件无效或已过期")
-        self.client.resolve_uid()
-        return True
-
-    def authenticate_with_cache(self, cache_path: str | Path, validate: bool = True) -> bool:
-        self.client.load_cookie_cache(cache_path)
-        if validate and not self.client.validate_cookie():
-            raise CookieError("Cookie 缓存无效或已过期")
-        self.client.resolve_uid()
-        return True
+    
