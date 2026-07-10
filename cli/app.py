@@ -18,6 +18,7 @@ from core.room_browser import RoomBrowser
 from core.sniper import BookingPlan
 from services.auth import AuthService
 from services.booking import BookingService
+from services.browser_auth import BrowserAuthService
 from services.runtime import build_runtime
 
 
@@ -27,6 +28,7 @@ class InteractiveApp:
     def __init__(self) -> None:
         self.settings, self.client, self.plans, self.notifier = build_runtime()
         self.auth = AuthService(self.client, self.settings)
+        self.browser_auth = BrowserAuthService(self.client, self.settings)
         self.rooms = RoomBrowser(self.client)
         self.booking = BookingService(self.settings, self.client, self.plans, self.notifier)
 
@@ -37,17 +39,9 @@ class InteractiveApp:
         if self.auth.try_cache():
             return
 
-        print("\n未找到有效登录信息，请粘贴 Cookie 字符串完成认证。")
-        cookie = input("Cookie: ").strip()
-        if not cookie:
-            print("未输入 Cookie，跳过认证。")
-            return
-
-        print("正在验证 Cookie（联网请求，最多等待 {} 秒）...".format(self.client.timeout))
-        ok, msg = self.auth.authenticate_with_cookie(cookie)
+        # 缓存无效 → 起浏览器登录（唯一主动认证入口，不再手动粘 Cookie）。
+        ok, msg = self.browser_auth.login_and_save()
         print(msg)
-        if ok:
-            self.auth.save_cache(cookie)
 
     # ------------------------------------------------------------------
     # 主循环
@@ -65,6 +59,7 @@ class InteractiveApp:
             ("立即抢座", self.handle_book_now),
             ("定时预约", self.handle_book_scheduled),
             ("浏览房间与座位", self.handle_browse_rooms),
+            ("重新登录（浏览器）", self.handle_relogin),
             ("退出", self.handle_exit),
         ]
 
@@ -310,6 +305,13 @@ class InteractiveApp:
                     preview += f" ... (+{len(seat_nums) - 10})"
                 print(f"  - {f.room_name} (ID {f.floor_id or '?'}): [{preview}]")
             print()
+
+    # ------------------------------------------------------------------
+    # 8 — 重新登录（浏览器）
+    # ------------------------------------------------------------------
+    def handle_relogin(self) -> None:
+        ok, msg = self.browser_auth.login_and_save()
+        print(msg)
 
     # ------------------------------------------------------------------
     # 0 — 退出

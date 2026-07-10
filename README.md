@@ -14,7 +14,8 @@
 | 🕗 定时预约 | 设定目标时间（如 `07:00:00`），程序自动等待到点后发起抢占 |
 | 🔁 智能重试 | 指数退避 + 随机抖动，对"预约窗口未开放"独立轮询（不占用重试预算） |
 | 🛡️ 超时幂等确认 | 抢座请求响应超时时自动查询今日预约列表做服务端确认，避免成功却误报失败 |
-| 🍪 Cookie 缓存 | 登录一次后复用，支持浏览器 JSON Cookie / 原始 Cookie 字符串 |
+| 🌐 浏览器登录 | 自动弹出浏览器完成登录（扫码 / 统一身份认证），无需手动复制 Cookie |
+| 🍪 Cookie 缓存 | 浏览器登录一次后复用，失效（退出码 2）自动提示重新登录 |
 | 📦 多方案容错 | 支持配置多个房间/座位方案，主方案失败自动切备选 |
 | 📨 通知推送 | 控制台 + 本地日志文件 + 微信 webhook（Server酱 / PushPlus 等） |
 
@@ -26,6 +27,7 @@
 
 - Python 3.10+
 - 依赖：`requests>=2.31`、`pyyaml>=6.0`（使用 `pip install -r requirements.txt` 安装）
+- 可选依赖（浏览器登录）：`playwright`，见 [登录验证](#登录验证)
 
 ### 安装
 
@@ -37,13 +39,22 @@ pip install -r requirements.txt
 
 ### 登录验证
 
-首次运行需要加载 Cookie：
+首次运行需要登录：
 
 ```bash
 python main.py
 ```
 
-选择「登录验证」→ 粘贴浏览器中 `hdu.huitu.zhishulib.com` 的 Cookie（F12 → Network → 任意请求的 Request Headers 中获取）。Cookie 验证成功后会被缓存，后续无需重复粘贴。
+程序检测到没有有效 Cookie 缓存时，会自动弹出浏览器并打开图书馆页面。在浏览器中完成登录（微信扫码 / 杭电统一身份认证）后，回到终端按 Enter，程序自动导出 Cookie 并写入 `data/session.cache`。后续运行自动复用缓存，无需重复登录。
+
+> 浏览器登录依赖 Playwright（可选，不影响主链路抢座）：
+>
+> ```bash
+> pip install playwright
+> playwright install chromium
+> ```
+>
+> Cookie 失效（退出码 2）时重跑 `python main.py` 即可重新弹出浏览器登录。无桌面环境（SSH / Linux 无 GUI / SYSTEM 计划任务）跑不了浏览器，需在有桌面环境生成 `data/session.cache` 后拷贝过去。
 
 ### 添加预约方案
 
@@ -189,7 +200,7 @@ tail -f logs/libsniper.log            # 看运行器日志
 | 注册后发现 crontab 里没条目 | `crontab -l` 查看;若服务器无 cron 服务,`setup.sh` 已自动改用循环模式(看 `pgrep -af loop_sniper`) |
 | 每日没跑(crontab 模式) | ① 彻底关机后不会跑(见 [下方说明](#关于电脑关机与彻底断电)) ② `systemctl is-active cron` 检查 cron 服务 ③ `sudo tail -f /var/log/syslog \| grep CRON` 看执行记录 |
 | 每日没跑(loop 模式) | `pgrep -af loop_sniper` 看进程在不在;`tail -f logs/loop.log` 看是否在等下次触发;进程没了就 `bash scripts/setup.sh` 重启 |
-| 退出码 2(Cookie 认证失效) | 本地重跑 `python main.py` 重新登录,更新 Cookie 后 `data/session.cache` 会自动刷新 |
+| 退出码 2(Cookie 认证失效) | 本地重跑 `python main.py` 自动弹出浏览器重新登录,`data/session.cache` 随之刷新 |
 
 #### 关于电脑关机与彻底断电(跨平台共通)
 

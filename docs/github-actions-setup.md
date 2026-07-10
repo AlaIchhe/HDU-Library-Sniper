@@ -24,16 +24,27 @@ https://github.com/<你的用户名>/HDU-Library-Sniper/settings/secrets/actions
 
 | Secret 名 | 必须 | 内容 | 说明 |
 | --- | --- | --- | --- |
-| `HDU_COOKIE` | ✅ | 浏览器完整 Cookie 字符串，**或者 `data/session.cache` 内容全文**（从本地已验证的缓存文件读也行） | 登录凭据 = 账户所有权，被盗即被盗号 |
+| `HDU_COOKIE` | ✅ | 本机浏览器登录后 `data/session.cache` 文件内容全文（推荐），或浏览器完整 Cookie 字符串 | 登录凭据 = 账户所有权，被盗即被盗号 |
 | `HDU_PLANS_YAML` | ✅ | `data/plans.yaml` 全文 | 预约方案列表（不传 → 无方案 → 退出码 3，必须传） |
 | `HDU_CONFIG_YAML` | ❌ | `config/config.yaml` 全文 | 重试/超时/推送配置。不传即用仓库内的 |
 | `WEBHOOK_URL` | ❌ | Server 酱 / PushPlus / 飞书 webhook 地址 | 失败或成功都会推送。不填则没有推送 |
 
-### 如何获取 Cookie
+### 如何获取 Cookie（填入 `HDU_COOKIE` Secret）
 
-1. 用 Chrome/Edge/Firefox 打开 `https://hdu.huitu.zhishulib.com/`
+> CI（GitHub Actions）跑在无桌面的 Linux runner 上，无法启动浏览器登录，Cookie 必须在本地先准备好再注入。
+
+**推荐：从本地 `session.cache` 复制**
+
+1. 在有桌面环境的本机运行 `python main.py`，按 [登录验证](../README.md#登录验证) 流程完成浏览器登录
+2. 登录成功后本地生成 `data/session.cache`（内含完整 Cookie 字符串）
+3. 打开该文件，复制全部内容
+4. 粘贴进 `HDU_COOKIE` Secret
+
+**备选：直接从浏览器复制 Cookie 字符串**
+
+1. 用 Chrome/Edge/Firefox 打开 `https://hdu.huitu.zhishulib.com/` 并登录
 2. F12 → Network → 刷新页面 → 随便点一个请求
-3. 在 Request Headers 中找到 `Cookie:<_REDACTED> 字段，**整行复制**（不要只复制值，复制整个 `name1=val1; name2=val2; ...`）
+3. 在 Request Headers 中找到 `Cookie:` 字段，整行复制 `name1=val1; name2=val2; ...`
 4. 粘贴进 `HDU_COOKIE` Secret
 
 ---
@@ -98,8 +109,8 @@ cat data/plans.yaml
 
 ```
 HDU_COOKIE 未设置或为空 → 回到第 1 步检查 Secret
-Cookie 认证过期 → 你的 Cookie 缓存不够新鲜，去浏览器重新复制
-约 30% 服务器返回 → Cookie 带了 LAB_JSON 参数 → 从浏览器重新抓
+Cookie 认证过期 → 本地重跑 python main.py 浏览器登录刷新 session.cache，再把新内容更新到 Secret
+约 30% 服务器返回 → Cookie 带了 LAB_JSON 参数 → 本地重跑浏览器登录重新生成
 步骤内报错 traceback → 复制错误信息 到 GitHub Issue / 问维护者
 ```
 
