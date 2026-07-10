@@ -96,7 +96,7 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] $*"; }
     case $RET in
         0) RESULT="成功:至少一个方案抢座成功" ;;
         1) RESULT="失败:全部方案尝试失败" ;;
-        2) RESULT="认证失效:Cookie 过期,需要重新登录" ;;
+        2) RESULT="认证失效:缓存过期且凭据登录失败,检查 data/credentials.yaml" ;;
         3) RESULT="无方案:没有启用的预约方案" ;;
         *) RESULT="未知退出码($RET)" ;;
     esac

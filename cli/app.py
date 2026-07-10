@@ -11,8 +11,10 @@ from cli.prompts import (
     input_float,
     input_int,
     parse_execute_time,
+    prompt_credentials,
 )
 from cli.views import format_progress_line, plan_labels, print_banner, print_plan_table
+from config.settings import Credentials, load_credentials, save_credentials
 from services import (
     AuthService,
     BookingService,
@@ -39,16 +41,34 @@ class InteractiveApp:
         self.booking = BookingService(settings, client, plans, notifier)
         # 复用 BookingService 已构造的 RoomBrowser，避免重复实例化。
         self.plan_service = PlanService(client, plans, self.booking.room_browser)
+        # 已保存的学号+密码凭据（data/credentials.yaml，已 gitignore）；为空则首次登录时询问。
+        self.credentials = load_credentials(settings.credentials_file)
 
     # ------------------------------------------------------------------
     # 认证
     # ------------------------------------------------------------------
+    def _prompt_and_save_credentials(self) -> Credentials | None:
+        """交互式询问学号+密码并保存到 data/credentials.yaml（供非交互 --run-now 自愈复用）。"""
+        default_sid = self.credentials.student_id if self.credentials else ""
+        sid, pwd = prompt_credentials(default_student_id=default_sid)
+        creds = Credentials(student_id=sid, password=pwd)
+        try:
+            save_credentials(self.settings.credentials_file, creds)
+            print(f"凭据已保存到 {self.settings.credentials_file}（已 gitignore，供定时任务复用）")
+        except OSError as exc:
+            print(f"凭据保存失败（不影响本次登录）：{exc}")
+        self.credentials = creds
+        return creds
+
     def _authenticate(self) -> None:
         if self.auth.try_cache():
             return
 
-        # 缓存无效 → 起浏览器登录（唯一主动认证入口，不再手动粘 Cookie）。
-        ok, msg = self.browser_auth.login_and_save()
+        # 缓存无效 → 用已保存凭据静默登录；没有凭据则交互式询问并保存。
+        creds = self.credentials or self._prompt_and_save_credentials()
+        if not creds:
+            return
+        ok, msg = self.browser_auth.login_with_credentials(creds.student_id, creds.password)
         print(msg)
 
     # ------------------------------------------------------------------
@@ -70,7 +90,7 @@ class InteractiveApp:
             ("立即抢座", self.handle_book_now),
             ("定时预约", self.handle_book_scheduled),
             ("浏览房间与座位", self.handle_browse_rooms),
-            ("重新登录（浏览器）", self.handle_relogin),
+            ("重新登录", self.handle_relogin),
             ("退出", self.handle_exit),
         ]
 
@@ -310,10 +330,14 @@ class InteractiveApp:
             print()
 
     # ------------------------------------------------------------------
-    # 8 — 重新登录（浏览器）
+    # 8 — 重新登录
     # ------------------------------------------------------------------
     def handle_relogin(self) -> None:
-        ok, msg = self.browser_auth.login_and_save()
+        """重新输入学号+密码登录（密码改了 / 想刷新登录态时用）。"""
+        creds = self._prompt_and_save_credentials()
+        if not creds:
+            return
+        ok, msg = self.browser_auth.login_with_credentials(creds.student_id, creds.password)
         print(msg)
 
     # ------------------------------------------------------------------

@@ -244,6 +244,18 @@ else
     warn "未找到 $APP_DIR/requirements.txt,跳过依赖检查"
 fi
 
+# ── Step 4b:安装 Playwright chromium 浏览器(headless 登录需要) ─
+log "安装 Playwright chromium 浏览器(headless 登录用)..."
+# --with-deps 需 sudo 装 system 库(libnss3 等);无免密 sudo 时退化为仅装浏览器二进制。
+if "$PYTHON_BIN" -m playwright install --with-deps chromium >/dev/null 2>&1; then
+    ok "Playwright chromium 安装完成(含系统依赖)"
+elif "$PYTHON_BIN" -m playwright install chromium >/dev/null 2>&1; then
+    warn "Playwright chromium 浏览器已装,但系统依赖可能缺失;若 headless 登录报缺库,请补装 libnss3/libatk 等"
+else
+    err "Playwright chromium 安装失败,headless 登录将不可用;请手动执行: $PYTHON_BIN -m playwright install chromium"
+    # 不 exit:允许部署继续(已有缓存/凭据仍可跑)
+fi
+
 # ── Step 5:main.py 语法校验 ───────────────────────────────
 if [[ ! -f "$APP_DIR/main.py" ]]; then
     err "未找到 $APP_DIR/main.py,请在项目根目录执行本脚本"
@@ -352,6 +364,8 @@ fi
 # ── 汇总 ──────────────────────────────────────────────────
 echo
 log "=== 部署完成 ==="
+log "[凭据] 首次部署需在 $APP_DIR/data/credentials.yaml 填入学号 + 数字杭电密码"
+log "       (已 gitignore)。否则 cookie 过期后 --run-now 无法自动续登,会退退出码 2。"
 log "调度方式 : $DEPLOY_MODE"
 log "触发时刻 : 每日 $TARGET_TIME ($TARGET_TZ)"
 if (( USE_CRON )); then

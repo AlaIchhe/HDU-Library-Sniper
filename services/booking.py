@@ -5,11 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Callable
 
-from config.settings import Settings
+from config.settings import Settings, load_credentials
 from core.client import LibraryClient
 from core.room_browser import RoomBrowser
 from core.sniper import BookingPlan, BookingResult, PlanRepository, Sniper
 from services.auth import AuthService
+from services.browser_auth import BrowserAuthService
 from utils.notifier import Notifier
 
 
@@ -37,6 +38,7 @@ class BookingService:
         self.plans = plans
         self.notifier = notifier
         self.room_browser = RoomBrowser(self.client)
+        self.browser_auth = BrowserAuthService(self.client, self.settings)
 
     def _build_sniper(self, **overrides) -> Sniper:
         """用 settings 默认值构造 Sniper；定时预约的临时参数通过 overrides 覆盖。"""
@@ -80,19 +82,35 @@ class BookingService:
             sniper.cancelled = True
             raise
 
+    def _relogin_with_credentials(self) -> bool:
+        """缓存失效时，用已存凭据（环境变量或 data/credentials.yaml）headless 自愈登录。
+
+        供非交互 ``--run-now`` 在 cookie 过期时自动续登，免去人工刷新。成功返回 True。
+        """
+        creds = load_credentials(self.settings.credentials_file)
+        if not creds:
+            return False
+        ok, msg = self.browser_auth.login_with_credentials(creds.student_id, creds.password)
+        if not ok:
+            self.notifier.send("自动登录失败", msg, success=False)
+        return ok
+
     def run_once(self) -> int:
         """非交互模式：缓存认证 + 立即抢座一次，返回退出码。
 
         专为外部调度器（Windows 任务计划程序 / cron / GitHub Actions）设计：
         全程无需键盘输入，跑完即退出。日志 / 结果通过 Notifier 写入
         config.yaml 的 log_file，stdout 供 task.log 捕获。
+
+        认证顺序：先复用 session.cache；过期则用已存学号+密码 headless 自愈登录；
+        两者都不可用才返回 AUTH_FAILED。
         """
         auth = AuthService(self.client, self.settings)
-        if not auth.try_cache():
+        if not auth.try_cache() and not self._relogin_with_credentials():
             self.notifier.send(
                 "抢座任务无法启动",
-                f"Cookie 缓存缺失或已过期（{self.settings.session_cache}），"
-                f"请先用交互模式重新登录一次以刷新缓存。",
+                "登录态已过期且自动登录失败。请在 data/credentials.yaml 填入"
+                "学号与数字杭电密码（或交互模式重新登录一次）后重试。",
                 success=False,
             )
             return ExitCode.AUTH_FAILED

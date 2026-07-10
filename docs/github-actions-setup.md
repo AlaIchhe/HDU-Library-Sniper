@@ -24,28 +24,22 @@ https://github.com/<你的用户名>/HDU-Library-Sniper/settings/secrets/actions
 
 | Secret 名 | 必须 | 内容 | 说明 |
 | --- | --- | --- | --- |
-| `HDU_COOKIE` | ✅ | 本机浏览器登录后 `data/session.cache` 文件内容全文（推荐），或浏览器完整 Cookie 字符串 | 登录凭据 = 账户所有权，被盗即被盗号 |
+| `HDU_STUDENT_ID` | ✅ | 你的学号 | 账户凭据 = 账户所有权，被盗即被盗号 |
+| `HDU_PASSWORD` | ✅ | 数字杭电统一身份认证密码（登录 sso.hdu.edu.cn 用的密码） | CI 以环境变量传给程序，不落盘 |
 | `HDU_PLANS_YAML` | ✅ | `data/plans.yaml` 全文 | 预约方案列表（不传 → 无方案 → 退出码 3，必须传） |
 | `HDU_CONFIG_YAML` | ❌ | `config/config.yaml` 全文 | 重试/超时/推送配置。不传即用仓库内的 |
 | `WEBHOOK_URL` | ❌ | Server 酱 / PushPlus / 飞书 webhook 地址 | 失败或成功都会推送。不填则没有推送 |
 
-### 如何获取 Cookie（填入 `HDU_COOKIE` Secret）
+### 如何设置凭据（填入 `HDU_STUDENT_ID` / `HDU_PASSWORD` Secret）
 
-> CI（GitHub Actions）跑在无桌面的 Linux runner 上，无法启动浏览器登录，Cookie 必须在本地先准备好再注入。
+> CI（GitHub Actions）现在用学号+密码 headless 自动登录（runner 会自动 `playwright install chromium`），
+> 不再需要本地准备 Cookie。
 
-**推荐：从本地 `session.cache` 复制**
+1. `HDU_STUDENT_ID`：填你的学号
+2. `HDU_PASSWORD`：填你的**数字杭电统一身份认证密码**（即登录 `sso.hdu.edu.cn` 用的密码，**不是**图书馆系统密码）
+3. CI 运行时把这两个 Secret 作为环境变量传给 `python main.py --run-now`，程序自动 headless 登录并复用登录态
 
-1. 在有桌面环境的本机运行 `python main.py`，按 [登录验证](../README.md#登录验证) 流程完成浏览器登录
-2. 登录成功后本地生成 `data/session.cache`（内含完整 Cookie 字符串）
-3. 打开该文件，复制全部内容
-4. 粘贴进 `HDU_COOKIE` Secret
-
-**备选：直接从浏览器复制 Cookie 字符串**
-
-1. 用 Chrome/Edge/Firefox 打开 `https://hdu.huitu.zhishulib.com/` 并登录
-2. F12 → Network → 刷新页面 → 随便点一个请求
-3. 在 Request Headers 中找到 `Cookie:` 字段，整行复制 `name1=val1; name2=val2; ...`
-4. 粘贴进 `HDU_COOKIE` Secret
+> 密码即数字杭电密码；CI 不落盘凭据，运行结束清理 `data/session.cache`。
 
 ---
 
@@ -100,17 +94,18 @@ cat data/plans.yaml
 
 | 步骤名 | 如果成功显示 | 如果失败显示 |
 | --- | --- | --- |
-| `Inject secrets into cache files` | `✔ cache files injected` | ❌ `HDU_COOKIE 未设置或为空...` |
+| `Install Playwright chromium` | chromium 安装完成 | ❌ 网络问题致浏览器未装（重跑即可） |
+| `Inject plans/config secrets` | `✔ secrets ready ...` | ❌ `HDU_STUDENT_ID 未设置或为空...` |
 | Run booking | 与本地运行时终端输出一致，最后一行 `0` / `1` / `2` / `3` 退出码 | `python` 报错类型，红字 |
 | Clear cache files | `✔ cache cleared` | ❌ 清除失败（罕见） |
 | Push notification | `200 OK`（webhook 返回）或该步骤被跳过 | webhook 地址错误 401/404 |
 
-**触发后最长 3 分钟出结果**。如果失败：
+**触发后最长 4 分钟出结果**（含 chromium 安装）。如果失败：
 
 ```
-HDU_COOKIE 未设置或为空 → 回到第 1 步检查 Secret
-Cookie 认证过期 → 本地重跑 python main.py 浏览器登录刷新 session.cache，再把新内容更新到 Secret
-约 30% 服务器返回 → Cookie 带了 LAB_JSON 参数 → 本地重跑浏览器登录重新生成
+HDU_STUDENT_ID 未设置或为空 → 回到第 1 步检查 Secret
+登录失败（用户名或密码错误）→ 核对 HDU_STUDENT_ID / HDU_PASSWORD；密码即数字杭电密码
+headless 登录超时 / 触发验证码 → 偶发风控，重试即可；频繁失败检查密码是否已改
 步骤内报错 traceback → 复制错误信息 到 GitHub Issue / 问维护者
 ```
 
@@ -176,7 +171,7 @@ on:
 
 ## 怎么 Fork 一份自己用（公开/私有不重要）
 
-默认 fork 后仓库是**公开**的。公开仓传 Cookie 进 Secret 后**不要开启 PR against 其他 fork**，否则 Secret 会在 downstream PR 里暴露。
+默认 fork 后仓库是**公开**的。公开仓传学号+密码进 Secret 后**不要开启 PR against 其他 fork**，否则 Secret 会在 downstream PR 里暴露。
 
 想私有，直接：`Settings → Danger Zone → Change visibility`。fork 自带免费 Secret 存储。
 
