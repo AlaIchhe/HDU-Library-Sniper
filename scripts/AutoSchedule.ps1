@@ -2,25 +2,29 @@
 # 0. 环境校验（关键错误尽早致命，避免注册到任务计划后静默失败）
 # ==============================================================================
 
-# 自动定位脚本所在目录，不管用户在哪个目录运行都正确
+# 自动定位脚本所在目录与项目根目录，不管用户在哪个目录运行都正确
 $ScriptDir = Split-Path -Parent -Path $MyInvocation.MyCommand.Path
+$ProjectRoot = Split-Path -Parent -Path $ScriptDir
 
 # ------------------------------------------------------------------------------
 # Python 解析器定位：优先“锁定本地” pythonw.exe，写入 Action 的是绝对路径。
 # 原因：任务以 NT AUTHORITY\SYSTEM 运行，其 PATH 通常不含用户安装的 Python，
-#       若靠 PATH 解析会静默失败。故优先在脚本目录 / 本地 venv 查找 pythonw.exe，
+#       若靠 PATH 解析会静默失败。故优先在项目根目录 / 本地 venv 查找 pythonw.exe，
 #       再退回 PYTHON_EXE 环境变量与 PATH，确保 SYSTEM 账户也能找到。
 # ------------------------------------------------------------------------------
 function Find-PythonExecutable {
-    param([string]$BaseDir)
+    param([string[]]$BaseDirs)
 
-    # 1) 本地脚本目录及常见虚拟环境子目录（最优先，“锁定本地”）
-    $localCandidates = @(
-        (Join-Path $BaseDir "pythonw.exe"),
-        (Join-Path $BaseDir ".venv\Scripts\pythonw.exe"),
-        (Join-Path $BaseDir "venv\Scripts\pythonw.exe"),
-        (Join-Path $BaseDir "python\pythonw.exe")
-    )
+    # 1) 各根目录（项目根目录优先，其次脚本目录）及常见虚拟环境子目录（最优先，“锁定本地”）
+    $localCandidates = @()
+    foreach ($base in $BaseDirs) {
+        $localCandidates += @(
+            (Join-Path $base "pythonw.exe"),
+            (Join-Path $base ".venv\Scripts\pythonw.exe"),
+            (Join-Path $base "venv\Scripts\pythonw.exe"),
+            (Join-Path $base "python\pythonw.exe")
+        )
+    }
     foreach ($p in $localCandidates) {
         if (Test-Path -Path $p -PathType Leaf) { return $p }
     }
@@ -45,11 +49,11 @@ function Find-PythonExecutable {
     return $null
 }
 
-$PythonWExe = Find-PythonExecutable -BaseDir $ScriptDir
+$PythonWExe = Find-PythonExecutable -BaseDirs @($ProjectRoot, $ScriptDir)
 if (-not $PythonWExe) {
     Write-Error "❌ 未找到 pythonw.exe。任务以 SYSTEM 账户运行时 PATH 不可靠，必须锁定本地绝对路径。"
     Write-Host "   解决方法（任选其一）：" -ForegroundColor Yellow
-    Write-Host "   (a) 把 pythonw.exe 放到脚本目录：$ScriptDir" -ForegroundColor Yellow
+    Write-Host "   (a) 把 pythonw.exe 放到项目根目录：$ProjectRoot" -ForegroundColor Yellow
     Write-Host "   (b) 设置环境变量 PYTHON_EXE 指向 python.exe 绝对路径，例如：" -ForegroundColor Yellow
     Write-Host "       [System.Environment]::SetEnvironmentVariable('PYTHON_EXE', 'C:\Python313\python.exe', 'User')" -ForegroundColor Yellow
     Exit 7
@@ -64,8 +68,8 @@ if (-not (Test-Path -Path $PythonExe -PathType Leaf)) { $PythonExe = $PythonWExe
 # 1. 配置（全部从环境变量读取，缺省值在本机生效；他人只需改一次 env）
 # ==============================================================================
 
-# 工作目录：优先 SNIPER_WORKDIR，否则脚本所在目录（本地锁定，确保 data/ logs/ 相对路径可解析）
-$WorkDir    = if ($env:SNIPER_WORKDIR) { $env:SNIPER_WORKDIR } else { $ScriptDir }
+# 工作目录：优先 SNIPER_WORKDIR，否则项目根目录（本地锁定，确保 main.py / data/ logs/ 相对路径可解析）
+$WorkDir    = if ($env:SNIPER_WORKDIR) { $env:SNIPER_WORKDIR } else { $ProjectRoot }
 $LogDir     = Join-Path $WorkDir "logs"
 $LogHistory = if ($env:SNIPER_LOG_HISTORY) { [int]$env:SNIPER_LOG_HISTORY } else { 30 }
 # 默认每天 19:59:59 触发，他人可设 SNIPER_DAILY_AT 覆盖
@@ -78,7 +82,7 @@ $WakeToRun  = if ($null -ne $env:SNIPER_WAKE_TO_RUN) { $env:SNIPER_WAKE_TO_RUN -
 # 2. 可选的日志包装模式（-Execute）
 #    默认任务 Action 直接 `pythonw main.py --run-now`（无窗口，日志由 main.py 的
 #    Notifier 写入 config.yaml 的 paths.log_file）。若想要 stdout 重定向 + 滚动
-#    归档，可手动以 `powershell -File AutoSchedule.ps1 -Execute` 运行本分支。
+#    归档，可手动以 `powershell -File scripts\AutoSchedule.ps1 -Execute` 运行本分支。
 # ==============================================================================
 
 if ($args -contains "-Execute") {
@@ -145,7 +149,7 @@ if (-not (Test-Path -Path $LogDir)) {
 $TaskLogFile = Join-Path $LogDir "task.log"
 
 # Action：用 cmd.exe /c 包装 pythonw.exe，重定向 stdout+stderr 到 logs\task.log。
-# 仍写入 pythonw.exe 绝对路径（SYSTEM 账户 PATH 不可靠）；WorkingDirectory 锁定为脚本目录，
+# 仍写入 pythonw.exe 绝对路径（SYSTEM 账户 PATH 不可靠）；WorkingDirectory 锁定为项目根目录，
 # 确保 main.py 与 data/ logs/ config/ 相对路径在 SYSTEM 下可解析。
 # cmd /c 引号规则：外层一对 " 被 cmd 剥离，内层引号保留，最终执行
 #   "<pythonw.exe>" "main.py" --run-now > "<task.log>" 2>&1
@@ -176,9 +180,9 @@ Write-Host "   Python   : $PythonWExe"
 Write-Host "   操作     : pythonw main.py --run-now"
 Write-Host "   运行身份 : NT AUTHORITY\SYSTEM（不管用户是否登录都要运行）"
 Write-Host ""
-Write-Host "他人使用方式：把本文件夹拷到任意路径，以管理员身份运行 .\AutoSchedule.ps1 即可。" -ForegroundColor Cyan
+Write-Host "他人使用方式：把本文件夹拷到任意路径，以管理员身份运行 .\scripts\AutoSchedule.ps1 即可。" -ForegroundColor Cyan
 Write-Host "可选环境变量（注册/系统级）：" -ForegroundColor DarkGray
-Write-Host "   SNIPER_WORKDIR     自定义工作目录（缺省=脚本所在目录）"
+Write-Host "   SNIPER_WORKDIR     自定义工作目录（缺省=项目根目录）"
 Write-Host "   PYTHON_EXE         自定义 python.exe / pythonw.exe 路径（缺省=本地优先 + PATH）"
 Write-Host "   SNIPER_DAILY_AT    自定义触发时间（缺省 19:59:59）"
 Write-Host "   SNIPER_TASK_NAME   自定义任务计划名称（缺省 HDU-Library-Sniper-Daily）"

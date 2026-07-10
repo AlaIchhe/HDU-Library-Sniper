@@ -2,7 +2,7 @@
 #
 # ⚠️ 跨境延迟注意：Runner 节点在日本/美国/欧洲，实际延迟 30～90 秒
 #    （GitHub 官方调度平均排队 30-90 秒 + 跨境网络抖动）。
-#    仅供不在意延迟的场景使用（备链路）。主力用 AutoSchedule.ps1 + 任务计划。
+#    仅供不在意延迟的场景使用（备链路）。主力用 scripts/AutoSchedule.ps1 + 任务计划。
 #
 # ⚠️ 凭据安全：Cookie 是登录凭据 = 账户所有权，一律通过 Settings → Secrets 注入，
 #    绝对不要写进本文件、仓库代码、PR diff、或 commit message。
