@@ -1,0 +1,34 @@
+{
+  "_endpoint": "POST /Seat/Index/bookSeats?LAB_JSON=1",
+  "_signing": "Header Api-Token = base64(md5(source)); source = post&/Seat/Index/bookSeats?LAB_JSON=1&api_time{api_time}&beginTime{beginTime}&duration{duration}&is_recommend{is_recommend}&seatBookers[0]{uid}&seats[0]{seat_id}. See utils/encrypt.py.",
+  "_payload_fields": ["beginTime", "duration", "is_recommend", "api_time", "seats[0]=seat_id", "seatBookers[0]=uid"],
+  "_envelope": "{CODE, MESSAGE, DATA:{...user(redacted)..., result?, msg?, href?}, ui_type:'com.Message'}",
+  "time_out_of_range": {
+    "trigger": "beginTime beyond max_date (~+32h)",
+    "response": {"CODE": "ParamError", "MESSAGE": "超出可预约座位时间范围", "DATA": {"result": "fail", "msg": "超出可预约座位时间范围"}}
+  },
+  "past_time": {
+    "trigger": "beginTime in the past",
+    "response": {"CODE": "ParamError", "MESSAGE": "参数错误: 预约时段为过去时间..."}
+  },
+  "nonexistent_seat": {
+    "trigger": "seats[0]=fake id",
+    "response": {"CODE": "请检查参数设置", "MESSAGE": "请检查参数设置"}
+  },
+  "duplicate": {
+    "trigger": "time overlapping user's existing booking",
+    "response": {"CODE": "ParamError", "MESSAGE": "已有预约，请勿重复预约！", "DATA": {"result": "fail", "msg": "已有预约，请勿重复预约！"}}
+  },
+  "seat_unavailable": {
+    "trigger": "seat occupied by another user",
+    "response": {"CODE": "ParamError", "MESSAGE": "选择的座位无法预约，可能座位不可用或已经被其他人锁定或占用，请换一个再试:<id>", "DATA": {"result": "fail", "msg": "...请换一个再试:<id>"}}
+  },
+  "rate_limited": {
+    "trigger": "second POST within ~1s",
+    "response": {"CODE": 1, "MESSAGE": "请求太频繁了，请稍后再试"}
+  },
+  "success": {
+    "_status": "inferred (not live-captured — all probed slots were duplicate/seat_unavailable, no booking created)",
+    "expected": {"CODE": "ok"}
+  }
+}

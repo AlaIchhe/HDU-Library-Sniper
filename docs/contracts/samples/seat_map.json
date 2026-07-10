@@ -1,0 +1,47 @@
+{
+  "_endpoint": "POST /Seat/Index/searchSeats?LAB_JSON=1",
+  "_payload": "beginTime=<ts>&duration=<sec>&num=<int>&space_category[category_id]=<>&space_category[content_id]=<>",
+  "_top_level_keys": ["ui_type", "header", "content", "scrollable", "refreshable", "dialogs", "lazyRenderContent", "data", "nowTime", "showGender", "allContent", "isRecommend", "IsImgCode"],
+  "_note": "响应同时含 content(推荐视图,web UI 用)与 allContent(全楼层列表,client.py:get_seat_map 用)。get_seat_map 取 allContent.children[2].children.children — 正确。",
+  "allContent": {
+    "ui_type": "com.View",
+    "children": [
+      {"_index": 0, "_": "UI block"},
+      {"_index": 1, "_": "UI block"},
+      {
+        "_index": 2,
+        "ui_type": "com.CatCon",
+        "header": {"ui_type": "ht.Seat.RecommendTitleBar"},
+        "children": {
+          "_": "object wrapper (NOT array)",
+          "children": [
+            {
+              "roomName": "宋韵云图（四楼）",
+              "seatMap": {"info": {"id": "1558"}, "POIs": [
+                {"id": "62896", "title": "332", "state": "3", "x": "142", "y": "107", "w": "2", "h": "2", "have_socket": "0", "locker": []},
+                {"id": "62895", "title": "331", "state": "1", "gender": 0, "locker": []}
+              ]}
+            },
+            {
+              "roomName": "格物E堂（二楼东）",
+              "seatMap": {"info": {"id": "1557"}, "POIs": [
+                {"id": "62564", "title": "424", "state": "1", "gender": 0, "locker": []}
+              ]}
+            },
+            {
+              "roomName": "比特庭园（二楼西）",
+              "seatMap": {"info": {"id": "1524"}, "POIs": [
+                {"id": "61355", "title": "448", "state": 0, "locker": []}
+              ]}
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "_verifies": [
+    "client.py:291 response['allContent']['children'][2]['children']['children']",
+    "room_browser.py list_floors: f.seatMap.info.id + f.seatMap.POIs[].title",
+    "room_browser.py find_seat: seat.get('title')==seat_num, return seat; book uses seat['id']"
+  ]
+}

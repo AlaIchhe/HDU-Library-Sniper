@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 from typing import Callable
 
+from core import contract
 from core.client import HduLibraryError, LibraryClient
 from core.room_browser import RoomBrowser
 from core.sniper.plan import BookingPlan
@@ -64,7 +65,7 @@ class Sniper:
         except HduLibraryError as exc:
             return BookingResult(plan, False, f"座位定位失败: {exc}")
 
-        seat_id = str(seat["id"])
+        seat_id = contract.seat_id(seat)
         uid = self.client.resolve_uid()
         begin_time = build_begin_time(plan.start_hour, plan.book_days)
 
@@ -77,7 +78,7 @@ class Sniper:
             # 去服务端查询今日预约做幂等确认，避免重复请求并正确报告结果。
             if exc.is_timeout:
                 confirmed = self.client.find_confirmed_booking(
-                    seat_id, int(begin_time.timestamp())
+                    int(begin_time.timestamp())
                 )
                 if confirmed:
                     return BookingResult(

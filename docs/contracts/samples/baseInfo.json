@@ -1,0 +1,27 @@
+{
+  "_endpoint": "GET /User/Center/baseInfo (不带 LAB_JSON)",
+  "CODE": "ok",
+  "MESSAGE": "请求成功",
+  "DATA": {
+    "lab_content_org_id": "104",
+    "is_login": true,
+    "uid": "<UID>",
+    "uname": "<UNAME>",
+    "uavatar": "<AVATAR_URL>",
+    "unickname": "<UNICKNAME>",
+    "user_info": {
+      "id": "<UID>",
+      "name": "<CARDNO>",
+      "nickname": "<NICKNAME>",
+      "avatar": "<AVATAR_URL>",
+      "cardno": "<CARDNO>",
+      "mobile": "<MOBILE>",
+      "face_image_url": "",
+      "my_home_qr_code_url": "/User/Center/myHomeQRCode",
+      "account_detail_url": "/User/Center/accountDetail",
+      "replace_mobile_url": "/User/Index/replaceMobile"
+    }
+  },
+  "_debug_info": ["没有指定LAB平台模板"],
+  "_note": "uid(平台用户 id,签名用) ≠ user_info.cardno/name(学号)。resolve_uid 取 DATA.uid,正确。带 LAB_JSON=1 时返回 UI 页面树,不是此信封。"
+}

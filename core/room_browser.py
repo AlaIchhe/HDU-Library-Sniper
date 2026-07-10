@@ -1,10 +1,16 @@
-"""房间 / 楼层 / 座位领域查询：浏览选房与抢座编排共用的唯一解析入口。"""
+"""房间 / 楼层 / 座位领域查询：浏览选房与抢座编排共用的唯一解析入口。
+
+响应结构解析(魔法路径)统一委托 ``core.contract`` 访问器；本模块只在
+领域层把"楼层/座位"组合成 ``FloorInfo`` 或定位特定座位，不再重复遍历
+``seatMap.info.id`` / ``POIs[].title``。
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from core import contract
 from core.client import ROOM_TYPE_MAP, HduLibraryError, LibraryClient, SeatQueryError
 from utils.time_sync import build_begin_time, get_seat_lookup_time
 
@@ -43,13 +49,15 @@ class RoomBrowser:
     ) -> list[dict[str, Any]]:
         """公共解析：room_query -> detail.space_category -> cat_id/con_id -> seat_map。
 
-        字段契约：cat_id / con_id 取自 detail["space_category"]；
-        楼层 id 取自 seatMap.info.id；座位号取自 seatMap.POIs[].title。
+        字段契约见 ``contract.space_category_id`` / ``contract.space_category_content_id``
+        / ``contract.floors_from_response``(sample: room_detail.json / seat_map.json)。
         """
         detail = self.client.get_room_detail(room_query)
-        space = detail["space_category"]
         return self.client.get_seat_map(
-            str(space["category_id"]), str(space["content_id"]), lookup_time, duration_hours
+            contract.space_category_id(detail),
+            contract.space_category_content_id(detail),
+            lookup_time,
+            duration_hours,
         )
 
     def list_floors(self, room_query: str) -> list[FloorInfo]:
@@ -58,14 +66,12 @@ class RoomBrowser:
 
         result: list[FloorInfo] = []
         for f in floors:
-            seatmap = f.get("seatMap", {}) or {}
-            info = seatmap.get("info", {}) or {}
-            seats = seatmap.get("POIs", []) or []
-            titles = sorted(s.get("title", "") for s in seats if s.get("title"))
+            seats = contract.floor_seats(f)
+            titles = sorted(t for t in (contract.seat_title(s) for s in seats) if t)
             result.append(
                 FloorInfo(
-                    floor_id=str(info.get("id", "")),
-                    room_name=f.get("roomName", "?"),
+                    floor_id=contract.floor_id(f),
+                    room_name=contract.floor_name(f),
                     seat_count=len(seats),
                     seat_titles=titles,
                 )
@@ -104,28 +110,33 @@ class RoomBrowser:
     def find_seat(
         self, floors: list[dict[str, Any]], floor_id: str | int, seat_num: str | int
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """在楼层列表中定位指定楼层和座位号（逐字搬迁自 ``LibraryClient.find_seat_in_floors``）。"""
+        """在楼层列表中定位指定楼层和座位号。
+
+        楼层匹配 ``contract.floor_id``(= ``seatMap.info.id``)；座位匹配
+        ``contract.seat_title``(= ``seatMap.POIs[].title``=座位号)，返回的座位
+        ``id`` 由调用方经 ``contract.seat_id`` 取作 ``bookSeats`` 的 ``seats[0]``。
+        """
         floor_id = str(floor_id)
         seat_num = str(seat_num)
         floor_names: list[str] = []
         target_floor = None
 
         for item in floors:
-            info = item.get("seatMap", {}).get("info", {})
-            floor_names.append(f"{item.get('roomName', '?')}={info.get('id', '?')}")
-            if str(info.get("id")) == floor_id:
+            fid = contract.floor_id(item)
+            floor_names.append(f"{contract.floor_name(item)}={fid}")
+            if fid == floor_id:
                 target_floor = item
                 break
 
         if not target_floor:
             raise SeatQueryError(f"找不到楼层 id={floor_id}。可用楼层：{', '.join(floor_names)}")
 
-        seats = target_floor["seatMap"]["POIs"]
-        matches = [seat for seat in seats if str(seat.get("title")) == seat_num]
+        seats = contract.floor_seats(target_floor)
+        matches = [seat for seat in seats if contract.seat_title(seat) == seat_num]
         if not matches:
-            raise SeatQueryError(f"{target_floor.get('roomName')} 中找不到 {seat_num} 座")
+            raise SeatQueryError(f"{contract.floor_name(target_floor)} 中找不到 {seat_num} 座")
         if len(matches) > 1:
-            raise SeatQueryError(f"{target_floor.get('roomName')} 中存在多个 {seat_num} 座")
+            raise SeatQueryError(f"{contract.floor_name(target_floor)} 中存在多个 {seat_num} 座")
         return target_floor, matches[0]
 
     @staticmethod

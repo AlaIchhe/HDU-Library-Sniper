@@ -26,9 +26,15 @@ data/session.cache
 data/plans.yaml
 logs/
 
+# 原始抓包样例（响应体无 cookie，但可能含 uid/姓名，仅本地参考，不入库）
+fixtures/captures/
+
 # 系统
 .DS_Store
 Thumbs.db
+
+# Playwright MCP 工具输出（页面快照/控制台日志）
+.playwright-mcp/
 
 # 部署时冻结的调度配置(含路径)
 .libsniper.env

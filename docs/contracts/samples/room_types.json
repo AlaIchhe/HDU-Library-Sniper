@@ -1,0 +1,23 @@
+{
+  "_endpoint": "GET /Space/Category/list?LAB_JSON=1",
+  "ui_type": "com.CommonPage",
+  "content": {
+    "ui_type": "com.View",
+    "style_class": "flex",
+    "children": [
+      {"ui_type": "ht.Ridge"},
+      {
+        "ui_type": "com.List",
+        "defaultItems": [
+          {"name": "自习室", "engName": "Study Room", "link": {"type": "push", "url": "/Seat/Index/searchSeats?space_category%5Bcategory_id%5D=591&space_category%5Bcontent_id%5D=3"}},
+          {"name": "生活区", "engName": "", "link": {"url": "/Seat/Index/searchSeats?space_category%5Bcategory_id%5D=591&space_category%5Bcontent_id%5D=115"}},
+          {"name": "阅览室", "engName": "Reading Room", "link": {"url": "/Seat/Index/searchSeats?space_category%5Bcategory_id%5D=591&space_category%5Bcontent_id%5D=76"}},
+          {"name": "五楼特藏区", "engName": "", "link": {"url": "/Seat/Index/searchSeats?space_category%5Bcategory_id%5D=591&space_category%5Bcontent_id%5D=117"}},
+          {"name": "教师休息室", "engName": "", "link": {"url": "/Seat/Index/searchSeats?space_category%5Bcategory_id%5D=591&space_category%5Bcontent_id%5D=39"}}
+        ]
+      },
+      null
+    ]
+  },
+  "_note": "client.py:254 data['content']['children'][1]['defaultItems'] 正确。children=[Ridge, List, null],[1]=com.List。每项 name + link.url(含 category_id/content_id)。"
+}

@@ -5,19 +5,22 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
 
 import requests
 from requests.cookies import create_cookie
 
 from utils.encrypt import generate_api_token
 
+from core import contract
+
 URLS = {
     "book_seat": "https://hdu.huitu.zhishulib.com/Seat/Index/bookSeats",
     "query_seats": "https://hdu.huitu.zhishulib.com/Seat/Index/searchSeats",
     "query_rooms": "https://hdu.huitu.zhishulib.com/Space/Category/list",
     "user_base_info": "https://hdu.huitu.zhishulib.com/User/Center/baseInfo",
-    "today_schedule": "https://hdu.huitu.zhishulib.com/Seat/Index/todayUserBookSeat"
+    # 契约验证:myBookingList?fromType=web 才返回预约列表(content.defaultItems)。
+    # todayUserBookSeat 只返回字符串 'todayUserBookSeatAction',拿不到数据——不可用。
+    "today_schedule": "https://hdu.huitu.zhishulib.com/Seat/Index/myBookingList?fromType=web"
 }
 
 DEFAULT_HEADERS = {
@@ -48,11 +51,6 @@ ROOM_TYPE_MAP = {
     "4": "讨论室",
 }
 
-MSG_TIME_OUT_OF_RANGE = "超出可预约座位时间范围"
-MSG_DUPLICATE = "已有预约，请勿重复预约！"
-MSG_SEAT_UNAVAILABLE = "选择的座位无法预约，可能座位不可用或已经被其他人锁定或占用，请换一个再试"
-MSG_INVALID_REQUEST = "非法请求"
-
 
 class HduLibraryError(Exception):
     """HDU 图书馆相关异常基类。
@@ -79,7 +77,12 @@ class SeatQueryError(HduLibraryError):
 
 
 class LibraryClient:
-    """慧图图书馆平台客户端。"""
+    """慧图图书馆平台客户端。
+
+    仅负责 HTTP 传输与今日预约归一化；响应结构解析(魔法路径)统一委托
+    ``core.contract`` 访问器，本类在边界捕获 ``KeyError``/``IndexError``/
+    ``TypeError`` 并转 ``RoomQueryError``/``SeatQueryError``。
+    """
 
     def __init__(
         self,
@@ -215,31 +218,37 @@ class LibraryClient:
     def validate_cookie(self) -> bool:
         """验证当前 Session 中的 Cookie 是否仍有效。
 
-        baseInfo 在未指定 LAB_JSON 时返回干净的 DATA 对象（服务器 _debug_info
-        会注明"没有指定LAB平台模板"），其中 is_login 与 uid 是平台明确的会话/
-        标识字段，直接判定即可，无需递归猜测。
+        baseInfo 在未指定 LAB_JSON 时返回干净的 ``DATA`` 对象（服务器
+        ``_debug_info`` 会注明"没有指定LAB平台模板"），其中 ``is_login`` 与
+        ``uid`` 是平台明确的会话/标识字段，直接判定即可，无需递归猜测。
+        契约见 docs/contracts/samples/baseInfo.json。
         """
         try:
             data = self._request("GET", self.urls["user_base_info"], params={"LAB_JSON": None})
         except HduLibraryError:
             return False
-        info = data.get("DATA")
-        if not isinstance(info, dict):
+        try:
+            info = contract.base_info_data(data)
+        except KeyError:
             return False
-        return bool(info.get("is_login") and str(info.get("uid") or "").isdigit())
+        return contract.base_info_is_login(info) and contract.base_info_uid(info).isdigit()
 
     def resolve_uid(self) -> str:
-        """从 baseInfo 的 DATA.uid 读取当前登录用户 uid。"""
+        """从 baseInfo 的 ``DATA.uid`` 读取当前登录用户 uid。契约见
+        docs/contracts/samples/baseInfo.json。"""
         if self.uid:
             return self.uid
         try:
             data = self._request("GET", self.urls["user_base_info"], params={"LAB_JSON": None})
         except HduLibraryError as exc:
             raise HduLibraryError(f"用户信息请求失败：{exc}") from exc
-        info = data.get("DATA")
-        if not isinstance(info, dict) or not info.get("is_login"):
+        try:
+            info = contract.base_info_data(data)
+        except KeyError as exc:
+            raise HduLibraryError(f"用户信息解析失败：{exc}") from exc
+        if not contract.base_info_is_login(info):
             raise HduLibraryError("Cookie 无效或已过期，无法获取 uid。")
-        uid = str(info.get("uid") or "")
+        uid = contract.base_info_uid(info)
         if not uid.isdigit():
             raise HduLibraryError(
                 f"未能从接口识别 uid（got {uid!r}），请在配置中填写 uid 或更新 Cookie。"
@@ -248,27 +257,20 @@ class LibraryClient:
         return self.uid
 
     def get_room_types(self) -> list[dict[str, Any]]:
-        """获取所有可用房间类型。"""
+        """获取所有可用房间类型。契约见 docs/contracts/samples/room_types.json。"""
         data = self._request("GET", self.urls["query_rooms"])
         try:
-            raw_items = data["content"]["children"][1]["defaultItems"]
-        except Exception as exc:
+            return contract.room_types_from_response(data)
+        except (KeyError, IndexError, TypeError) as exc:
             raise RoomQueryError(f"房间类型解析失败：{exc}") from exc
 
-        room_items: list[dict[str, Any]] = []
-        for item in raw_items:
-            link_url = unquote(item["link"]["url"])
-            query = link_url.split("?", 1)[1]
-            room_items.append({"name": item["name"], "query": query})
-        return room_items
-
     def get_room_detail(self, room_query_string: str) -> dict[str, Any]:
-        """查询单个房间详情。"""
+        """查询单个房间详情。契约见 docs/contracts/samples/room_detail.json。"""
         response = self._request("GET", self.urls["query_seats"] + "?" + room_query_string)
-        detail = response.get("data")
-        if not isinstance(detail, dict):
-            raise RoomQueryError("房间信息为空")
-        return detail
+        try:
+            return contract.room_detail_from_response(response)
+        except (KeyError, TypeError) as exc:
+            raise RoomQueryError(f"房间信息解析失败：{exc}") from exc
 
     def get_seat_map(
         self,
@@ -278,7 +280,7 @@ class LibraryClient:
         duration_hours: int = 1,
         num: int = 1,
     ) -> list[dict[str, Any]]:
-        """根据分类和参考时间查询座位布局。"""
+        """根据分类和参考时间查询座位布局。契约见 docs/contracts/samples/seat_map.json。"""
         payload = {
             "beginTime": lookup_time.timestamp(),
             "duration": int(duration_hours * 3600),
@@ -288,69 +290,49 @@ class LibraryClient:
         }
         response = self._request("POST", self.urls["query_seats"], payload)
         try:
-            return response["allContent"]["children"][2]["children"]["children"]
-        except Exception as exc:
+            return contract.floors_from_response(response)
+        except (KeyError, IndexError, TypeError) as exc:
             raise SeatQueryError(f"座位分布解析失败：{exc}") from exc
 
     def get_todays_bookings(self) -> list[dict[str, Any]]:
-        """查询当前用户当日所有预约记录。
+        """查询当前用户的预约记录(含今日)。
 
-        用于 post-bookSeats 超时后的幂等确认：超时仅代表客户端未收到
-        响应，并不代表服务端未写入预约。调用方应以 seat_id + begin_ts 比对。
+        端点 ``myBookingList?fromType=web``(契约验证,见
+        docs/contracts/samples/myBookingList.json):响应为
+        ``{content:{defaultItems:[order_item,...]}}``,order item 字段为
+        ``seatNum``/``time``/``id`` 等。用于 post-bookSeats 超时后的幂等确认。
+        访问器容错(结构漂移返回 ``[]``)，故此处不包错。
         """
         data = self._request("GET", self.urls["today_schedule"])
-        # 兼容多种常见返回结构
-        if isinstance(data, list):
-            return data
-        for key in ("data", "content", "list", "DATA", "CONTENT"):
-            block = data.get(key) if isinstance(data, dict) else None
-            if isinstance(block, dict):
-                for sub in ("list", "data", "content", "items"):
-                    if isinstance(block.get(sub), list):
-                        return block[sub]
-            elif isinstance(block, list):
-                return block
-        return []
+        return contract.bookings_from_response(data)
 
-    def find_confirmed_booking(
-        self, seat_id: str, begin_ts: int
-    ) -> dict[str, Any] | None:
-        """超时幂等确认：在今日预约中查找与 (seat_id, begin_ts) 匹配的预约。
+    def find_confirmed_booking(self, begin_ts: int) -> dict[str, Any] | None:
+        """超时幂等确认：在用户预约记录中查找与 begin_ts 匹配的预约。
 
-        用于 post-bookSeats 超时后确认服务端是否已写入预约。匹配规则：
-        同一 seat_id + 开始时间相差不超过 1 秒即视为同一预约。
+        用于 post-bookSeats 超时后确认服务端是否已写入预约。
+
+        匹配规则：order item 的 ``time``(开始时间戳)与 begin_ts 相差 ≤1 秒。
+        不按 seat_id 匹配——预约记录字段是 ``seatNum``(座位号,非 seat_id),
+        无法直接比对;而 bookSeats 若真超时,用户此前在该 begin_ts 不应有预约
+        (否则会立即返回 duplicate 而非超时),故 time 单字段即可唯一识别本次
+        预约。
+
         任何查询异常保守返回 None，让调用方按原逻辑重试。
-
-        注意：item 字段名（seat_id / seatId / seat_id2 / seat.id、beginTime /
-        begin_time / begin_ts）为多键回退——today_schedule 真实响应契约未在仓库
-        内捕获，此逻辑逐字搬迁自原 ``Sniper._idempotent_confirm``，待真实响应验证。
+        契约见 docs/contracts/samples/myBookingList.json。
         """
         try:
             bookings = self.get_todays_bookings()
         except Exception:
             return None
 
-        if not bookings:
-            return None
-
-        seat_id_str = str(seat_id)
         for item in bookings:
             if not isinstance(item, dict):
                 continue
-            item_seat = str(
-                item.get("seat_id")
-                or item.get("seatId")
-                or item.get("seat_id2")
-                or (item.get("seat", {}) or {}).get("id", "")
-                if isinstance(item.get("seat"), dict) else
-                item.get("seat_id") or item.get("seatId") or ""
-            )
-            item_begin = item.get("beginTime") or item.get("begin_time") or item.get("begin_ts") or 0
             try:
-                item_begin_ts = int(item_begin)
+                item_begin_ts = contract.booking_begin_ts(item)
             except (TypeError, ValueError):
                 continue
-            if item_seat == seat_id_str and abs(item_begin_ts - begin_ts) <= 1:
+            if abs(item_begin_ts - begin_ts) <= 1:
                 return item
         return None
 
@@ -363,7 +345,8 @@ class LibraryClient:
         is_recommend: int = 1,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """提交预约请求。"""
+        """提交预约请求。签名见 utils/encrypt.py,契约见
+        docs/contracts/samples/book_seats.json。"""
         begin_ts = int(begin_time.timestamp())
         duration_sec = int(duration_hours * 3600)
         uid_str = str(uid)
@@ -388,4 +371,3 @@ class LibraryClient:
 
         self.session.headers["Api-Token"] = api_token
         return self._request("POST", self.urls["book_seat"], payload)
-    

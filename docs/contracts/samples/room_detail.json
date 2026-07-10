@@ -1,0 +1,28 @@
+{
+  "_endpoint": "GET /Seat/Index/searchSeats?{query}&LAB_JSON=1",
+  "_payload_query": "space_category[category_id]=591&space_category[content_id]=3",
+  "ui_type": "ht.Seat.OrderSeatPage",
+  "header": { "ui_type": "com.HeaderBar", "left": { "ui_type": "com.HeaderBarItem", "icon": "arrow-back", "link": { "type": "pop" } }, "title": "座位预约" },
+  "content": { "ui_type": "com.BlockList", "children": [], "separateTop": false, "separateBottom": false },
+  "scrollable": false,
+  "refreshable": false,
+  "dialogs": [],
+  "lazyRenderContent": true,
+  "data": {
+    "ui_type": "com.Raw",
+    "lab_content_org_id": "104",
+    "is_login": true,
+    "uid": "<UID>",
+    "uname": "<UNAME>",
+    "uavatar": "<AVATAR_URL>",
+    "unickname": "<UNICKNAME>",
+    "addition": [],
+    "default": { "date": 1783667550, "beginTime": 15, "duration": 1, "num": 1 },
+    "range": { "minBeginTime": 7, "maxEndTime": 22, "max_date": 1783785600, "advance_date": 1783612800, "min_duration": 1, "max_duration": 15, "max_num": 4 },
+    "TPL": "ht.Seat.OrderSeatPage",
+    "url_data": { "title": "我的预约", "type": "go_to_my_appoint", "url": "/Seat/Index/myBookingList?fromType=web" },
+    "space_category": { "category_id": "591", "content_id": "3" },
+    "skip_data": { "sign_in": { "title": "签到码", "type": "go_to_my_sign_in_code", "url": "/Seat/Index/mySignQRCode" } }
+  },
+  "_note": "client.py:get_room_detail 取 response['data'](小写，LAB_JSON=1 页面树顶层键)，再取 data['space_category']['category_id'/'content_id'] 喂给 get_seat_map。见 contract.room_detail_from_response / contract.space_category_id。uid(平台id) ≠ user_info.cardno(学号)，后者不在此端点。"
+}

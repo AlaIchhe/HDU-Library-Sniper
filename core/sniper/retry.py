@@ -4,12 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.client import (
-    MSG_DUPLICATE,
-    MSG_INVALID_REQUEST,
-    MSG_SEAT_UNAVAILABLE,
-    MSG_TIME_OUT_OF_RANGE,
-)
+from core import contract
 from core.sniper.plan import BookingPlan
 
 
@@ -50,19 +45,25 @@ def booking_failed(result: Any) -> bool:
 
 def is_time_out_of_range(result: dict[str, Any]) -> bool:
     """判断预约失败是否为"预约窗口尚未开放"（超出可预约座位时间范围）。"""
-    return MSG_TIME_OUT_OF_RANGE in _extract_message(result)
+    return contract.MSG_TIME_OUT_OF_RANGE in _extract_message(result)
 
 
 def default_retry_decider(result: dict[str, Any]) -> RetryDecision:
-    """根据服务器错误消息决定继续重试 / 跳过方案 / 停止全部。"""
+    """根据服务器错误消息决定继续重试 / 跳过方案 / 停止全部。
+
+    用 MESSAGE 子串匹配(非 CODE 判定):契约验证 CODE=ParamError 被
+    time_out_of_range / duplicate / seat_unavailable 共用,只能靠 MESSAGE 区分。
+    ``MSG_*`` 常量已实抓验证(见 docs/contracts/00_overview.md 与
+    samples/book_seats.json)，运行期单一源在 ``core.contract``。
+    """
     message = _extract_message(result)
-    if MSG_TIME_OUT_OF_RANGE in message:
+    if contract.MSG_TIME_OUT_OF_RANGE in message:
         return RetryDecision(RetryDecision.CONTINUE, "预约窗口尚未开放，等待后重试")
-    if MSG_DUPLICATE in message:
+    if contract.MSG_DUPLICATE in message:
         return RetryDecision(RetryDecision.SKIP, "已有预约，无需重复")
-    if MSG_SEAT_UNAVAILABLE in message:
+    if contract.MSG_SEAT_UNAVAILABLE in message:
         return RetryDecision(RetryDecision.SKIP, "座位不可用，换下一个方案")
-    if MSG_INVALID_REQUEST in message:
+    if contract.MSG_INVALID_REQUEST in message:
         return RetryDecision(RetryDecision.STOP, "非法请求 — 请检查系统更新")
     if booking_failed(result):
         return RetryDecision(RetryDecision.SKIP, message or "预约接口返回失败")

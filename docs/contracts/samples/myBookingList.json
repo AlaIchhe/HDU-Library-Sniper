@@ -1,0 +1,41 @@
+{
+  "_endpoint": "GET /Seat/Index/myBookingList?fromType=web&LAB_JSON=1",
+  "_note": "真正的预约列表端点。todayUserBookSeat 返回字符串 'todayUserBookSeatAction'(不是列表)——client.py:295 get_todays_bookings 误用 todayUserBookSeat,导致 find_confirmed_booking 永远拿不到数据。",
+  "ui_type": "ht.Seat.OrderListPage",
+  "content": {
+    "ui_type": "com.List",
+    "defaultItems": [
+      {
+        "ui_type": "ht.Seat.OrderListItem",
+        "roomName": "宋韵云图（四楼）",
+        "addr": "",
+        "seatNum": "298",
+        "time": "1783724400",
+        "duration": "3600",
+        "status": "4",
+        "ifSponsor": true,
+        "limitSignAgo": 1800,
+        "limitSignBack": 1800,
+        "limitLeftBack": 1800,
+        "orderTime": "1783657461",
+        "id": "<BOOKING_ID>",
+        "nowTime": 1783668232,
+        "link": {"type": "push", "url": "/Seat/Index/bookingInfo?bookingId=<BOOKING_ID>&fromType=1"},
+        "spaceId": null,
+        "ibeacons": []
+      }
+    ]
+  },
+  "_order_item_fields": {
+    "seatNum": "座位号(= seatMap POI title;非 seat_id) — find_confirmed_booking 的多键回退 seat_id/seatId 全错,应是 seatNum",
+    "time": "预约开始时间戳(秒,字符串) — find_confirmed_booking 找 beginTime/begin_time/begin_ts 全错,应是 time",
+    "duration": "秒(字符串)",
+    "status": "状态码字符串(1/4/7 见过)",
+    "id": "预约记录 id(整数)",
+    "roomName": "楼层/房间名"
+  },
+  "_fix_for_find_confirmed_booking": [
+    "端点改 /Seat/Index/myBookingList?fromType=web&LAB_JSON=1(非 todayUserBookSeat)",
+    "匹配字段改 seatNum + time(非 seat_id + beginTime)。注意:seatNum 是座位号,需先把 bookSeats 用的 seat_id 映射成座位号(查 seat_map POIs 找 title),或改用 time 单字段匹配(±1s)。"
+  ]
+}
