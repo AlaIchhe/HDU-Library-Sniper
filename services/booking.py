@@ -24,7 +24,13 @@ class ExitCode:
 
 
 class BookingService:
-    """统一封装 Sniper 的构造与三种调用入口，消除三处重复的编排样板。"""
+    """统一封装 Sniper 的构造与三种调用入口，消除三处重复的编排样板。
+
+    抢座是同步阻塞调用（重试循环 / 倒计时 sleep 可长达数十秒），GUI 必须把它
+    丢到 worker 线程跑。活动 Sniper 登记在 ``self._active_sniper``，供
+    :meth:`cancel_active` 从 GUI 线程置位 ``Sniper.cancelled``——Sniper 的循环
+    已在每个 tick / 每次尝试前轮询该标志，置位后即协作式退出。详见各方法文档。
+    """
 
     def __init__(
         self,
@@ -39,6 +45,9 @@ class BookingService:
         self.notifier = notifier
         self.room_browser = RoomBrowser(self.client)
         self.browser_auth = BrowserAuthService(self.client, self.settings)
+        # 当前活动 Sniper（抢座进行中时非空）；GUI 线程据此取消，见 cancel_active。
+        # 单属性读写 GIL 下原子，无需加锁；同一时间只应有一个活动抢座。
+        self._active_sniper: Sniper | None = None
 
     def _build_sniper(self, **overrides) -> Sniper:
         """用 settings 默认值构造 Sniper；定时预约的临时参数通过 overrides 覆盖。"""
@@ -62,9 +71,17 @@ class BookingService:
         plans: list[BookingPlan],
         on_progress: Callable[[BookingResult], None] | None = None,
     ) -> list[BookingResult]:
-        """立即抢座：依次尝试方案，任一成功即停止。"""
+        """立即抢座：依次尝试方案，任一成功即停止。
+
+        阻塞调用——GUI 须在 worker 线程执行。运行期间可用 :meth:`cancel_active`
+        协作式取消（Sniper 在每次尝试前轮询 ``cancelled``）。
+        """
         sniper = self._build_sniper()
-        return sniper.book_all(plans, on_progress=on_progress)
+        self._active_sniper = sniper
+        try:
+            return sniper.book_all(plans, on_progress=on_progress)
+        finally:
+            self._active_sniper = None
 
     def book_scheduled(
         self,
@@ -74,13 +91,49 @@ class BookingService:
         on_progress: Callable[[BookingResult], None] | None = None,
         **sniper_overrides,
     ) -> list[BookingResult]:
-        """定时抢座：等待至 execute_at 后执行。Ctrl+C 中断时标记 cancelled 并向上抛出。"""
+        """定时抢座：等待至 execute_at 后执行。Ctrl+C 中断时标记 cancelled 并向上抛出。
+
+        阻塞调用——GUI 须在 worker 线程执行，倒计时与重试期间均可由
+        :meth:`cancel_active` 协作式取消（倒计时每秒轮询一次 ``cancelled``）。
+        """
         sniper = self._build_sniper(**sniper_overrides)
+        self._active_sniper = sniper
         try:
             return sniper.book_at(plans, execute_at, on_countdown=on_countdown, on_progress=on_progress)
         except KeyboardInterrupt:
             sniper.cancelled = True
             raise
+        finally:
+            self._active_sniper = None
+
+    # ------------------------------------------------------------------
+    # 取消 / 状态查询 —— 供 GUI（或任何外部线程）对活动抢座做协作式控制
+    # ------------------------------------------------------------------
+    def cancel_active(self) -> bool:
+        """请求取消正在进行的抢座（GUI / 外部线程调用）。
+
+        把当前活动 Sniper 的 ``cancelled`` 置 True——Sniper 的重试循环与倒计时
+        循环已在每个 tick / 每次尝试前轮询该标志，置位后会在 ~1 秒内（倒计时
+        ``sleep`` 期间）或当前请求返回后退出，并返回已积累的部分结果。
+
+        线程安全：``cancelled`` 是单 bool 读写，GIL 下原子，可由 GUI 线程调用、
+        由 worker 线程轮询，无需加锁。返回 True 表示存在活动任务并已置位；
+        False 表示当前没有正在进行的抢座。
+
+        注意：取消是协作式的，无法硬中断一个进行中的 ``requests`` 网络调用——
+        最坏情况需等当前请求返回。调用方应向用户提示"取消中，可能需数秒"。
+        同一时间只应有一个活动抢座；UI 层须在活动期间禁用启动按钮（见 is_active）。
+        """
+        sniper = self._active_sniper
+        if sniper is None:
+            return False
+        sniper.cancelled = True
+        return True
+
+    @property
+    def is_active(self) -> bool:
+        """是否有抢座任务正在进行（供 UI 据此启用/禁用启动与取消按钮）。"""
+        return self._active_sniper is not None
 
     def _relogin_with_credentials(self) -> bool:
         """缓存失效时，用已存凭据（环境变量或 data/credentials.yaml）headless 自愈登录。
@@ -120,10 +173,9 @@ class BookingService:
             self.notifier.send("抢座任务无可用方案", "没有启用的预约方案，任务跳过。", success=False)
             return ExitCode.NO_PLANS
 
-        sniper = self._build_sniper()
-
         def on_progress(result: BookingResult) -> None:
             print(self._progress_line(result, indent=""))
 
-        results = sniper.book_all(plans, on_progress=on_progress)
+        # 复用 book_now：同一 Sniper 构造 + 活动登记 + 取消支持，避免重复编排样板。
+        results = self.book_now(plans, on_progress=on_progress)
         return ExitCode.SUCCESS if any(r.success for r in results) else ExitCode.ALL_FAILED
