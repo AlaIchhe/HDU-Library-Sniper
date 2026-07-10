@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import requests
-from requests.cookies import create_cookie
 
 from utils.encrypt import generate_api_token
 
@@ -151,54 +149,14 @@ class LibraryClient:
         if not loaded:
             raise CookieError("Cookie 字符串中没有有效的键值对")
 
-    def set_cookies_from_json_file(self, json_path: str | Path) -> None:
-        """从浏览器导出的 JSON Cookie 文件加载 Cookie。"""
-        path = Path(json_path).expanduser()
-        if not path.is_absolute():
-            path = Path.cwd() / path
-        if not path.exists():
-            raise CookieError(f"Cookie 文件不存在：{path}")
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            raise CookieError(f"Cookie 文件 JSON 解析失败：{path}") from exc
-
-        cookies = data.get("cookies") if isinstance(data, dict) else data
-        if not isinstance(cookies, list):
-            raise CookieError("Cookie 文件格式无效：缺少 cookies 列表")
-
-        loaded = False
-        for item in cookies:
-            if not isinstance(item, dict):
-                continue
-            name = item.get("name")
-            value = item.get("value")
-            if not name or value is None:
-                continue
-            cookie = create_cookie(
-                name=str(name),
-                value=str(value),
-                domain=item.get("domain") or "hdu.huitu.zhishulib.com",
-                path=item.get("path") or "/",
-                secure=bool(item.get("secure", False)),
-            )
-            self.session.cookies.set_cookie(cookie)
-            loaded = True
-        if not loaded:
-            raise CookieError("Cookie 文件中没有可用 Cookie")
-
     def load_cookie_cache(self, cache_path: str | Path) -> None:
-        """加载 session.cache；支持原始 Cookie 字符串或 JSON Cookie。"""
+        """加载 session.cache（原始 Cookie 字符串，由 ``save_cookie_cache`` 写入）。"""
         path = Path(cache_path).expanduser()
         if not path.is_absolute():
             path = Path.cwd() / path
         if not path.exists() or not path.read_text(encoding="utf-8").strip():
             raise CookieError(f"Cookie 缓存为空或不存在：{path}")
-        text = path.read_text(encoding="utf-8").strip()
-        if text[0] in "[{":
-            self.set_cookies_from_json_file(path)
-        else:
-            self.set_cookie_header(text)
+        self.set_cookie_header(path.read_text(encoding="utf-8").strip())
 
     def save_cookie_cache(self, cache_path: str | Path, cookie_string: str) -> None:
         """把原始 Cookie 字符串写入 session.cache，供下次非交互模式复用。

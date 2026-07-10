@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import getpass
 import os
 import subprocess
 import sys
@@ -76,3 +77,25 @@ def format_countdown(seconds: int) -> str:
         return f"{h:02d}:{m:02d}:{s:02d}"
     m, s = divmod(seconds, 60)
     return f"{m:02d}:{s:02d}"
+
+
+def prompt_credentials(default_student_id: str = "") -> tuple[str, str]:
+    """交互式询问学号 + 数字杭电密码（密码用 getpass 不回显）。
+
+    交互式应用首次登录 / 重新登录时调用；非交互模式（--run-now）不经过这里，
+    改为读取 data/credentials.yaml 或环境变量。
+    """
+    sid_hint = f" [{default_student_id}]" if default_student_id else ""
+    while True:
+        sid = input(f"学号{sid_hint}: ").strip()
+        if not sid and default_student_id:
+            sid = default_student_id
+        if sid:
+            break
+        print("  学号不能为空")
+    while True:
+        pwd = getpass.getpass("数字杭电密码(输入不回显): ")
+        if pwd:
+            break
+        print("  密码不能为空")
+    return sid, pwd
