@@ -7,6 +7,7 @@ from typing import Callable
 
 from config.setting import Settings
 from core.client import LibraryClient
+from core.room_browser import RoomBrowser
 from core.sniper import BookingPlan, BookingResult, PlanRepository, Sniper
 from services.auth import AuthService
 from utils.notifier import Notifier
@@ -35,6 +36,7 @@ class BookingService:
         self.client = client
         self.plans = plans
         self.notifier = notifier
+        self.room_browser = RoomBrowser(self.client)
 
     def _build_sniper(self, **overrides) -> Sniper:
         """用 settings 默认值构造 Sniper；定时预约的临时参数通过 overrides 覆盖。"""
@@ -46,7 +48,7 @@ class BookingService:
             window_poll_interval=self.settings.window_poll_interval,
         )
         kwargs.update(overrides)
-        return Sniper(self.client, self.notifier, **kwargs)
+        return Sniper(self.client, self.notifier, self.room_browser, **kwargs)
 
     @staticmethod
     def _progress_line(result: BookingResult, indent: str = "  ") -> str:

@@ -1,8 +1,8 @@
-"""方案表格与横幅渲染（纯输出，无业务逻辑）。"""
+"""方案表格与横幅渲染、进度行格式化（纯输出，无业务逻辑）。"""
 
 from __future__ import annotations
 
-from core.sniper import BookingPlan, PlanRepository, PlanStatus
+from core.sniper import BookingPlan, BookingResult, PlanRepository, PlanStatus
 
 
 def print_banner(plans: PlanRepository) -> None:
@@ -32,3 +32,12 @@ def plan_labels(plans: list[BookingPlan]) -> list[str]:
             f"{p.start_hour:02d}:00 {p.duration_hours}h [{status}]"
         )
     return labels
+
+
+def format_progress_line(result: BookingResult, indent: str = "  ") -> str:
+    """格式化单次预约尝试的进度行（立即 / 定时 / 非交互三处共用）。
+
+    与历史内联格式逐字一致：``{indent}[OK|X] [plan_code] message``。
+    """
+    icon = "OK" if result.success else "X"
+    return f"{indent}[{icon}] [{result.plan.to_plan_code()}] {result.message}"

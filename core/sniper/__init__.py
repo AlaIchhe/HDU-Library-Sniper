@@ -1,4 +1,4 @@
-"""抢座编排包：方案模型、持久化、重试决策与编排器。"""
+"""抢座尝试引擎包：方案模型、持久化、重试决策与预约尝试循环。"""
 
 from core.sniper.plan import BookingPlan, PlanStatus
 from core.sniper.repository import PlanRepository

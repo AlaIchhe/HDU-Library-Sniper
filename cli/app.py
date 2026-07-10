@@ -12,7 +12,7 @@ from cli.prompts import (
     input_int,
     parse_execute_time,
 )
-from cli.views import plan_labels, print_banner, print_plan_table
+from cli.views import format_progress_line, plan_labels, print_banner, print_plan_table
 from core.client import HduLibraryError
 from core.room_browser import RoomBrowser
 from core.sniper import BookingPlan
@@ -210,8 +210,7 @@ class InteractiveApp:
             return
 
         def on_progress(result) -> None:
-            icon = "OK" if result.success else "X"
-            print(f"  [{icon}] [{result.plan.to_plan_code()}] {result.message}")
+            print(format_progress_line(result, indent="  "))
 
         results = self.booking.book_now(plans, on_progress=on_progress)
         if any(r.success for r in results):
@@ -266,8 +265,7 @@ class InteractiveApp:
             sys.stdout.flush()
 
         def on_progress(result) -> None:
-            icon = "OK" if result.success else "X"
-            print(f"\n  [{icon}] [{result.plan.to_plan_code()}] {result.message}")
+            print("\n" + format_progress_line(result, indent="  "))
 
         try:
             results = self.booking.book_scheduled(

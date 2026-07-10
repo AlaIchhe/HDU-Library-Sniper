@@ -297,33 +297,6 @@ class LibraryClient:
         except Exception as exc:
             raise SeatQueryError(f"座位分布解析失败：{exc}") from exc
 
-    def find_seat_in_floors(
-        self, floors: list[dict[str, Any]], floor_id: str | int, seat_num: str | int
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """在楼层列表中定位指定楼层和座位号。"""
-        floor_id = str(floor_id)
-        seat_num = str(seat_num)
-        floor_names: list[str] = []
-        target_floor = None
-
-        for item in floors:
-            info = item.get("seatMap", {}).get("info", {})
-            floor_names.append(f"{item.get('roomName', '?')}={info.get('id', '?')}")
-            if str(info.get("id")) == floor_id:
-                target_floor = item
-                break
-
-        if not target_floor:
-            raise SeatQueryError(f"找不到楼层 id={floor_id}。可用楼层：{', '.join(floor_names)}")
-
-        seats = target_floor["seatMap"]["POIs"]
-        matches = [seat for seat in seats if str(seat.get("title")) == seat_num]
-        if not matches:
-            raise SeatQueryError(f"{target_floor.get('roomName')} 中找不到 {seat_num} 座")
-        if len(matches) > 1:
-            raise SeatQueryError(f"{target_floor.get('roomName')} 中存在多个 {seat_num} 座")
-        return target_floor, matches[0]
-
     def get_todays_bookings(self) -> list[dict[str, Any]]:
         """查询当前用户当日所有预约记录。
 
@@ -343,6 +316,48 @@ class LibraryClient:
             elif isinstance(block, list):
                 return block
         return []
+
+    def find_confirmed_booking(
+        self, seat_id: str, begin_ts: int
+    ) -> dict[str, Any] | None:
+        """超时幂等确认：在今日预约中查找与 (seat_id, begin_ts) 匹配的预约。
+
+        用于 post-bookSeats 超时后确认服务端是否已写入预约。匹配规则：
+        同一 seat_id + 开始时间相差不超过 1 秒即视为同一预约。
+        任何查询异常保守返回 None，让调用方按原逻辑重试。
+
+        注意：item 字段名（seat_id / seatId / seat_id2 / seat.id、beginTime /
+        begin_time / begin_ts）为多键回退——today_schedule 真实响应契约未在仓库
+        内捕获，此逻辑逐字搬迁自原 ``Sniper._idempotent_confirm``，待真实响应验证。
+        """
+        try:
+            bookings = self.get_todays_bookings()
+        except Exception:
+            return None
+
+        if not bookings:
+            return None
+
+        seat_id_str = str(seat_id)
+        for item in bookings:
+            if not isinstance(item, dict):
+                continue
+            item_seat = str(
+                item.get("seat_id")
+                or item.get("seatId")
+                or item.get("seat_id2")
+                or (item.get("seat", {}) or {}).get("id", "")
+                if isinstance(item.get("seat"), dict) else
+                item.get("seat_id") or item.get("seatId") or ""
+            )
+            item_begin = item.get("beginTime") or item.get("begin_time") or item.get("begin_ts") or 0
+            try:
+                item_begin_ts = int(item_begin)
+            except (TypeError, ValueError):
+                continue
+            if item_seat == seat_id_str and abs(item_begin_ts - begin_ts) <= 1:
+                return item
+        return None
 
     def book_seat(
         self,
