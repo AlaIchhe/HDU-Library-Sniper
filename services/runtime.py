@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from config.setting import Settings, load_settings
+from config.settings import Settings, load_settings
 from core.client import LibraryClient
 from core.sniper import PlanRepository
 from utils.notifier import Notifier

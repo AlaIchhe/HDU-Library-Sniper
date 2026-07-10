@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from config.setting import Settings
+from config.settings import Settings
 from core.client import HduLibraryError, LibraryClient
 
 # 登录入口：慧图 H5 根域名，浏览器会自然走微信授权 / 杭电 CAS 重定向链。

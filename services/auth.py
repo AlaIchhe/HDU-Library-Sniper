@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from config.setting import Settings
+from config.settings import Settings
 from core.client import CookieError, HduLibraryError, LibraryClient
 
 

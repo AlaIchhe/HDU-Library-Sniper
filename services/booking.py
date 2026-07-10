@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Callable
 
-from config.setting import Settings
+from config.settings import Settings
 from core.client import LibraryClient
 from core.room_browser import RoomBrowser
 from core.sniper import BookingPlan, BookingResult, PlanRepository, Sniper
