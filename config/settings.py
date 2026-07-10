@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,9 +24,19 @@ class Settings:
     window_wait_seconds: float = 30.0
     window_poll_interval: float = 1.0
     session_cache: str = "data/session.cache"
+    # 学号 + 密码凭据（headless 登录用）；已 .gitignore，绝不提交。
+    credentials_file: str = "data/credentials.yaml"
     plans_file: str = "data/plans.yaml"
     log_file: str = "logs/booking.log"
     wechat_webhook: str = ""
+
+
+@dataclass
+class Credentials:
+    """杭电统一身份认证凭据（学号 + 数字杭电密码）。"""
+
+    student_id: str
+    password: str
 
 
 def load_settings(path: str | Path = _DEFAULT_CONFIG_PATH) -> Settings:
@@ -46,7 +57,62 @@ def load_settings(path: str | Path = _DEFAULT_CONFIG_PATH) -> Settings:
         window_wait_seconds=float(booking.get("window_wait_seconds", 30.0)),
         window_poll_interval=float(booking.get("window_poll_interval", 1.0)),
         session_cache=str(paths.get("session_cache", "data/session.cache")),
+        credentials_file=str(paths.get("credentials_file", "data/credentials.yaml")),
         plans_file=str(paths.get("plans_file", "data/plans.yaml")),
         log_file=str(paths.get("log_file", "logs/booking.log")),
         wechat_webhook=str(notification.get("wechat_webhook", "")),
     )
+
+
+def load_credentials(path: str | Path) -> Credentials | None:
+    """加载登录凭据：优先环境变量 ``HDU_STUDENT_ID`` / ``HDU_PASSWORD``（CI 用），
+    其次读取 ``path`` 指向的 YAML 文件（本地用）。两者都缺则返回 ``None``。
+
+    YAML 格式::
+
+        student_id: "学号"
+        password: "数字杭电密码"
+    """
+    sid = os.environ.get("HDU_STUDENT_ID", "").strip()
+    pwd = os.environ.get("HDU_PASSWORD", "").strip()
+    if sid and pwd:
+        return Credentials(student_id=sid, password=pwd)
+
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        p = Path.cwd() / p
+    if not p.exists():
+        return None
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, OSError):
+        return None
+    sid = str(data.get("student_id", "")).strip()
+    pwd = str(data.get("password", "")).strip()
+    if sid and pwd:
+        return Credentials(student_id=sid, password=pwd)
+    return None
+
+
+def save_credentials(path: str | Path, creds: Credentials) -> None:
+    """把凭据写入 YAML 文件（本地复用 + 供非交互 --run-now 自愈登录）。
+
+    POSIX 下尝试 ``chmod 600``；写入失败抛 ``OSError`` 由调用方决定是否阻断。
+    文件已加入 ``.gitignore``，绝不应提交。
+    """
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        p = Path.cwd() / p
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(
+        yaml.safe_dump(
+            {"student_id": creds.student_id, "password": creds.password},
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    try:
+        p.chmod(0o600)
+    except OSError:
+        pass  # Windows 无 POSIX 权限模型，忽略

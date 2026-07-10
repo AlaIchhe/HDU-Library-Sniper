@@ -9,6 +9,7 @@ booking:
 
 paths:
   session_cache: data/session.cache   # Cookie 缓存文件（登录一次后自动复用）
+  credentials_file: data/credentials.yaml  # 学号+密码凭据（headless 登录用，已 gitignore）
   plans_file: data/plans.yaml          # 预约方案存储文件
   log_file: logs/booking.log           # 预约结果日志文件
 
