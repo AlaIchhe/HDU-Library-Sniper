@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from core.sniper import BookingPlan, BookingResult, PlanRepository, PlanStatus
+from services import BookingPlan, BookingResult, PlanStatus
 
 
-def print_banner(plans: PlanRepository) -> None:
+def print_banner(total: int, enabled: int) -> None:
     print("=" * 52)
     print("   HDU 图书馆抢座工具 (HDU-Library-Sniper)")
     print("=" * 52)
-    print(f"   当前方案数: {len(plans.load_all())} (启用: {len(plans.list_enabled())})")
+    print(f"   当前方案数: {total} (启用: {enabled})")
 
 
 def print_plan_table(plans: list[BookingPlan]) -> None:

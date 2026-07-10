@@ -13,24 +13,32 @@ from cli.prompts import (
     parse_execute_time,
 )
 from cli.views import format_progress_line, plan_labels, print_banner, print_plan_table
-from core.client import HduLibraryError
-from core.room_browser import RoomBrowser
-from core.sniper import BookingPlan
-from services.auth import AuthService
-from services.booking import BookingService
-from services.browser_auth import BrowserAuthService
-from services.runtime import build_runtime
+from services import (
+    AuthService,
+    BookingService,
+    BrowserAuthService,
+    HduLibraryError,
+    PlanService,
+    build_runtime,
+)
 
 
 class InteractiveApp:
-    """交互式菜单应用：UI 编排 + 委托 services / core 完成实际工作。"""
+    """交互式菜单应用：UI 编排 + 委托 services 完成实际工作。
+
+    只依赖 services 单一入口（运行时装配 / 认证 / 抢座 / 方案编排），
+    不直连 core——方案管理与浏览编排收口在 PlanService，抢座编排收口在
+    BookingService，本类只做菜单与输入输出。
+    """
 
     def __init__(self) -> None:
-        self.settings, self.client, self.plans, self.notifier = build_runtime()
-        self.auth = AuthService(self.client, self.settings)
-        self.browser_auth = BrowserAuthService(self.client, self.settings)
-        self.rooms = RoomBrowser(self.client)
-        self.booking = BookingService(self.settings, self.client, self.plans, self.notifier)
+        settings, client, plans, notifier = build_runtime()
+        self.settings = settings
+        self.auth = AuthService(client, settings)
+        self.browser_auth = BrowserAuthService(client, settings)
+        self.booking = BookingService(settings, client, plans, notifier)
+        # 复用 BookingService 已构造的 RoomBrowser，避免重复实例化。
+        self.plan_service = PlanService(client, plans, self.booking.room_browser)
 
     # ------------------------------------------------------------------
     # 认证
@@ -48,7 +56,10 @@ class InteractiveApp:
     # ------------------------------------------------------------------
     def run(self) -> None:
         clear_screen()
-        print_banner(self.plans)
+        print_banner(
+            len(self.plan_service.list_plans()),
+            len(self.plan_service.list_enabled()),
+        )
         self._authenticate()
 
         menu_items = [
@@ -83,7 +94,7 @@ class InteractiveApp:
     # 1 — 方案列表
     # ------------------------------------------------------------------
     def handle_list_plans(self) -> None:
-        plans = self.plans.load_all()
+        plans = self.plan_service.list_plans()
         if not plans:
             print("\n暂无预约方案，请先创建。")
             return
@@ -94,14 +105,14 @@ class InteractiveApp:
     # ------------------------------------------------------------------
     def handle_create_plan(self) -> None:
         print("\n== 创建预约方案 ==\n")
-        room_types = self.rooms.list_room_types()
+        room_types = self.plan_service.list_room_types()
         if not room_types:
             print("无可用房间类型。")
             return
         idx = select_menu("选择房间类型：", [r["name"] for r in room_types])
         selected = room_types[idx]
 
-        floors = self.rooms.list_floors(selected["query"])
+        floors = self.plan_service.list_floors(selected["query"])
         if not floors:
             print("该房间当前无可用楼层。")
             return
@@ -114,39 +125,31 @@ class InteractiveApp:
         start_hour = input_int("开始小时 (0-23)", 0, 23, default=13)
         duration_hours = input_int("使用时长 (小时)", 1, 15, default=9)
         book_days = input_int("天数偏移 (0=今天,1=明天,2=后天...)", 0, 7, default=1)
-        # 预约人仅用于本地方案列表展示，实际预约始终使用 Cookie 认证出的账号（服务器要求）。
-        booker = self.client.name or self.client.uid
 
-        room_type = RoomBrowser.resolve_room_type(selected["name"])
-        if room_type is None:
-            print(f"\n无法识别房间类型编号: '{selected['name']}'，将使用 1（自习室）。")
-            room_type = 1
-
-        plan = BookingPlan(
-            room_type=room_type,
+        # 构造 / 校验 / 持久化由 PlanService 编排；booker 取认证账号（服务器要求）。
+        plan, errors, fell_back = self.plan_service.create_plan(
+            room_type_name=selected["name"],
+            room_query=selected["query"],
             floor_id=int(floor.floor_id),
             seat_num=seat_num,
             start_hour=start_hour,
             duration_hours=duration_hours,
-            booker_name=booker,
             book_days=book_days,
-            room_query=selected["query"],
         )
-        errors = plan.validate()
+        if fell_back:
+            print(f"\n无法识别房间类型编号: '{selected['name']}'，将使用 1（自习室）。")
         if errors:
             print("\n方案校验失败:")
             for e in errors:
                 print(f"  - {e}")
             return
-
-        self.plans.add(plan)
         print(f"\n方案已创建 (ID: {plan.plan_id})")
 
     # ------------------------------------------------------------------
     # 3 — 批量修改时间
     # ------------------------------------------------------------------
     def handle_modify_time(self) -> None:
-        plans = self.plans.load_all()
+        plans = self.plan_service.list_plans()
         if not plans:
             print("\n暂无方案。")
             return
@@ -170,7 +173,7 @@ class InteractiveApp:
             kwargs["book_days"] = int(bd)
 
         if kwargs:
-            modified = self.plans.batch_set_time(ids, **kwargs)
+            modified = self.plan_service.modify_time(ids, **kwargs)
             print(f"已修改 {modified} 个方案")
         else:
             print("未做任何修改")
@@ -179,14 +182,14 @@ class InteractiveApp:
     # 4 — 删除方案
     # ------------------------------------------------------------------
     def handle_delete_plan(self) -> None:
-        plans = self.plans.load_all()
+        plans = self.plan_service.list_plans()
         if not plans:
             print("\n暂无方案。")
             return
         indices = multi_select_menu("选择要删除的方案：", plan_labels(plans))
         ids = [plans[i].plan_id for i in indices if plans[i].plan_id]
         if ids:
-            count = self.plans.remove_many(ids)
+            count = self.plan_service.delete_plans(ids)
             print(f"已删除 {count} 个方案")
         else:
             print("未选中任何方案")
@@ -195,7 +198,7 @@ class InteractiveApp:
     # 5 — 立即抢座
     # ------------------------------------------------------------------
     def handle_book_now(self) -> None:
-        plans = self.plans.list_enabled()
+        plans = self.plan_service.list_enabled()
         if not plans:
             print("\n没有启用的方案。")
             return
@@ -217,7 +220,7 @@ class InteractiveApp:
     # 6 — 定时预约
     # ------------------------------------------------------------------
     def handle_book_scheduled(self) -> None:
-        plans = self.plans.list_enabled()
+        plans = self.plan_service.list_enabled()
         if not plans:
             print("\n没有启用的方案。")
             return
@@ -285,7 +288,7 @@ class InteractiveApp:
     # 7 — 浏览房间与座位
     # ------------------------------------------------------------------
     def handle_browse_rooms(self) -> None:
-        room_types = self.rooms.list_room_types()
+        room_types = self.plan_service.list_room_types()
         if not room_types:
             print("\n无可用房间类型。")
             return
@@ -294,7 +297,7 @@ class InteractiveApp:
         for room in room_types:
             print(f"[{room['name']}]")
             try:
-                floors = self.rooms.list_floors(room["query"])
+                floors = self.plan_service.list_floors(room["query"])
             except HduLibraryError as exc:
                 print(f"  查询失败: {exc}")
                 continue
