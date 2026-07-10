@@ -4,7 +4,7 @@
 原始抓包在 `fixtures/captures/`(含 uid 等本地值,gitignore);本文档及 `docs/contracts/**` 为脱敏版,可入库。
 
 > 运行期魔法路径与 `MSG_*` 常量单一源在 `core/contract.py`(纯叶模块);本文档与
-> `schemas.py` 仅作人读规约。`tests/test_contracts.py` 对每条 `contract.*` 访问器在
+> `schemas.md` 仅作人读规约。`tests/test_contracts.py` 对每条 `contract.*` 访问器在
 > 样例上断言——服务器改结构 → 样例更新 → 测试非零退出,提醒契约漂移。
 
 ## 通用信封
@@ -76,7 +76,7 @@ Session 默认带 `LAB_JSON=1`(`core/client.py:DEFAULT_SESSION_PARAMS`)。对 `b
 
 ## 文件
 
-- `schemas.py` — 各端点 TypedDict(类型参考,doc-only;不持有 `MSG_*`,运行期常量在 `core/contract.py`)。
+- `schemas.md` — 各端点 TypedDict(类型参考,doc-only;不持有 `MSG_*`,运行期常量在 `core/contract.py`)。
 - `samples/<endpoint>.json` — 脱敏样例(入库,供测试):`room_types`/`room_detail`/`seat_map`/`baseInfo`/`book_seats`/`myBookingList`。
 - `../../core/contract.py` — 运行期单一契约入口:魔法路径访问器 + `MSG_*`(纯叶模块,被 `client`/`room_browser`/`retry` 导入)。
 - `../../tests/test_contracts.py` — 结构断言:对每条 `contract.*` 访问器在样例上校验,服务器改结构即非零退出。

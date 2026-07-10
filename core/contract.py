@@ -11,7 +11,7 @@
 刻意容错(返回 ``[]``)，因 ``get_todays_bookings`` 是超时幂等确认的
 best-effort 查询，不应因结构漂移把"未确认"升级成"硬错误"。
 
-契约文档(人读形状规约、TypedDict)见 ``docs/contracts/schemas.py`` 与
+契约文档(人读形状规约、TypedDict)见 ``docs/contracts/schemas.md`` 与
 ``docs/contracts/00_overview.md``；本模块不导入它(schema 在 docs/，非运行期
 sys.path)，避免双份常量漂移。
 """
