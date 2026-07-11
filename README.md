@@ -61,7 +61,7 @@ uv run playwright install chromium
 ### 启动软件
 
 **Windows 用户（推荐）**：
-- 双击 `launch.bat` — 静默启动，无命令行窗口
+- 双击 `scripts/launch.bat` — 静默启动，无命令行窗口
 
 **命令行启动**：
 ```bash
@@ -206,37 +206,80 @@ python main.py --daemon    # 或 pythonw.exe (Windows)
 ## 📁 目录结构
 
 ```
-.
-├── main.py              # 统一入口（GUI 模式 / 后台守护进程模式）
-├── requirements.txt     # 依赖：requests, pyyaml, playwright, PySide6
-├── start.bat            # Windows 启动脚本
-├── start.sh             # Linux/macOS 启动脚本
-├── HDU图书馆抢座.vbs    # Windows 静默启动（无命令行窗口）
-├── config/              # 配置目录（config.yaml + settings.py）
-├── ui/                 # GUI 界面
-│   ├── main_window.py   # 主窗口（认证、方案管理、抢座、定时任务）
-│   ├── dialogs/         # 对话框（创建方案、删除方案、修改时间、浏览房间、定时任务配置）
-│   ├── workers.py       # 异步工作线程（BookingWorker、AuthWorker、LoadFloorsWorker）
-│   └── app.py           # GUI 启动入口
-├── services/            # 业务逻辑层
-│   ├── auth.py          # 认证服务
-│   ├── booking.py       # 抢座服务
-│   ├── plans.py         # 方案管理服务
-│   ├── scheduler.py     # 定时任务管理服务
-│   └── runtime.py       # 运行时构建
-├── core/                # HTTP 客户端 / 抢座编排包 (Sniper/Plan/Retry/Repository)
-├── utils/               # 加密 / 时间同步 / 验证码 / 通知 (Notifier)
-├── data/                # 运行时数据（session.cache / plans.yaml / credentials.yaml，已 gitignore）
-├── logs/                # 运行日志（已在 .gitignore）
+HDU-Library-Sniper/
+├── main.py                      # 统一入口（GUI 模式 / 后台守护进程模式）
+├── pyproject.toml               # 项目配置（依赖、工具链）
+├── uv.lock                      # 依赖锁定文件
+├── Makefile                     # 快捷命令（install/lint/test/run/docker-*）
+├── Dockerfile                   # Docker 多阶段构建配置
+├── docker-compose.yml           # Docker 多模式编排（gui/daemon/scheduled）
+├── docker-entrypoint.sh         # Docker 智能入口脚本
+├── .env.example                 # Docker 环境变量模板
+│
+├── config/                      # 配置管理
+│   ├── config.yaml              # 用户配置文件
+│   └── settings.py              # 配置加载模块
+│
+├── core/                        # 核心业务逻辑
+│   ├── client.py                # 图书馆 API 客户端
+│   ├── contract.py              # 接口契约定义
+│   ├── room_browser.py          # 房间/座位查询
+│   └── sniper/                  # 抢座引擎
+│       ├── sniper.py            # 核心抢座逻辑
+│       ├── plan.py              # 预约方案模型
+│       ├── retry.py             # 重试策略
+│       └── repository.py        # 方案持久化
+│
+├── ui/                          # 用户界面（PySide6）
+│   ├── app.py                   # GUI 启动入口
+│   ├── main_window.py           # 主窗口（认证、方案管理、抢座、定时任务）
+│   ├── styles.py                # UI 样式定义
+│   ├── workers.py               # 异步工作线程
+│   ├── widgets/                 # 自定义组件
+│   └── dialogs/                 # 对话框
+│       ├── create_plan_dialog.py
+│       ├── delete_plans_dialog.py
+│       ├── modify_time_dialog.py
+│       ├── browse_rooms_dialog.py
+│       └── scheduler_config_dialog.py
+│
+├── services/                    # 业务逻辑层
+│   ├── auth.py                  # 认证服务
+│   ├── booking.py               # 抢座服务
+│   ├── plans.py                 # 方案管理服务
+│   ├── scheduler.py             # 定时任务管理服务
+│   ├── runtime.py               # 运行时构建
+│   └── browser_auth.py          # 浏览器自动登录
+│
+├── utils/                       # 工具函数
+│   ├── encrypt.py               # API 签名生成
+│   ├── notifier.py              # 通知推送（日志 + 微信 webhook）
+│   ├── time_sync.py             # 时间同步
+│   └── time_utils.py            # 时间解析工具
+│
 ├── scripts/
-│   └── AutoSchedule.ps1 # Windows 任务计划自动注册脚本
-└── docs/
-    ├── github-actions-setup.md # GitHub Actions 配置指南（备选方案）
-    └── archive/         # 历史实施报告归档
+│   ├── AutoSchedule.ps1         # Windows 任务计划自动注册脚本
+│   ├── launch.bat               # Windows 静默启动脚本
+│   └── launch.ps1               # Windows PowerShell 启动脚本
+│
+├── data/                        # 运行时数据（已 gitignore）
+│   ├── session.cache            # 登录态缓存
+│   ├── credentials.yaml         # 学号+密码凭据
+│   └── plans.yaml               # 预约方案配置
+│
+├── logs/                        # 运行日志（已 gitignore）
+│   └── booking.log              # 抢座执行日志
+│
+├── tests/                       # 测试套件
+│   ├── test_contracts.py        # 接口契约测试
+│   └── test_scheduler.py        # 定时任务测试
+│
+└── docs/                        # 文档
+    ├── DOCKER.md                # Docker 部署完整指南
+    └── contracts/               # API 契约示例
 ```
 
-> `data/session.cache` / `data/credentials.yaml` / `data/plans.yaml` 分别是登录态、学号+密码凭据和预约方案，已加入 `.gitignore`，不会被提交到 Git。
-> `logs/` 是本地运行日志目录，同样已加入 `.gitignore`。
+> ⚠️ **安全提示**: `data/` 和 `logs/` 目录包含敏感数据（登录态、凭据、日志），已加入 `.gitignore`，不会被提交到 Git。
 
 ---
 
@@ -350,24 +393,49 @@ make clean
 
 ```
 HDU-Library-Sniper/
-├── config/           # 配置管理
-├── core/             # 核心业务逻辑
-│   ├── client.py     # HTTP 客户端
+├── main.py              # 统一入口
+├── pyproject.toml       # 项目配置
+├── uv.lock              # 依赖锁定
+├── Makefile             # 快捷命令
+├── Dockerfile           # Docker 构建
+├── docker-compose.yml   # Docker 编排
+│
+├── config/              # 配置管理
+├── core/                # 核心业务逻辑
+│   ├── client.py        # API 客户端
+│   ├── contract.py      # 接口契约
 │   ├── room_browser.py  # 房间查询
-│   └── sniper/       # 抢座核心
-├── ui/              # GUI 界面
-│   ├── dialogs/      # 对话框
-│   ├── main_window.py  # 主窗口
-│   └── workers.py    # 后台线程
-├── services/         # 服务层
-│   ├── auth.py       # 认证服务
-│   ├── booking.py    # 预约服务
-│   └── scheduler.py  # 定时任务
-├── tests/            # 测试
-├── utils/            # 工具函数
-├── pyproject.toml    # 项目配置
-├── uv.lock          # 依赖锁定
-└── Makefile         # 快捷命令
+│   └── sniper/          # 抢座引擎
+│
+├── ui/                  # 用户界面
+│   ├── app.py           # 启动入口
+│   ├── main_window.py   # 主窗口
+│   ├── styles.py        # 样式定义
+│   ├── workers.py       # 异步线程
+│   ├── widgets/         # 自定义组件
+│   └── dialogs/         # 对话框集合
+│
+├── services/            # 业务逻辑层
+│   ├── auth.py          # 认证服务
+│   ├── booking.py       # 抢座服务
+│   ├── plans.py         # 方案管理
+│   ├── scheduler.py     # 定时任务
+│   ├── runtime.py       # 运行时构建
+│   └── browser_auth.py  # 浏览器登录
+│
+├── utils/               # 工具函数
+│   ├── encrypt.py       # API 签名
+│   ├── notifier.py      # 通知推送
+│   ├── time_sync.py     # 时间同步
+│   └── time_utils.py    # 时间解析
+│
+├── scripts/             # 脚本
+│   └── AutoSchedule.ps1 # Windows 任务计划
+│
+├── data/                # 运行时数据（gitignore）
+├── logs/                # 运行日志（gitignore）
+├── tests/               # 测试套件
+└── docs/                # 文档
 ```
 
 ### 技术栈
