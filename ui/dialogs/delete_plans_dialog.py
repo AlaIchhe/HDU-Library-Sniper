@@ -49,7 +49,7 @@ class DeletePlansDialog(QDialog):
 
         # 按钮
         self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
         )
         self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("删除")
         self.button_box.accepted.connect(self.accept)

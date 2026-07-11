@@ -17,10 +17,12 @@ import json
 import sys
 from pathlib import Path
 
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))  # 使 from core import contract 可导入
 
 from core import contract  # noqa: E402
+
 
 CONTRACTS_DIR = REPO_ROOT / "docs" / "contracts"
 SAMPLES_DIR = CONTRACTS_DIR / "samples"
@@ -68,7 +70,8 @@ def test_seat_map() -> None:
         _check(isinstance(seats, list), f"seat_map: {contract.floor_name(f)} seats 非列表")
         for p in seats:
             _check(
-                contract.seat_id(p) and contract.seat_title(p), f"seat_map: seat 缺 id/title: {p}"
+                contract.seat_id(p) and contract.seat_title(p),
+                f"seat_map: seat 缺 id/title: {p}",
             )
 
 
@@ -101,7 +104,8 @@ def test_book_seats() -> None:
     _check(code("time_out_of_range") == "ParamError", "book_seats: time_out_of_range CODE 错")
     _check("已有预约" in msg("duplicate"), "book_seats: duplicate MESSAGE 错")
     _check(
-        "选择的座位无法预约" in msg("seat_unavailable"), "book_seats: seat_unavailable MESSAGE 错"
+        "选择的座位无法预约" in msg("seat_unavailable"),
+        "book_seats: seat_unavailable MESSAGE 错",
     )
     _check(code("rate_limited") == 1, "book_seats: rate_limited CODE 非 1")
 

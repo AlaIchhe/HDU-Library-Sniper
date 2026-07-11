@@ -29,10 +29,7 @@ class PlanRepository:
         if not isinstance(data, list):
             self._cache = []
             return []
-        plans = []
-        for item in data:
-            if isinstance(item, dict):
-                plans.append(BookingPlan.from_dict(item))
+        plans = [BookingPlan.from_dict(item) for item in data if isinstance(item, dict)]
         self._cache = plans
         return list(plans)
 

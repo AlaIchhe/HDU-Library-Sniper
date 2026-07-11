@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from gui.workers import LoadFloorsWorker
 from services import PlanService
+from ui.workers import LoadFloorsWorker
 
 
 class CreatePlanDialog(QDialog):
@@ -100,7 +100,7 @@ class CreatePlanDialog(QDialog):
 
         # 按钮
         self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
         )
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
@@ -315,13 +315,17 @@ class CreatePlanDialog(QDialog):
             # 处理回退警告
             if fell_back:
                 QMessageBox.warning(
-                    self, "警告", f"无法识别房间类型 '{room_type_name}'，已使用默认类型（自习室）"
+                    self,
+                    "警告",
+                    f"无法识别房间类型 '{room_type_name}'，已使用默认类型（自习室）",
                 )
 
             # 处理验证错误
             if errors:
                 QMessageBox.critical(
-                    self, "验证失败", "方案验证失败:\n" + "\n".join(f"• {e}" for e in errors)
+                    self,
+                    "验证失败",
+                    "方案验证失败:\n" + "\n".join(f"• {e}" for e in errors),
                 )
                 return
 

@@ -24,7 +24,7 @@ def main() -> None:
     else:
         # GUI 界面模式（默认）
         # 这是用户唯一应该看到的交互界面
-        from gui.app import run_gui
+        from ui.app import run_gui
 
         run_gui()
 

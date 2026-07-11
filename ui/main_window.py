@@ -19,21 +19,6 @@ from PySide6.QtWidgets import (
 
 from config.settings import Credentials, load_credentials, save_credentials
 from core.sniper.retry import BookingResult
-from gui.dialogs import (
-    BrowseRoomsDialog,
-    CreatePlanDialog,
-    DeletePlansDialog,
-    ModifyTimeDialog,
-    SchedulerConfigDialog,
-)
-from gui.styles import (
-    COUNTDOWN_STYLE,
-    GLOBAL_STYLE,
-    INFO_BOX_STYLE,
-    SECTION_TITLE_STYLE,
-    TITLE_STYLE,
-)
-from gui.workers import AuthWorker, BookingWorker, TestExecutionWorker
 from services import (
     AuthService,
     BookingService,
@@ -42,6 +27,21 @@ from services import (
     build_runtime,
 )
 from services.scheduler import SchedulerService
+from ui.dialogs import (
+    BrowseRoomsDialog,
+    CreatePlanDialog,
+    DeletePlansDialog,
+    ModifyTimeDialog,
+    SchedulerConfigDialog,
+)
+from ui.styles import (
+    COUNTDOWN_STYLE,
+    GLOBAL_STYLE,
+    INFO_BOX_STYLE,
+    SECTION_TITLE_STYLE,
+    TITLE_STYLE,
+)
+from ui.workers import AuthWorker, BookingWorker, TestExecutionWorker
 from utils.time_utils import parse_execute_time
 
 
@@ -118,7 +118,7 @@ class MainWindow(QMainWindow):
 
         # 说明信息
         info = QLabel(
-            "💡 使用学号和密码登录杭电统一身份认证系统\n登录后将自动保存凭据，下次启动可快速认证"
+            "💡 使用学号和密码登录杭电统一身份认证系统\n登录后将自动保存凭据，下次启动可快速认证",
         )
         info.setWordWrap(True)
         info.setStyleSheet(INFO_BOX_STYLE)
@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
 
         # 说明信息
         info = QLabel(
-            "📝 创建和管理预约方案，每个方案对应一个座位预约规则\n启用的方案将在抢座时自动执行"
+            "📝 创建和管理预约方案，每个方案对应一个座位预约规则\n启用的方案将在抢座时自动执行",
         )
         info.setWordWrap(True)
         info.setStyleSheet(INFO_BOX_STYLE)
@@ -292,7 +292,7 @@ class MainWindow(QMainWindow):
         # 标题说明
         info = QLabel(
             "⏰ 配置系统定时任务，实现每天自动抢座\n"
-            "配置后无需保持软件运行，系统会在指定时间自动执行"
+            "配置后无需保持软件运行，系统会在指定时间自动执行",
         )
         info.setWordWrap(True)
         info.setStyleSheet(INFO_BOX_STYLE)
@@ -406,7 +406,8 @@ class MainWindow(QMainWindow):
 
             # 保存凭据
             creds = Credentials(
-                student_id=self.sid_input.text().strip(), password=self.pwd_input.text().strip()
+                student_id=self.sid_input.text().strip(),
+                password=self.pwd_input.text().strip(),
             )
             try:
                 save_credentials(self.settings.credentials_file, creds)
@@ -459,7 +460,7 @@ class MainWindow(QMainWindow):
             lines.append(
                 f"{i}. [{status}] {plan.room_type_name} - 座位 {plan.seat_num}\n"
                 f"   时间: {plan.start_hour}:00 起，{plan.duration_hours}h，"
-                f"提前 {plan.book_days} 天\n"
+                f"提前 {plan.book_days} 天\n",
             )
 
         self.plans_display.setText("\n".join(lines))
@@ -529,7 +530,9 @@ class MainWindow(QMainWindow):
         plans = self.plan_service.list_enabled()
         if not plans:
             QMessageBox.warning(
-                self, "无可用方案", '没有启用的预约方案。\n\n请先在"方案管理"标签页创建并启用方案。'
+                self,
+                "无可用方案",
+                '没有启用的预约方案。\n\n请先在"方案管理"标签页创建并启用方案。',
             )
             return
 
@@ -597,7 +600,9 @@ class MainWindow(QMainWindow):
         plans = self.plan_service.list_enabled()
         if not plans:
             QMessageBox.warning(
-                self, "无可用方案", '没有启用的预约方案。\n\n请先在"方案管理"标签页创建并启用方案。'
+                self,
+                "无可用方案",
+                '没有启用的预约方案。\n\n请先在"方案管理"标签页创建并启用方案。',
             )
             return
 
@@ -658,7 +663,7 @@ class MainWindow(QMainWindow):
         """追加定时任务日志。"""
         self.scheduler_log_display.append(text)
         self.scheduler_log_display.verticalScrollBar().setValue(
-            self.scheduler_log_display.verticalScrollBar().maximum()
+            self.scheduler_log_display.verticalScrollBar().maximum(),
         )
 
     # ------------------------------------------------------------------
@@ -682,7 +687,9 @@ class MainWindow(QMainWindow):
                     raise ValueError("时间格式无效")
             except ValueError as exc:
                 QMessageBox.warning(
-                    self, "时间格式错误", f"请输入有效的时间格式 (HH:MM 或 HH:MM:SS)\n错误: {exc}"
+                    self,
+                    "时间格式错误",
+                    f"请输入有效的时间格式 (HH:MM 或 HH:MM:SS)\n错误: {exc}",
                 )
                 return
 
@@ -759,7 +766,7 @@ class MainWindow(QMainWindow):
         self._append_log(
             f"{status} {result.plan.to_plan_code()} | "
             f"座位 {result.plan.seat_num} | "
-            f"{result.message}"
+            f"{result.message}",
         )
 
     def _on_booking_finished(self, results: list[BookingResult]) -> None:
@@ -806,7 +813,7 @@ class MainWindow(QMainWindow):
         self.log_display.append(text)
         # 自动滚动到底部
         self.log_display.verticalScrollBar().setValue(
-            self.log_display.verticalScrollBar().maximum()
+            self.log_display.verticalScrollBar().maximum(),
         )
 
     def closeEvent(self, event) -> None:

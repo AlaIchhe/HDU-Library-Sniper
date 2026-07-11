@@ -53,13 +53,13 @@ class BookingService:
 
     def _build_sniper(self, **overrides) -> Sniper:
         """用 settings 默认值构造 Sniper；定时预约的临时参数通过 overrides 覆盖。"""
-        kwargs = dict(
-            max_trials=self.settings.max_trials,
-            retry_delay=self.settings.retry_delay,
-            dry_run=self.settings.dry_run,
-            window_wait_seconds=self.settings.window_wait_seconds,
-            window_poll_interval=self.settings.window_poll_interval,
-        )
+        kwargs = {
+            "max_trials": self.settings.max_trials,
+            "retry_delay": self.settings.retry_delay,
+            "dry_run": self.settings.dry_run,
+            "window_wait_seconds": self.settings.window_wait_seconds,
+            "window_poll_interval": self.settings.window_poll_interval,
+        }
         kwargs.update(overrides)
         return Sniper(self.client, self.notifier, self.room_browser, **kwargs)
 
@@ -105,7 +105,10 @@ class BookingService:
             self._active_sniper = sniper
         try:
             return sniper.book_at(
-                plans, execute_at, on_countdown=on_countdown, on_progress=on_progress
+                plans,
+                execute_at,
+                on_countdown=on_countdown,
+                on_progress=on_progress,
             )
         except KeyboardInterrupt:
             sniper.cancelled = True
@@ -180,7 +183,9 @@ class BookingService:
         plans = self.plans.list_enabled()
         if not plans:
             self.notifier.send(
-                "抢座任务无可用方案", "没有启用的预约方案，任务跳过。", success=False
+                "抢座任务无可用方案",
+                "没有启用的预约方案，任务跳过。",
+                success=False,
             )
             return ExitCode.NO_PLANS
 

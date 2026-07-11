@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from datetime import datetime
+from datetime import UTC, datetime
 
 
 def generate_api_token(
@@ -21,7 +21,7 @@ def generate_api_token(
     这里的 MD5 是接口协议要求，不用于密码哈希。
     """
     if api_time is None:
-        api_time = int(datetime.now().timestamp())
+        api_time = int(datetime.now(UTC).timestamp())
 
     token_source = (
         "post&/Seat/Index/bookSeats?LAB_JSON=1"

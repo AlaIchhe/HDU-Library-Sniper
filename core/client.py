@@ -10,6 +10,7 @@ import requests
 from core import contract
 from utils.encrypt import generate_api_token
 
+
 URLS = {
     "book_seat": "https://hdu.huitu.zhishulib.com/Seat/Index/bookSeats",
     "query_seats": "https://hdu.huitu.zhishulib.com/Seat/Index/searchSeats",
@@ -208,7 +209,7 @@ class LibraryClient:
         uid = contract.base_info_uid(info)
         if not uid.isdigit():
             raise HduLibraryError(
-                f"未能从接口识别 uid（got {uid!r}），请在配置中填写 uid 或更新 Cookie。"
+                f"未能从接口识别 uid（got {uid!r}），请在配置中填写 uid 或更新 Cookie。",
             )
         self.uid = uid
         return self.uid

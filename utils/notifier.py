@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import contextlib
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
@@ -30,18 +31,16 @@ class Notifier:
             path.parent.mkdir(parents=True, exist_ok=True)
             status = "SUCCESS" if success else "FAILED"
             with path.open("a", encoding="utf-8") as f:
-                f.write(f"[{datetime.now().isoformat()}] [{status}] {title}\n")
+                f.write(f"[{datetime.now(UTC).isoformat()}] [{status}] {title}\n")
                 f.write(f"  {body}\n")
                 f.write("-" * 50 + "\n")
         except OSError:
             pass
 
         if self.wechat_webhook:
-            try:
+            with contextlib.suppress(requests.RequestException):
                 requests.post(
                     self.wechat_webhook,
                     json={"title": title, "content": body},
                     timeout=10,
                 )
-            except requests.RequestException:
-                pass

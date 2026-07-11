@@ -263,7 +263,7 @@ wheels = [
 [[package]]
 name = "hdu-library-sniper"
 version = "1.0.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "playwright" },
     { name = "pyside6" },
@@ -295,17 +295,14 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest", specifier = ">=9.1.1" },
-    { name = "pytest-cov", specifier = ">=4.1.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
-    { name = "ruff", specifier = ">=0.8.0" },
     { name = "ruff", specifier = ">=0.15.21" },
 ]
-lint = [{ name = "ruff", specifier = ">=0.8.0" }]
+lint = [{ name = "ruff", specifier = ">=0.15.21" }]
 test = [
-    { name = "pytest", specifier = ">=8.0.0" },
-    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
 ]
 
 [[package]]
