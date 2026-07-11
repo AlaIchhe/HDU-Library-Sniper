@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from threading import Lock
 from typing import Callable
 
 from config.settings import Settings, load_credentials
@@ -46,7 +47,8 @@ class BookingService:
         self.room_browser = RoomBrowser(self.client)
         self.browser_auth = BrowserAuthService(self.client, self.settings)
         # 当前活动 Sniper（抢座进行中时非空）；GUI 线程据此取消，见 cancel_active。
-        # 单属性读写 GIL 下原子，无需加锁；同一时间只应有一个活动抢座。
+        # 使用线程锁保护访问，防止竞态条件。
+        self._sniper_lock = Lock()
         self._active_sniper: Sniper | None = None
 
     def _build_sniper(self, **overrides) -> Sniper:
@@ -77,11 +79,13 @@ class BookingService:
         协作式取消（Sniper 在每次尝试前轮询 ``cancelled``）。
         """
         sniper = self._build_sniper()
-        self._active_sniper = sniper
+        with self._sniper_lock:
+            self._active_sniper = sniper
         try:
             return sniper.book_all(plans, on_progress=on_progress)
         finally:
-            self._active_sniper = None
+            with self._sniper_lock:
+                self._active_sniper = None
 
     def book_scheduled(
         self,
@@ -97,14 +101,16 @@ class BookingService:
         :meth:`cancel_active` 协作式取消（倒计时每秒轮询一次 ``cancelled``）。
         """
         sniper = self._build_sniper(**sniper_overrides)
-        self._active_sniper = sniper
+        with self._sniper_lock:
+            self._active_sniper = sniper
         try:
             return sniper.book_at(plans, execute_at, on_countdown=on_countdown, on_progress=on_progress)
         except KeyboardInterrupt:
             sniper.cancelled = True
             raise
         finally:
-            self._active_sniper = None
+            with self._sniper_lock:
+                self._active_sniper = None
 
     # ------------------------------------------------------------------
     # 取消 / 状态查询 —— 供 GUI（或任何外部线程）对活动抢座做协作式控制
@@ -116,24 +122,25 @@ class BookingService:
         循环已在每个 tick / 每次尝试前轮询该标志，置位后会在 ~1 秒内（倒计时
         ``sleep`` 期间）或当前请求返回后退出，并返回已积累的部分结果。
 
-        线程安全：``cancelled`` 是单 bool 读写，GIL 下原子，可由 GUI 线程调用、
-        由 worker 线程轮询，无需加锁。返回 True 表示存在活动任务并已置位；
-        False 表示当前没有正在进行的抢座。
+        线程安全：使用 Lock 保护 _active_sniper 的访问。返回 True 表示存在活动
+        任务并已置位；False 表示当前没有正在进行的抢座。
 
         注意：取消是协作式的，无法硬中断一个进行中的 ``requests`` 网络调用——
         最坏情况需等当前请求返回。调用方应向用户提示"取消中，可能需数秒"。
         同一时间只应有一个活动抢座；UI 层须在活动期间禁用启动按钮（见 is_active）。
         """
-        sniper = self._active_sniper
-        if sniper is None:
-            return False
-        sniper.cancelled = True
-        return True
+        with self._sniper_lock:
+            sniper = self._active_sniper
+            if sniper is None:
+                return False
+            sniper.cancelled = True
+            return True
 
     @property
     def is_active(self) -> bool:
         """是否有抢座任务正在进行（供 UI 据此启用/禁用启动与取消按钮）。"""
-        return self._active_sniper is not None
+        with self._sniper_lock:
+            return self._active_sniper is not None
 
     def _relogin_with_credentials(self) -> bool:
         """缓存失效时，用已存凭据（环境变量或 data/credentials.yaml）headless 自愈登录。
