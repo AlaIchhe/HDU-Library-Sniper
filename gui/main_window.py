@@ -31,6 +31,13 @@ from gui.dialogs import (
     BrowseRoomsDialog,
     SchedulerConfigDialog,
 )
+from gui.styles import (
+    GLOBAL_STYLE,
+    TITLE_STYLE,
+    INFO_BOX_STYLE,
+    COUNTDOWN_STYLE,
+    SECTION_TITLE_STYLE,
+)
 from services import (
     AuthService,
     BookingService,
@@ -47,7 +54,10 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("HDU 图书馆抢座工具")
-        self.resize(800, 600)
+        self.resize(900, 700)
+
+        # 应用全局样式
+        self.setStyleSheet(GLOBAL_STYLE)
 
         # 初始化服务层
         settings, client, plans, notifier = build_runtime()
@@ -74,11 +84,13 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
         # 标题
-        title = QLabel("HDU 图书馆抢座工具")
+        title = QLabel("🎯 HDU 图书馆抢座工具")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 20px; font-weight: bold; padding: 10px;")
+        title.setStyleSheet(TITLE_STYLE)
         layout.addWidget(title)
 
         # Tab 切换
@@ -86,16 +98,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.tabs)
 
         # Tab 1: 认证
-        self.tabs.addTab(self._create_auth_tab(), "认证")
+        self.tabs.addTab(self._create_auth_tab(), "🔐 认证")
 
         # Tab 2: 方案管理
-        self.tabs.addTab(self._create_plans_tab(), "方案管理")
+        self.tabs.addTab(self._create_plans_tab(), "📋 方案管理")
 
         # Tab 3: 抢座
-        self.tabs.addTab(self._create_booking_tab(), "抢座")
+        self.tabs.addTab(self._create_booking_tab(), "⚡ 抢座")
 
         # Tab 4: 定时任务
-        self.tabs.addTab(self._create_scheduler_tab(), "定时任务")
+        self.tabs.addTab(self._create_scheduler_tab(), "⏰ 定时任务")
 
         # 状态栏
         self.statusBar().showMessage("就绪")
@@ -104,34 +116,52 @@ class MainWindow(QMainWindow):
         """创建认证标签页。"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setSpacing(16)
+
+        # 说明信息
+        info = QLabel(
+            "💡 使用学号和密码登录杭电统一身份认证系统\n"
+            "登录后将自动保存凭据，下次启动可快速认证"
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet(INFO_BOX_STYLE)
+        layout.addWidget(info)
+
+        # 登录表单
+        from PySide6.QtWidgets import QFormLayout
+        form_layout = QFormLayout()
+        form_layout.setSpacing(12)
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         # 学号输入
-        sid_layout = QHBoxLayout()
-        sid_layout.addWidget(QLabel("学号:"))
         self.sid_input = QLineEdit()
+        self.sid_input.setPlaceholderText("请输入学号")
         if self.credentials:
             self.sid_input.setText(self.credentials.student_id)
-        sid_layout.addWidget(self.sid_input)
-        layout.addLayout(sid_layout)
+        form_layout.addRow("学号:", self.sid_input)
 
         # 密码输入
-        pwd_layout = QHBoxLayout()
-        pwd_layout.addWidget(QLabel("密码:"))
         self.pwd_input = QLineEdit()
         self.pwd_input.setEchoMode(QLineEdit.EchoMode.Password)
-        pwd_layout.addWidget(self.pwd_input)
-        layout.addLayout(pwd_layout)
+        self.pwd_input.setPlaceholderText("请输入密码")
+        form_layout.addRow("密码:", self.pwd_input)
+
+        layout.addLayout(form_layout)
 
         # 登录按钮
-        self.login_btn = QPushButton("登录")
+        self.login_btn = QPushButton("🔓 登录")
+        self.login_btn.setMinimumHeight(44)
         self.login_btn.clicked.connect(self._handle_login)
         layout.addWidget(self.login_btn)
 
         # 认证状态
+        status_label = QLabel("认证状态")
+        status_label.setStyleSheet(SECTION_TITLE_STYLE)
+        layout.addWidget(status_label)
+
         self.auth_status = QTextEdit()
         self.auth_status.setReadOnly(True)
         self.auth_status.setMaximumHeight(150)
-        layout.addWidget(QLabel("认证状态:"))
         layout.addWidget(self.auth_status)
 
         layout.addStretch()
@@ -141,26 +171,43 @@ class MainWindow(QMainWindow):
         """创建方案管理标签页。"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setSpacing(16)
+
+        # 说明信息
+        info = QLabel(
+            "📝 创建和管理预约方案，每个方案对应一个座位预约规则\n"
+            "启用的方案将在抢座时自动执行"
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet(INFO_BOX_STYLE)
+        layout.addWidget(info)
 
         # 按钮组
         btn_layout = QHBoxLayout()
-        self.refresh_plans_btn = QPushButton("刷新方案列表")
+        btn_layout.setSpacing(8)
+
+        self.refresh_plans_btn = QPushButton("🔄 刷新")
+        self.refresh_plans_btn.setProperty("secondary", "true")
         self.refresh_plans_btn.clicked.connect(self._refresh_plans)
         btn_layout.addWidget(self.refresh_plans_btn)
 
-        self.create_plan_btn = QPushButton("创建方案")
+        self.create_plan_btn = QPushButton("➕ 创建方案")
+        self.create_plan_btn.setProperty("success", "true")
         self.create_plan_btn.clicked.connect(self._create_plan)
         btn_layout.addWidget(self.create_plan_btn)
 
-        self.delete_plan_btn = QPushButton("删除方案")
+        self.delete_plan_btn = QPushButton("🗑️ 删除方案")
+        self.delete_plan_btn.setProperty("danger", "true")
         self.delete_plan_btn.clicked.connect(self._delete_plans)
         btn_layout.addWidget(self.delete_plan_btn)
 
-        self.modify_time_btn = QPushButton("批量修改时间")
+        self.modify_time_btn = QPushButton("⏱️ 修改时间")
+        self.modify_time_btn.setProperty("secondary", "true")
         self.modify_time_btn.clicked.connect(self._modify_time)
         btn_layout.addWidget(self.modify_time_btn)
 
-        self.browse_rooms_btn = QPushButton("浏览房间")
+        self.browse_rooms_btn = QPushButton("🏢 浏览房间")
+        self.browse_rooms_btn.setProperty("secondary", "true")
         self.browse_rooms_btn.clicked.connect(self._browse_rooms)
         btn_layout.addWidget(self.browse_rooms_btn)
 
@@ -168,9 +215,12 @@ class MainWindow(QMainWindow):
         layout.addLayout(btn_layout)
 
         # 方案列表
+        plans_label = QLabel("方案列表")
+        plans_label.setStyleSheet(SECTION_TITLE_STYLE)
+        layout.addWidget(plans_label)
+
         self.plans_display = QTextEdit()
         self.plans_display.setReadOnly(True)
-        layout.addWidget(QLabel("方案列表:"))
         layout.addWidget(self.plans_display)
 
         return widget
@@ -179,37 +229,59 @@ class MainWindow(QMainWindow):
         """创建抢座标签页。"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setSpacing(16)
+
+        # 说明信息
+        info = QLabel(
+            "⚡ 手动执行抢座任务\n"
+            "可以立即执行或设置定时执行，支持倒计时显示"
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet(INFO_BOX_STYLE)
+        layout.addWidget(info)
 
         # 定时设置
-        time_layout = QHBoxLayout()
-        time_layout.addWidget(QLabel("执行时间 (HH:MM:SS，留空立即执行):"))
+        from PySide6.QtWidgets import QFormLayout
+        time_form = QFormLayout()
+        time_form.setSpacing(12)
+
         self.time_input = QLineEdit()
-        self.time_input.setPlaceholderText("例如: 23:59:59")
-        time_layout.addWidget(self.time_input)
-        layout.addLayout(time_layout)
+        self.time_input.setPlaceholderText("留空立即执行，或输入时间如: 23:59:59")
+        time_form.addRow("执行时间:", self.time_input)
+
+        layout.addLayout(time_form)
 
         # 执行按钮
         btn_layout = QHBoxLayout()
-        self.start_btn = QPushButton("开始抢座")
+        btn_layout.setSpacing(12)
+
+        self.start_btn = QPushButton("🚀 开始抢座")
+        self.start_btn.setMinimumHeight(44)
+        self.start_btn.setProperty("success", "true")
         self.start_btn.clicked.connect(self._handle_start_booking)
         btn_layout.addWidget(self.start_btn)
 
-        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn = QPushButton("⛔ 取消")
+        self.cancel_btn.setMinimumHeight(44)
+        self.cancel_btn.setProperty("danger", "true")
         self.cancel_btn.clicked.connect(self._handle_cancel_booking)
         self.cancel_btn.setEnabled(False)
         btn_layout.addWidget(self.cancel_btn)
 
-        btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
         # 倒计时显示
         self.countdown_label = QLabel("")
-        self.countdown_label.setStyleSheet("font-size: 16px; color: blue; padding: 5px;")
+        self.countdown_label.setStyleSheet(COUNTDOWN_STYLE)
         self.countdown_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.countdown_label.setVisible(False)
         layout.addWidget(self.countdown_label)
 
         # 日志输出
-        layout.addWidget(QLabel("执行日志:"))
+        log_label = QLabel("执行日志")
+        log_label.setStyleSheet(SECTION_TITLE_STYLE)
+        layout.addWidget(log_label)
+
         self.log_display = QTextEdit()
         self.log_display.setReadOnly(True)
         layout.addWidget(self.log_display)
@@ -220,18 +292,22 @@ class MainWindow(QMainWindow):
         """创建定时任务标签页。"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setSpacing(16)
 
         # 标题说明
         info = QLabel(
-            "配置系统定时任务，实现每天自动抢座。\n"
-            "配置后无需保持软件运行，系统会在指定时间自动执行。"
+            "⏰ 配置系统定时任务，实现每天自动抢座\n"
+            "配置后无需保持软件运行，系统会在指定时间自动执行"
         )
         info.setWordWrap(True)
-        info.setStyleSheet("padding: 10px; background-color: #e3f2fd; border-radius: 5px;")
+        info.setStyleSheet(INFO_BOX_STYLE)
         layout.addWidget(info)
 
         # 当前状态
-        layout.addWidget(QLabel("当前任务状态:"))
+        status_label = QLabel("当前任务状态")
+        status_label.setStyleSheet(SECTION_TITLE_STYLE)
+        layout.addWidget(status_label)
+
         self.task_status_display = QTextEdit()
         self.task_status_display.setReadOnly(True)
         self.task_status_display.setMaximumHeight(120)
@@ -239,20 +315,25 @@ class MainWindow(QMainWindow):
 
         # 按钮组
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
 
-        self.config_task_btn = QPushButton("配置定时任务")
+        self.config_task_btn = QPushButton("⚙️ 配置任务")
+        self.config_task_btn.setProperty("success", "true")
         self.config_task_btn.clicked.connect(self._configure_scheduler)
         btn_layout.addWidget(self.config_task_btn)
 
-        self.remove_task_btn = QPushButton("移除定时任务")
+        self.remove_task_btn = QPushButton("🗑️ 移除任务")
+        self.remove_task_btn.setProperty("danger", "true")
         self.remove_task_btn.clicked.connect(self._remove_scheduler)
         btn_layout.addWidget(self.remove_task_btn)
 
-        self.test_exec_btn = QPushButton("测试执行")
+        self.test_exec_btn = QPushButton("🧪 测试执行")
+        self.test_exec_btn.setProperty("secondary", "true")
         self.test_exec_btn.clicked.connect(self._test_execution)
         btn_layout.addWidget(self.test_exec_btn)
 
-        self.refresh_status_btn = QPushButton("刷新状态")
+        self.refresh_status_btn = QPushButton("🔄 刷新状态")
+        self.refresh_status_btn.setProperty("secondary", "true")
         self.refresh_status_btn.clicked.connect(self._refresh_scheduler_status)
         btn_layout.addWidget(self.refresh_status_btn)
 
@@ -260,7 +341,10 @@ class MainWindow(QMainWindow):
         layout.addLayout(btn_layout)
 
         # 执行日志
-        layout.addWidget(QLabel("执行日志:"))
+        log_label = QLabel("执行日志")
+        log_label.setStyleSheet(SECTION_TITLE_STYLE)
+        layout.addWidget(log_label)
+
         self.scheduler_log_display = QTextEdit()
         self.scheduler_log_display.setReadOnly(True)
         layout.addWidget(self.scheduler_log_display)
@@ -619,11 +703,12 @@ class MainWindow(QMainWindow):
         seconds = remaining % 60
 
         if hours > 0:
-            text = f"倒计时: {hours:02d}:{minutes:02d}:{seconds:02d}"
+            text = f"⏱️ 倒计时: {hours:02d}:{minutes:02d}:{seconds:02d}"
         else:
-            text = f"倒计时: {minutes:02d}:{seconds:02d}"
+            text = f"⏱️ 倒计时: {minutes:02d}:{seconds:02d}"
 
         self.countdown_label.setText(text)
+        self.countdown_label.setVisible(True)
 
     def _on_progress_update(self, result: BookingResult) -> None:
         """单次尝试进度更新回调。"""
@@ -639,6 +724,7 @@ class MainWindow(QMainWindow):
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self.countdown_label.clear()
+        self.countdown_label.setVisible(False)
 
         success = any(r.success for r in results)
 
@@ -656,6 +742,7 @@ class MainWindow(QMainWindow):
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self.countdown_label.clear()
+        self.countdown_label.setVisible(False)
 
         self._append_log(f"\n✗ 错误: {error_msg}")
         self.statusBar().showMessage("执行出错")
