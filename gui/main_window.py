@@ -29,6 +29,7 @@ from gui.dialogs import (
     DeletePlansDialog,
     ModifyTimeDialog,
     BrowseRoomsDialog,
+    SchedulerConfigDialog,
 )
 from services import (
     AuthService,
@@ -37,6 +38,7 @@ from services import (
     PlanService,
     build_runtime,
 )
+from services.scheduler import SchedulerService
 
 
 class MainWindow(QMainWindow):
@@ -54,6 +56,7 @@ class MainWindow(QMainWindow):
         self.browser_auth = BrowserAuthService(client, settings)
         self.booking = BookingService(settings, client, plans, notifier)
         self.plan_service = PlanService(client, plans, self.booking.room_browser)
+        self.scheduler_service = SchedulerService(settings.project_root)
         self.credentials = load_credentials(settings.credentials_file)
 
         # 工作线程
@@ -90,6 +93,9 @@ class MainWindow(QMainWindow):
 
         # Tab 3: 抢座
         self.tabs.addTab(self._create_booking_tab(), "抢座")
+
+        # Tab 4: 定时任务
+        self.tabs.addTab(self._create_scheduler_tab(), "定时任务")
 
         # 状态栏
         self.statusBar().showMessage("就绪")
@@ -207,6 +213,60 @@ class MainWindow(QMainWindow):
         self.log_display = QTextEdit()
         self.log_display.setReadOnly(True)
         layout.addWidget(self.log_display)
+
+        return widget
+
+    def _create_scheduler_tab(self) -> QWidget:
+        """创建定时任务标签页。"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # 标题说明
+        info = QLabel(
+            "配置系统定时任务，实现每天自动抢座。\n"
+            "配置后无需保持软件运行，系统会在指定时间自动执行。"
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("padding: 10px; background-color: #e3f2fd; border-radius: 5px;")
+        layout.addWidget(info)
+
+        # 当前状态
+        layout.addWidget(QLabel("当前任务状态:"))
+        self.task_status_display = QTextEdit()
+        self.task_status_display.setReadOnly(True)
+        self.task_status_display.setMaximumHeight(120)
+        layout.addWidget(self.task_status_display)
+
+        # 按钮组
+        btn_layout = QHBoxLayout()
+
+        self.config_task_btn = QPushButton("配置定时任务")
+        self.config_task_btn.clicked.connect(self._configure_scheduler)
+        btn_layout.addWidget(self.config_task_btn)
+
+        self.remove_task_btn = QPushButton("移除定时任务")
+        self.remove_task_btn.clicked.connect(self._remove_scheduler)
+        btn_layout.addWidget(self.remove_task_btn)
+
+        self.test_exec_btn = QPushButton("测试执行")
+        self.test_exec_btn.clicked.connect(self._test_execution)
+        btn_layout.addWidget(self.test_exec_btn)
+
+        self.refresh_status_btn = QPushButton("刷新状态")
+        self.refresh_status_btn.clicked.connect(self._refresh_scheduler_status)
+        btn_layout.addWidget(self.refresh_status_btn)
+
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        # 执行日志
+        layout.addWidget(QLabel("执行日志:"))
+        self.scheduler_log_display = QTextEdit()
+        self.scheduler_log_display.setReadOnly(True)
+        layout.addWidget(self.scheduler_log_display)
+
+        # 初始化时刷新状态
+        QTimer.singleShot(100, self._refresh_scheduler_status)
 
         return widget
 
@@ -338,6 +398,158 @@ class MainWindow(QMainWindow):
         """浏览房间对话框。"""
         dialog = BrowseRoomsDialog(self.plan_service, self)
         dialog.exec()  # 只读浏览，不需要处理返回值
+
+    # ------------------------------------------------------------------
+    # 定时任务相关
+    # ------------------------------------------------------------------
+    def _refresh_scheduler_status(self) -> None:
+        """刷新定时任务状态。"""
+        status = self.scheduler_service.get_task_status()
+
+        if status.exists:
+            lines = ["✓ 定时任务已配置\n"]
+            if status.execute_time:
+                lines.append(f"执行时间: {status.execute_time}")
+            if status.next_run:
+                lines.append(f"下次运行: {status.next_run}")
+            if status.wake_to_run is not None:
+                lines.append(f"唤醒计算机: {'是' if status.wake_to_run else '否'}")
+
+            lines.append(f"\n任务名称: {self.scheduler_service.task_name}")
+            lines.append(f"系统平台: {self.scheduler_service.system}")
+
+            self.task_status_display.setText("\n".join(lines))
+        else:
+            self.task_status_display.setText("✗ 未配置定时任务\n\n点击\"配置定时任务\"按钮开始设置")
+
+    def _configure_scheduler(self) -> None:
+        """配置定时任务对话框。"""
+        # 检查是否有启用的方案
+        plans = self.plan_service.list_enabled()
+        if not plans:
+            QMessageBox.warning(
+                self,
+                "无可用方案",
+                "没有启用的预约方案。\n\n请先在\"方案管理\"标签页创建并启用方案。"
+            )
+            return
+
+        # 打开配置对话框
+        dialog = SchedulerConfigDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # 获取配置参数
+        execute_time = dialog.get_execute_time()
+        wake_to_run = dialog.get_wake_to_run()
+
+        # 配置任务
+        self._append_scheduler_log(f"\n正在配置定时任务（{execute_time}）...")
+        self.config_task_btn.setEnabled(False)
+
+        success, message = self.scheduler_service.configure_task(execute_time, wake_to_run)
+
+        self.config_task_btn.setEnabled(True)
+
+        if success:
+            self._append_scheduler_log(f"✓ {message}")
+            self.statusBar().showMessage("定时任务配置成功")
+            self._refresh_scheduler_status()
+            QMessageBox.information(self, "成功", message)
+        else:
+            self._append_scheduler_log(f"✗ 配置失败: {message}")
+            self.statusBar().showMessage("定时任务配置失败")
+            QMessageBox.critical(self, "配置失败", message)
+
+    def _remove_scheduler(self) -> None:
+        """移除定时任务。"""
+        # 确认对话框
+        reply = QMessageBox.question(
+            self,
+            "确认移除",
+            "确定要移除定时任务吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._append_scheduler_log("\n正在移除定时任务...")
+        self.remove_task_btn.setEnabled(False)
+
+        success, message = self.scheduler_service.remove_task()
+
+        self.remove_task_btn.setEnabled(True)
+
+        if success:
+            self._append_scheduler_log(f"✓ {message}")
+            self.statusBar().showMessage("定时任务已移除")
+            self._refresh_scheduler_status()
+            QMessageBox.information(self, "成功", message)
+        else:
+            self._append_scheduler_log(f"✗ 移除失败: {message}")
+            self.statusBar().showMessage("移除失败")
+            QMessageBox.critical(self, "移除失败", message)
+
+    def _test_execution(self) -> None:
+        """测试执行一次后台任务。"""
+        # 检查是否有启用的方案
+        plans = self.plan_service.list_enabled()
+        if not plans:
+            QMessageBox.warning(
+                self,
+                "无可用方案",
+                "没有启用的预约方案。\n\n请先在\"方案管理\"标签页创建并启用方案。"
+            )
+            return
+
+        # 确认对话框
+        reply = QMessageBox.question(
+            self,
+            "确认测试",
+            f"将立即执行一次抢座任务（{len(plans)} 个方案）。\n\n"
+            "这会实际尝试预约座位，确定继续吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._append_scheduler_log("\n正在测试执行...")
+        self.test_exec_btn.setEnabled(False)
+        self.statusBar().showMessage("测试执行中...")
+
+        # 显示进度对话框
+        progress = QMessageBox(self)
+        progress.setWindowTitle("测试执行中")
+        progress.setText("正在执行后台任务，请稍候...\n\n这可能需要数十秒时间。")
+        progress.setStandardButtons(QMessageBox.StandardButton.NoButton)
+        progress.setModal(True)
+        progress.show()
+        QApplication.processEvents()
+
+        success, output = self.scheduler_service.test_execution()
+
+        progress.close()
+        self.test_exec_btn.setEnabled(True)
+
+        if success:
+            self._append_scheduler_log(f"✓ 测试执行成功\n{output}")
+            self.statusBar().showMessage("测试执行成功")
+            QMessageBox.information(self, "测试成功", f"测试执行成功！\n\n{output[:500]}")
+        else:
+            self._append_scheduler_log(f"✗ 测试执行失败\n{output}")
+            self.statusBar().showMessage("测试执行失败")
+            QMessageBox.critical(self, "测试失败", f"测试执行失败。\n\n{output[:500]}")
+
+    def _append_scheduler_log(self, text: str) -> None:
+        """追加定时任务日志。"""
+        self.scheduler_log_display.append(text)
+        self.scheduler_log_display.verticalScrollBar().setValue(
+            self.scheduler_log_display.verticalScrollBar().maximum()
+        )
 
     # ------------------------------------------------------------------
     # 抢座相关
