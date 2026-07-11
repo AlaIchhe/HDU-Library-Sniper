@@ -132,11 +132,27 @@ class CreatePlanDialog(QDialog):
         if index < 0 or index >= len(self.current_room_types):
             return
 
+        # 取消之前的加载
+        if self.floors_worker and self.floors_worker.isRunning():
+            self.floors_worker.finished.disconnect()
+            self.floors_worker.error_occurred.disconnect()
+            self.floors_worker.requestInterruption()
+            self.floors_worker.wait(1000)  # 等待停止
+            self.floors_worker.deleteLater()
+            self.floors_worker = None
+
+        # 关闭之前的加载对话框
+        if self.loading_dialog:
+            self.loading_dialog.close()
+            self.loading_dialog = None
+
         room_type = self.current_room_types[index]
         room_query = room_type["query"]
 
-        # 清空楼层列表
+        # 清空楼层列表并显示加载状态
         self.floor_combo.clear()
+        self.floor_combo.addItem("加载中...")
+        self.floor_combo.setEnabled(False)
         self.current_floors = []
         self.seat_hint_label.clear()
 
@@ -156,6 +172,12 @@ class CreatePlanDialog(QDialog):
         """用户取消加载。"""
         if self.floors_worker and self.floors_worker.isRunning():
             self.floors_worker.requestInterruption()
+            self.floors_worker.wait(1000)
+
+        # 恢复 UI 状态
+        self.floor_combo.clear()
+        self.floor_combo.addItem("已取消加载")
+        self.floor_combo.setEnabled(False)
 
     def _on_floors_loaded(self, floors: list) -> None:
         """楼层加载完成。"""
@@ -164,8 +186,12 @@ class CreatePlanDialog(QDialog):
             self.loading_dialog = None
 
         self.current_floors = floors
+        self.floor_combo.clear()
+        self.floor_combo.setEnabled(True)
 
         if not floors:
+            self.floor_combo.addItem("无可用楼层")
+            self.floor_combo.setEnabled(False)
             QMessageBox.information(self, "提示", "该房间类型当前无可用楼层")
             return
 
@@ -178,13 +204,27 @@ class CreatePlanDialog(QDialog):
         if floors:
             self._on_floor_changed(0)
 
+        # 清理 worker
+        if self.floors_worker:
+            self.floors_worker.deleteLater()
+            self.floors_worker = None
+
     def _on_floors_error(self, error_msg: str) -> None:
         """楼层加载失败。"""
         if self.loading_dialog:
             self.loading_dialog.close()
             self.loading_dialog = None
 
+        self.floor_combo.clear()
+        self.floor_combo.addItem("加载失败")
+        self.floor_combo.setEnabled(False)
+
         QMessageBox.critical(self, "加载失败", f"加载楼层信息失败:\n{error_msg}")
+
+        # 清理 worker
+        if self.floors_worker:
+            self.floors_worker.deleteLater()
+            self.floors_worker = None
 
     def _on_floor_changed(self, index: int) -> None:
         """楼层改变时，更新座位号提示。"""

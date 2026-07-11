@@ -17,8 +17,8 @@ class BookingWorker(QThread):
 
     # 信号：倒计时剩余秒数
     countdown_updated = Signal(int)
-    # 信号：单次尝试结果
-    progress_updated = Signal(object)  # BookingResult
+    # 信号：单次尝试结果 - 使用具体类型而非 object
+    progress_updated = Signal(BookingResult)
     # 信号：全部完成，传递结果列表
     finished = Signal(list)  # list[BookingResult]
     # 信号：发生错误
@@ -43,6 +43,7 @@ class BookingWorker(QThread):
         self.window_wait_seconds = window_wait_seconds
         self.window_poll_interval = window_poll_interval
         self._cancelled = False
+        self.sniper = None  # 将在 run() 中创建
 
     def run(self) -> None:
         """线程主函数：执行抢座任务。"""
@@ -84,9 +85,8 @@ class BookingWorker(QThread):
     def cancel(self) -> None:
         """取消任务（设置标志，由 BookingService 内部的 Sniper 检查）。"""
         self._cancelled = True
-        # 通知 BookingService 的 Sniper 停止
-        if hasattr(self.booking_service, 'sniper') and self.booking_service.sniper:
-            self.booking_service.sniper.cancelled = True
+        # 通过 BookingService 取消活动的 Sniper
+        self.booking_service.cancel_active()
         self.requestInterruption()
 
 
@@ -133,6 +133,27 @@ class LoadFloorsWorker(QThread):
         try:
             floors = self.plan_service.list_floors(self.room_query)
             self.finished.emit(floors)
+        except Exception as exc:
+            self.error_occurred.emit(str(exc))
+
+
+class TestExecutionWorker(QThread):
+    """测试执行工作线程：在后台执行定时任务测试。"""
+
+    # 信号：测试完成，传递 (成功?, 输出)
+    finished = Signal(bool, str)
+    # 信号：发生错误
+    error_occurred = Signal(str)
+
+    def __init__(self, scheduler_service) -> None:
+        super().__init__()
+        self.scheduler_service = scheduler_service
+
+    def run(self) -> None:
+        """线程主函数：执行测试。"""
+        try:
+            success, output = self.scheduler_service.test_execution()
+            self.finished.emit(success, output)
         except Exception as exc:
             self.error_occurred.emit(str(exc))
 

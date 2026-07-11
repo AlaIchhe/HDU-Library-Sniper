@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from utils.time_utils import parse_execute_time
 from config.settings import Credentials, load_credentials, save_credentials
 from core.sniper.retry import BookingResult
-from gui.workers import AuthWorker, BookingWorker
+from gui.workers import AuthWorker, BookingWorker, TestExecutionWorker
 from gui.dialogs import (
     CreatePlanDialog,
     DeletePlansDialog,
@@ -72,6 +72,7 @@ class MainWindow(QMainWindow):
         # 工作线程
         self.booking_worker: BookingWorker | None = None
         self.auth_worker: AuthWorker | None = None
+        self.test_worker: TestExecutionWorker | None = None
 
         # 构建 UI
         self._setup_ui()
@@ -377,6 +378,19 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "输入错误", "请输入学号和密码")
             return
 
+        # 清理旧的 worker（如果存在）
+        if self.auth_worker:
+            try:
+                self.auth_worker.finished.disconnect()
+                self.auth_worker.error_occurred.disconnect()
+            except (RuntimeError, TypeError):
+                pass  # 信号已断开或不存在
+            if self.auth_worker.isRunning():
+                self.auth_worker.requestInterruption()
+                self.auth_worker.wait(1000)
+            self.auth_worker.deleteLater()
+            self.auth_worker = None
+
         # 禁用登录按钮
         self.login_btn.setEnabled(False)
         self._append_auth_status(f"\n正在登录 {student_id}...")
@@ -411,12 +425,22 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("认证失败")
             QMessageBox.warning(self, "认证失败", message)
 
+        # 清理 worker 对象
+        if self.auth_worker:
+            self.auth_worker.deleteLater()
+            self.auth_worker = None
+
     def _on_auth_error(self, error_msg: str) -> None:
         """认证错误回调。"""
         self.login_btn.setEnabled(True)
         self._append_auth_status(f"✗ 认证出错: {error_msg}")
         self.statusBar().showMessage("认证出错")
         QMessageBox.critical(self, "错误", f"认证过程出错:\n{error_msg}")
+
+        # 清理 worker 对象
+        if self.auth_worker:
+            self.auth_worker.deleteLater()
+            self.auth_worker = None
 
     def _append_auth_status(self, text: str) -> None:
         """追加认证状态文本。"""
@@ -577,7 +601,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "移除失败", message)
 
     def _test_execution(self) -> None:
-        """测试执行一次后台任务。"""
+        """测试执行一次后台任务（异步）。"""
         # 检查是否有启用的方案
         plans = self.plan_service.list_enabled()
         if not plans:
@@ -605,18 +629,14 @@ class MainWindow(QMainWindow):
         self.test_exec_btn.setEnabled(False)
         self.statusBar().showMessage("测试执行中...")
 
-        # 显示进度对话框
-        progress = QMessageBox(self)
-        progress.setWindowTitle("测试执行中")
-        progress.setText("正在执行后台任务，请稍候...\n\n这可能需要数十秒时间。")
-        progress.setStandardButtons(QMessageBox.StandardButton.NoButton)
-        progress.setModal(True)
-        progress.show()
-        QApplication.processEvents()
+        # 启动异步测试 worker
+        self.test_worker = TestExecutionWorker(self.scheduler_service)
+        self.test_worker.finished.connect(self._on_test_finished)
+        self.test_worker.error_occurred.connect(self._on_test_error)
+        self.test_worker.start()
 
-        success, output = self.scheduler_service.test_execution()
-
-        progress.close()
+    def _on_test_finished(self, success: bool, output: str) -> None:
+        """测试执行完成回调。"""
         self.test_exec_btn.setEnabled(True)
 
         if success:
@@ -627,6 +647,23 @@ class MainWindow(QMainWindow):
             self._append_scheduler_log(f"✗ 测试执行失败\n{output}")
             self.statusBar().showMessage("测试执行失败")
             QMessageBox.critical(self, "测试失败", f"测试执行失败。\n\n{output[:500]}")
+
+        # 清理 worker
+        if self.test_worker:
+            self.test_worker.deleteLater()
+            self.test_worker = None
+
+    def _on_test_error(self, error_msg: str) -> None:
+        """测试执行错误回调。"""
+        self.test_exec_btn.setEnabled(True)
+        self._append_scheduler_log(f"✗ 测试执行出错: {error_msg}")
+        self.statusBar().showMessage("测试执行出错")
+        QMessageBox.critical(self, "错误", f"测试执行过程出错:\n{error_msg}")
+
+        # 清理 worker
+        if self.test_worker:
+            self.test_worker.deleteLater()
+            self.test_worker = None
 
     def _append_scheduler_log(self, text: str) -> None:
         """追加定时任务日志。"""
@@ -657,6 +694,21 @@ class MainWindow(QMainWindow):
             except ValueError as exc:
                 QMessageBox.warning(self, "时间格式错误", f"请输入有效的时间格式 (HH:MM 或 HH:MM:SS)\n错误: {exc}")
                 return
+
+        # 清理旧的 worker（如果存在）
+        if self.booking_worker:
+            try:
+                self.booking_worker.countdown_updated.disconnect()
+                self.booking_worker.progress_updated.disconnect()
+                self.booking_worker.finished.disconnect()
+                self.booking_worker.error_occurred.disconnect()
+            except (RuntimeError, TypeError):
+                pass  # 信号已断开或不存在
+            if self.booking_worker.isRunning():
+                self.booking_worker.cancel()
+                self.booking_worker.wait(1000)
+            self.booking_worker.deleteLater()
+            self.booking_worker = None
 
         # 清空日志
         self.log_display.clear()
@@ -737,6 +789,11 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("预约失败")
             QMessageBox.warning(self, "失败", f"预约失败，共尝试 {len(results)} 次")
 
+        # 清理 worker 对象
+        if self.booking_worker:
+            self.booking_worker.deleteLater()
+            self.booking_worker = None
+
     def _on_booking_error(self, error_msg: str) -> None:
         """抢座错误回调。"""
         self.start_btn.setEnabled(True)
@@ -748,6 +805,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("执行出错")
         QMessageBox.critical(self, "错误", f"执行过程出错:\n{error_msg}")
 
+        # 清理 worker 对象
+        if self.booking_worker:
+            self.booking_worker.deleteLater()
+            self.booking_worker = None
+
     def _append_log(self, text: str) -> None:
         """追加日志文本。"""
         self.log_display.append(text)
@@ -758,12 +820,23 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """窗口关闭事件：清理工作线程。"""
-        # 如果有正在运行的任务，询问确认
+        # 收集所有活动的 worker
+        active_workers = []
         if self.booking_worker and self.booking_worker.isRunning():
+            active_workers.append(('booking', self.booking_worker))
+        if self.auth_worker and self.auth_worker.isRunning():
+            active_workers.append(('auth', self.auth_worker))
+        if self.test_worker and self.test_worker.isRunning():
+            active_workers.append(('test', self.test_worker))
+
+        # 如果有活动任务，询问确认
+        if active_workers:
+            task_names = {"booking": "抢座", "auth": "认证", "test": "测试执行"}
+            tasks_str = "、".join(task_names[name] for name, _ in active_workers)
             reply = QMessageBox.question(
                 self,
                 "确认退出",
-                "抢座任务正在执行中，确定要退出吗？",
+                f"{tasks_str}任务正在执行中，确定要退出吗？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No
             )
@@ -772,8 +845,16 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
 
-            # 取消任务
-            self.booking_worker.cancel()
-            self.booking_worker.wait(2000)  # 等待最多 2 秒
+            # 取消并等待所有线程结束
+            for name, worker in active_workers:
+                if name == 'booking':
+                    worker.cancel()
+                else:
+                    worker.requestInterruption()
+
+                # 等待线程结束，超时后强制终止
+                if not worker.wait(3000):  # 3秒超时
+                    worker.terminate()
+                    worker.wait()  # 等待终止完成
 
         event.accept()
