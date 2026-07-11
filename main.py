@@ -1,27 +1,32 @@
-"""HDU 图书馆抢座工具 — 多模式入口。"""
+"""HDU 图书馆抢座工具 - 统一入口。"""
 
 from __future__ import annotations
 
 import sys
 
-from cli.app import InteractiveApp
-from services.booking import BookingService
-from services.runtime import build_runtime
-
 
 def main() -> None:
-    if "--gui" in sys.argv[1:]:
-        # GUI 模式
+    """统一入口：GUI 界面 / 后台守护进程。
+
+    模式：
+    - 默认: 启动 GUI 界面（用户唯一交互方式）
+    - --daemon / --run-now: 后台执行（由系统定时任务调用，用户不可见）
+    """
+
+    if "--daemon" in sys.argv[1:] or "--run-now" in sys.argv[1:]:
+        # 后台守护进程模式：静默执行抢座
+        # 用于系统定时任务调用，用户不应该直接运行此模式
+        from services.booking import BookingService
+        from services.runtime import build_runtime
+        sys.exit(BookingService(*build_runtime()).run_once())
+
+    else:
+        # GUI 界面模式（默认）
+        # 这是用户唯一应该看到的交互界面
         from gui.app import run_gui
         run_gui()
-    elif "--run-now" in sys.argv[1:]:
-        # 非交互模式：不打印菜单、不等待任何键盘输入，跑完立即退出。
-        # 退出码：0=成功 1=全部尝试失败 2=认证失败 3=无启用方案，方便任务计划程序按结果判断。
-        sys.exit(BookingService(*build_runtime()).run_once())
-    else:
-        # 默认：终端交互模式
-        InteractiveApp().run()
 
 
 if __name__ == "__main__":
     main()
+

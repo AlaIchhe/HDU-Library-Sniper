@@ -15,6 +15,7 @@ _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
 class Settings:
     """抢座工具运行配置。"""
 
+    project_root: Path = Path.cwd()
     max_trials: int = 5
     retry_delay: float = 1.0
     dry_run: bool = False
@@ -50,7 +51,11 @@ def load_settings(path: str | Path = _DEFAULT_CONFIG_PATH) -> Settings:
     paths = data.get("paths") or {}
     notification = data.get("notification") or {}
 
+    # 项目根目录：config.yaml 所在目录的上一级
+    project_root = path.resolve().parent.parent
+
     return Settings(
+        project_root=project_root,
         max_trials=int(booking.get("max_trials", 5)),
         retry_delay=float(booking.get("retry_delay", 1.0)),
         dry_run=bool(booking.get("dry_run", False)),
