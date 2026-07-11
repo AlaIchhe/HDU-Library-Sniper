@@ -43,13 +43,11 @@ playwright install chromium
 ### 启动软件
 
 **Windows 用户（推荐）**：
-- 双击 `HDU图书馆抢座.vbs` — 静默启动，无命令行窗口
+- 双击 `launch.vbs` — 静默启动，无命令行窗口
 
 **其他方式**：
 ```bash
 python main.py          # 启动 GUI 界面
-start.bat               # Windows 批处理启动
-bash start.sh           # Linux/macOS Shell 启动
 ```
 
 ---
