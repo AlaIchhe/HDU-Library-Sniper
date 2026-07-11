@@ -20,7 +20,7 @@ services:
       # 持久化数据
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./config:/app/config
+      - ./src/config:/app/src/config
     network_mode: host
     profiles:
       - gui
@@ -41,7 +41,7 @@ services:
       # 持久化数据（凭据、预约方案、会话缓存）
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./config:/app/config
+      - ./src/config:/app/src/config
     restart: unless-stopped
     profiles:
       - daemon
@@ -62,7 +62,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./config:/app/config
+      - ./src/config:/app/src/config
     restart: unless-stopped
     profiles:
       - scheduled

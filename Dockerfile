@@ -51,11 +51,7 @@ WORKDIR /app
 # 复制项目文件
 COPY pyproject.toml uv.lock ./
 COPY main.py ./
-COPY core ./core
-COPY ui ./ui
-COPY services ./services
-COPY utils ./utils
-COPY config ./config
+COPY src ./src
 
 # 安装 Python 依赖
 RUN uv sync --frozen --no-dev
