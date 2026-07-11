@@ -92,9 +92,7 @@ class DeletePlansDialog(QDialog):
             QMessageBox.warning(self, "提示", "请至少选择一个方案")
             return
 
-        selected_ids = [
-            item.data(Qt.ItemDataRole.UserRole) for item in selected_items
-        ]
+        selected_ids = [item.data(Qt.ItemDataRole.UserRole) for item in selected_items]
 
         # 二次确认
         reply = QMessageBox.question(
@@ -102,7 +100,7 @@ class DeletePlansDialog(QDialog):
             "确认删除",
             f"确定要删除选中的 {len(selected_ids)} 个方案吗？\n\n此操作不可撤销！",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.No,
         )
 
         if reply != QMessageBox.StandardButton.Yes:
@@ -111,11 +109,7 @@ class DeletePlansDialog(QDialog):
         # 调用服务层删除
         try:
             count = self.plan_service.delete_plans(selected_ids)
-            QMessageBox.information(
-                self,
-                "成功",
-                f"已成功删除 {count} 个方案"
-            )
+            QMessageBox.information(self, "成功", f"已成功删除 {count} 个方案")
             super().accept()
 
         except Exception as e:

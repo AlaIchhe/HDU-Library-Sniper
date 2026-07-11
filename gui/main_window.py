@@ -17,24 +17,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from utils.time_utils import parse_execute_time
 from config.settings import Credentials, load_credentials, save_credentials
 from core.sniper.retry import BookingResult
-from gui.workers import AuthWorker, BookingWorker, TestExecutionWorker
 from gui.dialogs import (
+    BrowseRoomsDialog,
     CreatePlanDialog,
     DeletePlansDialog,
     ModifyTimeDialog,
-    BrowseRoomsDialog,
     SchedulerConfigDialog,
 )
 from gui.styles import (
-    GLOBAL_STYLE,
-    TITLE_STYLE,
-    INFO_BOX_STYLE,
     COUNTDOWN_STYLE,
+    GLOBAL_STYLE,
+    INFO_BOX_STYLE,
     SECTION_TITLE_STYLE,
+    TITLE_STYLE,
 )
+from gui.workers import AuthWorker, BookingWorker, TestExecutionWorker
 from services import (
     AuthService,
     BookingService,
@@ -43,6 +42,7 @@ from services import (
     build_runtime,
 )
 from services.scheduler import SchedulerService
+from utils.time_utils import parse_execute_time
 
 
 class MainWindow(QMainWindow):
@@ -118,8 +118,7 @@ class MainWindow(QMainWindow):
 
         # 说明信息
         info = QLabel(
-            "💡 使用学号和密码登录杭电统一身份认证系统\n"
-            "登录后将自动保存凭据，下次启动可快速认证"
+            "💡 使用学号和密码登录杭电统一身份认证系统\n登录后将自动保存凭据，下次启动可快速认证"
         )
         info.setWordWrap(True)
         info.setStyleSheet(INFO_BOX_STYLE)
@@ -127,6 +126,7 @@ class MainWindow(QMainWindow):
 
         # 登录表单
         from PySide6.QtWidgets import QFormLayout
+
         form_layout = QFormLayout()
         form_layout.setSpacing(12)
         form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -173,8 +173,7 @@ class MainWindow(QMainWindow):
 
         # 说明信息
         info = QLabel(
-            "📝 创建和管理预约方案，每个方案对应一个座位预约规则\n"
-            "启用的方案将在抢座时自动执行"
+            "📝 创建和管理预约方案，每个方案对应一个座位预约规则\n启用的方案将在抢座时自动执行"
         )
         info.setWordWrap(True)
         info.setStyleSheet(INFO_BOX_STYLE)
@@ -230,16 +229,14 @@ class MainWindow(QMainWindow):
         layout.setSpacing(16)
 
         # 说明信息
-        info = QLabel(
-            "⚡ 手动执行抢座任务\n"
-            "可以立即执行或设置定时执行，支持倒计时显示"
-        )
+        info = QLabel("⚡ 手动执行抢座任务\n可以立即执行或设置定时执行，支持倒计时显示")
         info.setWordWrap(True)
         info.setStyleSheet(INFO_BOX_STYLE)
         layout.addWidget(info)
 
         # 定时设置
         from PySide6.QtWidgets import QFormLayout
+
         time_form = QFormLayout()
         time_form.setSpacing(12)
 
@@ -364,7 +361,7 @@ class MainWindow(QMainWindow):
 
         # 如果有保存的凭据，自动填充但不自动登录
         if self.credentials:
-            self._append_auth_status("检测到已保存的凭据，请点击\"登录\"按钮")
+            self._append_auth_status('检测到已保存的凭据，请点击"登录"按钮')
 
     def _handle_login(self) -> None:
         """处理登录按钮点击。"""
@@ -409,8 +406,7 @@ class MainWindow(QMainWindow):
 
             # 保存凭据
             creds = Credentials(
-                student_id=self.sid_input.text().strip(),
-                password=self.pwd_input.text().strip()
+                student_id=self.sid_input.text().strip(), password=self.pwd_input.text().strip()
             )
             try:
                 save_credentials(self.settings.credentials_file, creds)
@@ -525,7 +521,7 @@ class MainWindow(QMainWindow):
 
             self.task_status_display.setText("\n".join(lines))
         else:
-            self.task_status_display.setText("✗ 未配置定时任务\n\n点击\"配置定时任务\"按钮开始设置")
+            self.task_status_display.setText('✗ 未配置定时任务\n\n点击"配置定时任务"按钮开始设置')
 
     def _configure_scheduler(self) -> None:
         """配置定时任务对话框。"""
@@ -533,9 +529,7 @@ class MainWindow(QMainWindow):
         plans = self.plan_service.list_enabled()
         if not plans:
             QMessageBox.warning(
-                self,
-                "无可用方案",
-                "没有启用的预约方案。\n\n请先在\"方案管理\"标签页创建并启用方案。"
+                self, "无可用方案", '没有启用的预约方案。\n\n请先在"方案管理"标签页创建并启用方案。'
             )
             return
 
@@ -574,7 +568,7 @@ class MainWindow(QMainWindow):
             "确认移除",
             "确定要移除定时任务吗？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.No,
         )
 
         if reply != QMessageBox.StandardButton.Yes:
@@ -603,9 +597,7 @@ class MainWindow(QMainWindow):
         plans = self.plan_service.list_enabled()
         if not plans:
             QMessageBox.warning(
-                self,
-                "无可用方案",
-                "没有启用的预约方案。\n\n请先在\"方案管理\"标签页创建并启用方案。"
+                self, "无可用方案", '没有启用的预约方案。\n\n请先在"方案管理"标签页创建并启用方案。'
             )
             return
 
@@ -616,7 +608,7 @@ class MainWindow(QMainWindow):
             f"将立即执行一次抢座任务（{len(plans)} 个方案）。\n\n"
             "这会实际尝试预约座位，确定继续吗？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.No,
         )
 
         if reply != QMessageBox.StandardButton.Yes:
@@ -689,7 +681,9 @@ class MainWindow(QMainWindow):
                 if execute_at is None:
                     raise ValueError("时间格式无效")
             except ValueError as exc:
-                QMessageBox.warning(self, "时间格式错误", f"请输入有效的时间格式 (HH:MM 或 HH:MM:SS)\n错误: {exc}")
+                QMessageBox.warning(
+                    self, "时间格式错误", f"请输入有效的时间格式 (HH:MM 或 HH:MM:SS)\n错误: {exc}"
+                )
                 return
 
         # 清理旧的 worker（如果存在）
@@ -820,11 +814,11 @@ class MainWindow(QMainWindow):
         # 收集所有活动的 worker
         active_workers = []
         if self.booking_worker and self.booking_worker.isRunning():
-            active_workers.append(('booking', self.booking_worker))
+            active_workers.append(("booking", self.booking_worker))
         if self.auth_worker and self.auth_worker.isRunning():
-            active_workers.append(('auth', self.auth_worker))
+            active_workers.append(("auth", self.auth_worker))
         if self.test_worker and self.test_worker.isRunning():
-            active_workers.append(('test', self.test_worker))
+            active_workers.append(("test", self.test_worker))
 
         # 如果有活动任务，询问确认
         if active_workers:
@@ -835,7 +829,7 @@ class MainWindow(QMainWindow):
                 "确认退出",
                 f"{tasks_str}任务正在执行中，确定要退出吗？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No
+                QMessageBox.StandardButton.No,
             )
 
             if reply == QMessageBox.StandardButton.No:
@@ -844,7 +838,7 @@ class MainWindow(QMainWindow):
 
             # 取消并等待所有线程结束
             for name, worker in active_workers:
-                if name == 'booking':
+                if name == "booking":
                     worker.cancel()
                 else:
                     worker.requestInterruption()

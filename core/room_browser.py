@@ -78,7 +78,7 @@ class RoomBrowser:
             )
         return result
 
-    def resolve_room_query(self, plan: "BookingPlan") -> str:
+    def resolve_room_query(self, plan: BookingPlan) -> str:
         """方案 -> 房间查询串。
 
         ``plan.room_query`` 非空直接用；否则按 ``room_type`` 匹配房间类型名。
@@ -99,7 +99,7 @@ class RoomBrowser:
         available = ", ".join(r.get("name", "?") for r in room_types)
         raise HduLibraryError(f"未找到匹配的房间类型: 期望 '{target_name}', 可用: [{available}]")
 
-    def get_floors_for_booking(self, plan: "BookingPlan") -> list[dict[str, Any]]:
+    def get_floors_for_booking(self, plan: BookingPlan) -> list[dict[str, Any]]:
         """定位方案对应的楼层座位数据（抢座编排用，按预约开始时间查询）。"""
         return self._load_seat_map(
             self.resolve_room_query(plan),

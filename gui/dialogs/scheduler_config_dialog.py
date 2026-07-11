@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTime
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QLabel,
     QTimeEdit,
     QVBoxLayout,
-    QCheckBox,
 )
 
 
@@ -48,6 +48,7 @@ class SchedulerConfigDialog(QDialog):
 
         # Windows 专用选项
         import platform
+
         if platform.system() == "Windows":
             self.wake_checkbox = QCheckBox("唤醒计算机以运行任务（推荐）")
             self.wake_checkbox.setChecked(True)
@@ -86,6 +87,7 @@ class SchedulerConfigDialog(QDialog):
     def get_wake_to_run(self) -> bool:
         """获取是否唤醒计算机（仅 Windows）。"""
         import platform
+
         if platform.system() == "Windows" and hasattr(self, "wake_checkbox"):
             return self.wake_checkbox.isChecked()
         return False

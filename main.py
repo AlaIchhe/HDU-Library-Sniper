@@ -18,15 +18,16 @@ def main() -> None:
         # 用于系统定时任务调用，用户不应该直接运行此模式
         from services.booking import BookingService
         from services.runtime import build_runtime
+
         sys.exit(BookingService(*build_runtime()).run_once())
 
     else:
         # GUI 界面模式（默认）
         # 这是用户唯一应该看到的交互界面
         from gui.app import run_gui
+
         run_gui()
 
 
 if __name__ == "__main__":
     main()
-

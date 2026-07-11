@@ -48,7 +48,7 @@ class BookingPlan:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "BookingPlan":
+    def from_dict(cls, data: dict[str, Any]) -> BookingPlan:
         known = {f.name for f in cls.__dataclass_fields__.values()}
         filtered = {k: v for k, v in data.items() if k in known}
         return cls(**filtered)

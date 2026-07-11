@@ -1,4 +1,0 @@
-requests>=2.31
-pyyaml>=6.0
-playwright>=1.40
-PySide6>=6.6.0

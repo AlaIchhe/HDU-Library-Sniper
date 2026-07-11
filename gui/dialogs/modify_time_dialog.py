@@ -73,11 +73,7 @@ class ModifyTimeDialog(QDialog):
         layout.addLayout(form)
 
         # 说明
-        info = QLabel(
-            "说明:\n"
-            "• 留空的字段将保持原值\n"
-            "• 所有选中的方案将使用相同的新值"
-        )
+        info = QLabel("说明:\n• 留空的字段将保持原值\n• 所有选中的方案将使用相同的新值")
         info.setStyleSheet("color: gray; font-size: 11px;")
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -169,9 +165,7 @@ class ModifyTimeDialog(QDialog):
             QMessageBox.warning(self, "提示", "请至少选择一个方案")
             return
 
-        selected_ids = [
-            item.data(Qt.ItemDataRole.UserRole) for item in selected_items
-        ]
+        selected_ids = [item.data(Qt.ItemDataRole.UserRole) for item in selected_items]
 
         # 构造更新参数
         try:
@@ -182,10 +176,7 @@ class ModifyTimeDialog(QDialog):
 
         if not kwargs:
             QMessageBox.warning(
-                self,
-                "提示",
-                "请至少输入一个要修改的参数\n\n"
-                "留空表示保持原值，但至少要修改一个字段"
+                self, "提示", "请至少输入一个要修改的参数\n\n留空表示保持原值，但至少要修改一个字段"
             )
             return
 
@@ -201,11 +192,11 @@ class ModifyTimeDialog(QDialog):
         reply = QMessageBox.question(
             self,
             "确认修改",
-            f"将对 {len(selected_ids)} 个方案进行以下修改:\n\n" +
-            "\n".join(f"• {f}" for f in fields) +
-            "\n\n确定要继续吗？",
+            f"将对 {len(selected_ids)} 个方案进行以下修改:\n\n"
+            + "\n".join(f"• {f}" for f in fields)
+            + "\n\n确定要继续吗？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
+            QMessageBox.StandardButton.Yes,
         )
 
         if reply != QMessageBox.StandardButton.Yes:
@@ -214,11 +205,7 @@ class ModifyTimeDialog(QDialog):
         # 调用服务层修改
         try:
             count = self.plan_service.modify_time(selected_ids, **kwargs)
-            QMessageBox.information(
-                self,
-                "成功",
-                f"已成功修改 {count} 个方案"
-            )
+            QMessageBox.information(self, "成功", f"已成功修改 {count} 个方案")
             super().accept()
 
         except Exception as e:

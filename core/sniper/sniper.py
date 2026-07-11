@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import random
 import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable
 
 from core import contract
 from core.client import HduLibraryError, LibraryClient
@@ -77,20 +77,18 @@ class Sniper:
             # 读/连超时 ≠ 预约失败。服务器很可能已处理请求只是响应缓慢。
             # 去服务端查询今日预约做幂等确认，避免重复请求并正确报告结果。
             if exc.is_timeout:
-                confirmed = self.client.find_confirmed_booking(
-                    int(begin_time.timestamp())
-                )
+                confirmed = self.client.find_confirmed_booking(int(begin_time.timestamp()))
                 if confirmed:
-                    return BookingResult(
-                        plan, True, "预约成功（响应超时，已服务端确认）"
-                    )
+                    return BookingResult(plan, True, "预约成功（响应超时，已服务端确认）")
             return BookingResult(plan, False, f"预约请求失败: {exc}")
 
         if self.dry_run:
             return BookingResult(plan, True, f"[预览模式] 参数已就绪: {result}", result)
 
         if booking_failed(result):
-            return BookingResult(plan, False, _extract_message(result) or "预约接口返回失败", result)
+            return BookingResult(
+                plan, False, _extract_message(result) or "预约接口返回失败", result
+            )
 
         return BookingResult(plan, True, _extract_message(result) or "预约成功", result)
 

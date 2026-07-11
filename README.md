@@ -27,17 +27,35 @@
 
 ### 环境要求
 
-- Python 3.10+
-- 依赖：`requests`、`pyyaml`、`playwright`、`PySide6`（使用 `pip install -r requirements.txt` 安装）
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) - 现代 Python 包管理器
 - 浏览器二进制：`playwright install chromium`（headless 登录用，约 150MB，仅首次）
 
 ### 安装
 
+**1. 安装 uv（如果未安装）**
+
+Windows (PowerShell):
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+macOS/Linux:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**2. 克隆项目并安装依赖**
+
 ```bash
 git clone https://github.com/AlaIchhe/HDU-Library-Sniper.git
 cd HDU-Library-Sniper
-pip install -r requirements.txt
-playwright install chromium
+
+# 安装依赖（自动创建虚拟环境）
+uv sync
+
+# 安装浏览器
+uv run playwright install chromium
 ```
 
 ### 启动软件
@@ -45,9 +63,11 @@ playwright install chromium
 **Windows 用户（推荐）**：
 - 双击 `launch.bat` — 静默启动，无命令行窗口
 
-**其他方式**：
+**命令行启动**：
 ```bash
-python main.py          # 启动 GUI 界面
+uv run python main.py   # 使用 uv 运行
+# 或
+make run                # 使用 Makefile
 ```
 
 ---
@@ -288,6 +308,88 @@ window_poll_interval: 2          # 窗口轮询间隔（秒）
 ### GitHub Actions（备选方案）
 
 在 GitHub 上 fork 本仓库后，参考 [docs/github-actions-setup.md](docs/github-actions-setup.md) 设置 Secrets 即可触发每日自动抢座（适合无法保持电脑开机的场景）。
+
+---
+
+## 🛠️ 开发指南
+
+### 开发环境设置
+
+```bash
+# 安装所有开发依赖
+uv sync --all-groups
+
+# 或使用 Makefile
+make dev
+```
+
+### 常用命令
+
+```bash
+# 代码检查
+make lint              # 运行 ruff 检查
+uv run ruff check .
+
+# 代码格式化
+make format            # 自动格式化
+uv run ruff format .
+
+# 运行测试
+make test              # 运行测试套件
+uv run pytest
+
+# 运行应用
+make run               # 启动 GUI
+uv run python main.py
+
+# 清理缓存
+make clean
+```
+
+### 项目结构
+
+```
+HDU-Library-Sniper/
+├── config/           # 配置管理
+├── core/             # 核心业务逻辑
+│   ├── client.py     # HTTP 客户端
+│   ├── room_browser.py  # 房间查询
+│   └── sniper/       # 抢座核心
+├── gui/              # GUI 界面
+│   ├── dialogs/      # 对话框
+│   ├── main_window.py  # 主窗口
+│   └── workers.py    # 后台线程
+├── services/         # 服务层
+│   ├── auth.py       # 认证服务
+│   ├── booking.py    # 预约服务
+│   └── scheduler.py  # 定时任务
+├── tests/            # 测试
+├── utils/            # 工具函数
+├── pyproject.toml    # 项目配置
+├── uv.lock          # 依赖锁定
+└── Makefile         # 快捷命令
+```
+
+### 技术栈
+
+- **包管理**: [uv](https://docs.astral.sh/uv/) - 快速、现代的 Python 包管理器
+- **代码质量**: [ruff](https://docs.astral.sh/ruff/) - 极速 linter + formatter
+- **测试**: [pytest](https://pytest.org/) + pytest-cov
+- **GUI**: [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python)
+- **自动化**: [Playwright](https://playwright.dev/python/) - 浏览器自动化
+
+### 贡献指南
+
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add some amazing feature'`)
+4. 推送到分支 (`git push origin feature/amazing-feature`)
+5. 创建 Pull Request
+
+**代码规范**:
+- 运行 `make lint` 确保代码通过检查
+- 运行 `make format` 自动格式化代码
+- 运行 `make test` 确保测试通过
 
 ---
 

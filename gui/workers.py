@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Callable
 
 from PySide6.QtCore import QThread, Signal
 
@@ -156,4 +155,3 @@ class TestExecutionWorker(QThread):
             self.finished.emit(success, output)
         except Exception as exc:
             self.error_occurred.emit(str(exc))
-
