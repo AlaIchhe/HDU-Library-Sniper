@@ -43,7 +43,7 @@ playwright install chromium
 ### 启动软件
 
 **Windows 用户（推荐）**：
-- 双击 `launch.vbs` — 静默启动，无命令行窗口
+- 双击 `launch.bat` — 静默启动，无命令行窗口
 
 **其他方式**：
 ```bash
