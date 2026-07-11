@@ -179,7 +179,7 @@ python main.py --daemon    # 或 pythonw.exe (Windows)
 ```
 
 **执行流程**：
-1. 读取配置文件（`config/plans.yaml`, `data/credentials.yaml`）
+1. 读取配置文件（`src/config/plans.yaml`, `data/credentials.yaml`）
 2. 尝试使用缓存登录，失败则用凭据续登
 3. 读取启用的方案
 4. 执行抢座（带重试、窗口轮询）
@@ -216,47 +216,48 @@ HDU-Library-Sniper/
 ├── docker-entrypoint.sh         # Docker 智能入口脚本
 ├── .env.example                 # Docker 环境变量模板
 │
-├── config/                      # 配置管理（用户配置，可提交）
-│   ├── config.yaml              # 用户配置文件
-│   ├── plans.yaml               # 预约方案配置
-│   └── settings.py              # 配置加载模块
-│
-├── core/                        # 核心业务逻辑
-│   ├── client.py                # 图书馆 API 客户端
-│   ├── contract.py              # 接口契约定义
-│   ├── room_browser.py          # 房间/座位查询
-│   └── sniper/                  # 抢座引擎
-│       ├── sniper.py            # 核心抢座逻辑
-│       ├── plan.py              # 预约方案模型
-│       ├── retry.py             # 重试策略
-│       └── repository.py        # 方案持久化
-│
-├── ui/                          # 用户界面（PySide6）
-│   ├── app.py                   # GUI 启动入口
-│   ├── main_window.py           # 主窗口（认证、方案管理、抢座、定时任务）
-│   ├── styles.py                # UI 样式定义
-│   ├── workers.py               # 异步工作线程
-│   ├── widgets/                 # 自定义组件
-│   └── dialogs/                 # 对话框
-│       ├── create_plan_dialog.py
-│       ├── delete_plans_dialog.py
-│       ├── modify_time_dialog.py
-│       ├── browse_rooms_dialog.py
-│       └── scheduler_config_dialog.py
-│
-├── services/                    # 业务逻辑层
-│   ├── auth.py                  # 认证服务
-│   ├── booking.py               # 抢座服务
-│   ├── plans.py                 # 方案管理服务
-│   ├── scheduler.py             # 定时任务管理服务
-│   ├── runtime.py               # 运行时构建
-│   └── browser_auth.py          # 浏览器自动登录
-│
-├── utils/                       # 工具函数
-│   ├── encrypt.py               # API 签名生成
-│   ├── notifier.py              # 通知推送（日志 + 微信 webhook）
-│   ├── time_sync.py             # 时间同步
-│   └── time_utils.py            # 时间解析工具
+├── src/                         # 核心业务代码
+│   ├── config/                  # 配置管理（用户配置，可提交）
+│   │   ├── config.yaml          # 用户配置文件
+│   │   ├── plans.yaml           # 预约方案配置
+│   │   └── settings.py          # 配置加载模块
+│   │
+│   ├── core/                    # 核心业务逻辑
+│   │   ├── client.py            # 图书馆 API 客户端
+│   │   ├── contract.py          # 接口契约定义
+│   │   ├── room_browser.py      # 房间/座位查询
+│   │   └── sniper/              # 抢座引擎
+│   │       ├── sniper.py        # 核心抢座逻辑
+│   │       ├── plan.py          # 预约方案模型
+│   │       ├── retry.py         # 重试策略
+│   │       └── repository.py    # 方案持久化
+│   │
+│   ├── ui/                      # 用户界面（PySide6）
+│   │   ├── app.py               # GUI 启动入口
+│   │   ├── main_window.py       # 主窗口（认证、方案管理、抢座、定时任务）
+│   │   ├── styles.py            # UI 样式定义
+│   │   ├── workers.py           # 异步工作线程
+│   │   ├── widgets/             # 自定义组件
+│   │   └── dialogs/             # 对话框
+│   │       ├── create_plan_dialog.py
+│   │       ├── delete_plans_dialog.py
+│   │       ├── modify_time_dialog.py
+│   │       ├── browse_rooms_dialog.py
+│   │       └── scheduler_config_dialog.py
+│   │
+│   ├── services/                # 业务逻辑层
+│   │   ├── auth.py              # 认证服务
+│   │   ├── booking.py           # 抢座服务
+│   │   ├── plans.py             # 方案管理服务
+│   │   ├── scheduler.py         # 定时任务管理服务
+│   │   ├── runtime.py           # 运行时构建
+│   │   └── browser_auth.py      # 浏览器自动登录
+│   │
+│   └── utils/                   # 工具函数
+│       ├── encrypt.py           # API 签名生成
+│       ├── notifier.py          # 通知推送（日志 + 微信 webhook）
+│       ├── time_sync.py         # 时间同步
+│       └── time_utils.py        # 时间解析工具
 │
 ├── scripts/
 │   ├── AutoSchedule.ps1         # Windows 任务计划自动注册脚本
@@ -279,7 +280,7 @@ HDU-Library-Sniper/
     └── contracts/               # API 契约示例
 ```
 
-> ⚠️ **安全提示**: `data/` 和 `logs/` 目录包含敏感数据（登录态、凭据、日志），已加入 `.gitignore`，不会被提交到 Git。`config/plans.yaml` 是用户配置文件，可提交到仓库。
+> ⚠️ **安全提示**: `data/` 和 `logs/` 目录包含敏感数据（登录态、凭据、日志），已加入 `.gitignore`，不会被提交到 Git。`src/config/plans.yaml` 是用户配置文件，可提交到仓库。
 
 ---
 
@@ -299,7 +300,7 @@ A: 不能。需要保持电脑开机或睡眠状态。
 ### Q: 如何查看抢座结果？
 
 A: 三种方式：
-1. 查看通知推送（需在 `config/config.yaml` 配置 webhook）
+1. 查看通知推送（需在 `src/config/config.yaml` 配置 webhook）
 2. 查看 `logs/` 目录下的日志文件
 3. 在 GUI 的"定时任务"标签页点击"测试执行"查看执行情况
 
@@ -400,38 +401,17 @@ HDU-Library-Sniper/
 ├── Dockerfile           # Docker 构建
 ├── docker-compose.yml   # Docker 编排
 │
-├── config/              # 配置管理
-├── core/                # 核心业务逻辑
-│   ├── client.py        # API 客户端
-│   ├── contract.py      # 接口契约
-│   ├── room_browser.py  # 房间查询
-│   └── sniper/          # 抢座引擎
-│
-├── ui/                  # 用户界面
-│   ├── app.py           # 启动入口
-│   ├── main_window.py   # 主窗口
-│   ├── styles.py        # 样式定义
-│   ├── workers.py       # 异步线程
-│   ├── widgets/         # 自定义组件
-│   └── dialogs/         # 对话框集合
-│
-├── services/            # 业务逻辑层
-│   ├── auth.py          # 认证服务
-│   ├── booking.py       # 抢座服务
-│   ├── plans.py         # 方案管理
-│   ├── scheduler.py     # 定时任务
-│   ├── runtime.py       # 运行时构建
-│   └── browser_auth.py  # 浏览器登录
-│
-├── utils/               # 工具函数
-│   ├── encrypt.py       # API 签名
-│   ├── notifier.py      # 通知推送
-│   ├── time_sync.py     # 时间同步
-│   └── time_utils.py    # 时间解析
+├── src/                 # 核心业务代码
+│   ├── config/          # 配置管理
+│   ├── core/            # 核心业务逻辑
+│   │   └── sniper/      # 抢座引擎
+│   ├── ui/              # 用户界面
+│   │   ├── dialogs/     # 对话框集合
+│   │   └── widgets/     # 自定义组件
+│   ├── services/        # 业务逻辑层
+│   └── utils/           # 工具函数
 │
 ├── scripts/             # 脚本
-│   └── AutoSchedule.ps1 # Windows 任务计划
-│
 ├── data/                # 运行时数据（gitignore）
 ├── logs/                # 运行日志（gitignore）
 ├── tests/               # 测试套件

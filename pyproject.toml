@@ -33,7 +33,7 @@ classifiers = [
 hdu-sniper = "main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["core", "ui", "services", "utils"]
+packages = ["src/core", "src/ui", "src/services", "src/utils", "src/config"]
 include = ["main.py"]
 
 [dependency-groups]
@@ -52,7 +52,7 @@ test = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = [".", "core", "ui", "services", "utils"]
+src = ["src", ".", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = [
@@ -101,12 +101,12 @@ ignore = [
 "tests/**" = ["S101", "PLR2004", "ARG001", "PLC0415"]  # Allow assert, magic values, unused args, and lazy imports in tests
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
 "main.py" = ["PLC0415"]  # Allow lazy imports for conditional CLI modes
-"ui/**" = ["N802", "PLC0415"]  # Allow Qt method names (closeEvent) and lazy imports in UI
+"src/ui/**" = ["N802", "PLC0415"]  # Allow Qt method names (closeEvent) and lazy imports in UI
 "scripts/**" = ["PLC0415"]  # Allow lazy imports in scripts
-"services/browser_auth.py" = ["PLC0415"]  # Allow lazy playwright import (optional dependency)
+"src/services/browser_auth.py" = ["PLC0415"]  # Allow lazy playwright import (optional dependency)
 
 [tool.ruff.lint.isort]
-known-first-party = ["core", "ui", "services", "utils"]
+known-first-party = ["core", "ui", "services", "utils", "config"]
 force-single-line = false
 lines-after-imports = 2
 
