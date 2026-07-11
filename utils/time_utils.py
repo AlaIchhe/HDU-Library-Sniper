@@ -49,20 +49,3 @@ def parse_execute_time(text: str) -> datetime | None:
         target += timedelta(days=1)
 
     return target
-
-
-def format_countdown(seconds: int) -> str:
-    """格式化倒计时秒数为 HH:MM:SS 或 MM:SS 格式。
-
-    Args:
-        seconds: 倒计时秒数
-
-    Returns:
-        格式化的倒计时字符串
-    """
-    if seconds >= 3600:
-        h, rem = divmod(seconds, 3600)
-        m, s = divmod(rem, 60)
-        return f"{h:02d}:{m:02d}:{s:02d}"
-    m, s = divmod(seconds, 60)
-    return f"{m:02d}:{s:02d}"

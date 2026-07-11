@@ -211,11 +211,10 @@ python main.py --daemon    # 或 pythonw.exe (Windows)
 ├── data/                # 运行时数据（session.cache / plans.yaml / credentials.yaml，已 gitignore）
 ├── logs/                # 运行日志（已在 .gitignore）
 ├── scripts/
-│   ├── AutoSchedule.ps1 # Windows 任务计划自动注册脚本
-│   ├── setup.sh         # Ubuntu 自动部署脚本（备选方案）
-│   ├── run_libsniper.sh # Linux crontab 运行器（备选方案）
-│   └── loop_sniper.sh   # Linux 循环模式运行器（备选方案）
-└── docs/github-actions-setup.md   # GitHub Actions 配置指南（备选方案）
+│   └── AutoSchedule.ps1 # Windows 任务计划自动注册脚本
+└── docs/
+    ├── github-actions-setup.md # GitHub Actions 配置指南（备选方案）
+    └── archive/         # 历史实施报告归档
 ```
 
 > `data/session.cache` / `data/credentials.yaml` / `data/plans.yaml` 分别是登录态、学号+密码凭据和预约方案，已加入 `.gitignore`，不会被提交到 Git。

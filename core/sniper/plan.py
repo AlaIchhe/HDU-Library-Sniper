@@ -55,3 +55,8 @@ class BookingPlan:
 
     def to_plan_code(self) -> str:
         return f"{self.room_type}:{self.floor_id}:{self.seat_num}:{self.start_hour}:{self.duration_hours}"
+
+    @property
+    def enabled(self) -> bool:
+        """兼容属性：判断方案是否启用。"""
+        return self.status == PlanStatus.ENABLED
