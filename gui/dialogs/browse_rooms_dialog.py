@@ -58,9 +58,7 @@ class BrowseRoomsDialog(QDialog):
         # 楼层信息表格
         self.floor_table = QTableWidget()
         self.floor_table.setColumnCount(4)
-        self.floor_table.setHorizontalHeaderLabels([
-            "楼层 ID", "房间名称", "座位数", "可用座位号"
-        ])
+        self.floor_table.setHorizontalHeaderLabels(["楼层 ID", "房间名称", "座位数", "可用座位号"])
         self.floor_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.floor_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 

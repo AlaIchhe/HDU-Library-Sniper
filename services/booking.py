@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from threading import Lock
-from typing import Callable
 
 from config.settings import Settings, load_credentials
 from core.client import LibraryClient
@@ -104,7 +104,9 @@ class BookingService:
         with self._sniper_lock:
             self._active_sniper = sniper
         try:
-            return sniper.book_at(plans, execute_at, on_countdown=on_countdown, on_progress=on_progress)
+            return sniper.book_at(
+                plans, execute_at, on_countdown=on_countdown, on_progress=on_progress
+            )
         except KeyboardInterrupt:
             sniper.cancelled = True
             raise
@@ -177,7 +179,9 @@ class BookingService:
 
         plans = self.plans.list_enabled()
         if not plans:
-            self.notifier.send("抢座任务无可用方案", "没有启用的预约方案，任务跳过。", success=False)
+            self.notifier.send(
+                "抢座任务无可用方案", "没有启用的预约方案，任务跳过。", success=False
+            )
             return ExitCode.NO_PLANS
 
         def on_progress(result: BookingResult) -> None:

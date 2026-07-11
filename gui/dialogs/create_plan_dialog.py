@@ -315,17 +315,13 @@ class CreatePlanDialog(QDialog):
             # 处理回退警告
             if fell_back:
                 QMessageBox.warning(
-                    self,
-                    "警告",
-                    f"无法识别房间类型 '{room_type_name}'，已使用默认类型（自习室）"
+                    self, "警告", f"无法识别房间类型 '{room_type_name}'，已使用默认类型（自习室）"
                 )
 
             # 处理验证错误
             if errors:
                 QMessageBox.critical(
-                    self,
-                    "验证失败",
-                    "方案验证失败:\n" + "\n".join(f"• {e}" for e in errors)
+                    self, "验证失败", "方案验证失败:\n" + "\n".join(f"• {e}" for e in errors)
                 )
                 return
 
@@ -336,7 +332,7 @@ class CreatePlanDialog(QDialog):
                 f"方案已创建！\n\n"
                 f"方案 ID: {plan.plan_id}\n"
                 f"座位号: {seat_num}\n"
-                f"时间: {start_hour}:00 起 {duration_hours} 小时"
+                f"时间: {start_hour}:00 起 {duration_hours} 小时",
             )
             super().accept()
 

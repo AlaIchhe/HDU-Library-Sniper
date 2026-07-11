@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -50,7 +50,7 @@ class PlanRepository:
         if not plan.plan_id:
             plan.plan_id = uuid.uuid4().hex[:12]
         if not plan.created_at:
-            plan.created_at = datetime.now(timezone.utc).isoformat()
+            plan.created_at = datetime.now(UTC).isoformat()
         plans.append(plan)
         self.save_all(plans)
 

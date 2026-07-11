@@ -7,16 +7,16 @@ import platform
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
 class TaskStatus:
     """定时任务状态。"""
+
     exists: bool
-    execute_time: Optional[str] = None
-    wake_to_run: Optional[bool] = None
-    next_run: Optional[str] = None
+    execute_time: str | None = None
+    wake_to_run: bool | None = None
+    next_run: str | None = None
 
 
 class SchedulerService:
@@ -39,12 +39,9 @@ class SchedulerService:
         """
         if self.system == "Windows":
             return self._configure_windows_task(execute_time, wake_to_run)
-        elif self.system == "Linux":
+        if self.system == "Linux" or self.system == "Darwin":
             return self._configure_linux_cron(execute_time)
-        elif self.system == "Darwin":  # macOS
-            return self._configure_linux_cron(execute_time)
-        else:
-            return False, f"不支持的操作系统: {self.system}"
+        return False, f"不支持的操作系统: {self.system}"
 
     def remove_task(self) -> tuple[bool, str]:
         """移除定时任务。
@@ -54,10 +51,9 @@ class SchedulerService:
         """
         if self.system == "Windows":
             return self._remove_windows_task()
-        elif self.system in ("Linux", "Darwin"):
+        if self.system in ("Linux", "Darwin"):
             return self._remove_linux_cron()
-        else:
-            return False, f"不支持的操作系统: {self.system}"
+        return False, f"不支持的操作系统: {self.system}"
 
     def get_task_status(self) -> TaskStatus:
         """获取定时任务状态。
@@ -67,10 +63,9 @@ class SchedulerService:
         """
         if self.system == "Windows":
             return self._get_windows_task_status()
-        elif self.system in ("Linux", "Darwin"):
+        if self.system in ("Linux", "Darwin"):
             return self._get_linux_cron_status()
-        else:
-            return TaskStatus(exists=False)
+        return TaskStatus(exists=False)
 
     def test_execution(self) -> tuple[bool, str]:
         """测试执行一次后台任务。
@@ -107,12 +102,11 @@ class SchedulerService:
 
             if exit_code == 0:
                 return True, f"执行成功！\n\n{output}"
-            elif exit_code == 2:
+            if exit_code == 2:
                 return False, f"认证失败（退出码 2）\n\n{output}"
-            elif exit_code == 3:
+            if exit_code == 3:
                 return False, f"没有启用的方案（退出码 3）\n\n{output}"
-            else:
-                return False, f"执行失败（退出码 {exit_code}）\n\n{output}"
+            return False, f"执行失败（退出码 {exit_code}）\n\n{output}"
         except subprocess.TimeoutExpired:
             return False, "执行超时（>60秒），请检查是否存在死循环或网络问题"
         except Exception as e:
@@ -148,8 +142,7 @@ class SchedulerService:
 
             if result.returncode == 0:
                 return True, f"定时任务配置成功！\n每天 {execute_time} 自动执行"
-            else:
-                return False, f"配置失败:\n{result.stderr}"
+            return False, f"配置失败:\n{result.stderr}"
         except subprocess.TimeoutExpired:
             return False, "PowerShell 脚本执行超时"
         except Exception as e:
@@ -168,11 +161,10 @@ class SchedulerService:
 
             if result.returncode == 0:
                 return True, "定时任务已移除"
-            else:
-                # 任务不存在也算成功
-                if "找不到" in result.stderr or "does not exist" in result.stderr.lower():
-                    return True, "定时任务不存在（可能已被移除）"
-                return False, f"移除失败:\n{result.stderr}"
+            # 任务不存在也算成功
+            if "找不到" in result.stderr or "does not exist" in result.stderr.lower():
+                return True, "定时任务不存在（可能已被移除）"
+            return False, f"移除失败:\n{result.stderr}"
         except Exception as e:
             return False, f"移除任务出错: {e}"
 
@@ -209,7 +201,7 @@ class SchedulerService:
         except Exception:
             return TaskStatus(exists=False)
 
-    def _find_pythonw(self) -> Optional[Path]:
+    def _find_pythonw(self) -> Path | None:
         """查找 pythonw.exe。"""
         # 1. 项目根目录
         local = self.project_root / "pythonw.exe"
@@ -256,7 +248,9 @@ class SchedulerService:
         # 构造 cron 命令
         python_exe = "python3"
         main_py = self.project_root / "main.py"
-        cron_command = f"{cron_time} {python_exe} {main_py} --daemon >> {self.project_root}/logs/task.log 2>&1"
+        cron_command = (
+            f"{cron_time} {python_exe} {main_py} --daemon >> {self.project_root}/logs/task.log 2>&1"
+        )
 
         # 读取现有 crontab
         try:
@@ -270,10 +264,14 @@ class SchedulerService:
             existing = ""
 
         # 移除旧任务
-        lines = [line for line in existing.split("\n") if "HDU-Library-Sniper" not in line and main_py.name not in line]
+        lines = [
+            line
+            for line in existing.split("\n")
+            if "HDU-Library-Sniper" not in line and main_py.name not in line
+        ]
 
         # 添加新任务
-        lines.append(f"# HDU-Library-Sniper Daily Task")
+        lines.append("# HDU-Library-Sniper Daily Task")
         lines.append(cron_command)
 
         new_crontab = "\n".join(lines) + "\n"
@@ -290,9 +288,11 @@ class SchedulerService:
             stdout, stderr = process.communicate(input=new_crontab)
 
             if process.returncode == 0:
-                return True, f"定时任务配置成功！\n每天 {hour}:{minute} 自动执行\n\n注意: cron 不支持秒级精度，已忽略秒数"
-            else:
-                return False, f"配置失败:\n{stderr}"
+                return (
+                    True,
+                    f"定时任务配置成功！\n每天 {hour}:{minute} 自动执行\n\n注意: cron 不支持秒级精度，已忽略秒数",
+                )
+            return False, f"配置失败:\n{stderr}"
         except Exception as e:
             return False, f"配置 crontab 出错: {e}"
 
@@ -314,7 +314,8 @@ class SchedulerService:
 
             # 移除相关任务
             lines = [
-                line for line in existing.split("\n")
+                line
+                for line in existing.split("\n")
                 if "HDU-Library-Sniper" not in line and main_py.name not in line
             ]
 
@@ -332,8 +333,7 @@ class SchedulerService:
 
             if process.returncode == 0:
                 return True, "定时任务已移除"
-            else:
-                return False, f"移除失败:\n{stderr}"
+            return False, f"移除失败:\n{stderr}"
         except Exception as e:
             return False, f"移除任务出错: {e}"
 

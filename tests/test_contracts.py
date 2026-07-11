@@ -43,8 +43,10 @@ def test_room_types() -> None:
     items = contract.room_types_from_response(s)
     _check(isinstance(items, list) and len(items) > 0, "room_types: 解析出非空列表")
     for it in items:
-        _check(contract.room_type_name(it) and contract.room_type_query(it),
-               f"room_types: 项缺 name/query: {it}")
+        _check(
+            contract.room_type_name(it) and contract.room_type_query(it),
+            f"room_types: 项缺 name/query: {it}",
+        )
 
 
 def test_room_detail() -> None:
@@ -59,15 +61,15 @@ def test_seat_map() -> None:
     """contract.floors_from_response + floor_id/floor_seats/seat_id/seat_title: samples/seat_map.json"""
     s = _load("seat_map.json")
     floors = contract.floors_from_response(s)
-    _check(isinstance(floors, list) and len(floors) > 0,
-           "seat_map: 楼层非空列表")
+    _check(isinstance(floors, list) and len(floors) > 0, "seat_map: 楼层非空列表")
     for f in floors:
         _check(contract.floor_id(f), f"seat_map: 楼层缺 floor_id: {contract.floor_name(f)}")
         seats = contract.floor_seats(f)
         _check(isinstance(seats, list), f"seat_map: {contract.floor_name(f)} seats 非列表")
         for p in seats:
-            _check(contract.seat_id(p) and contract.seat_title(p),
-                   f"seat_map: seat 缺 id/title: {p}")
+            _check(
+                contract.seat_id(p) and contract.seat_title(p), f"seat_map: seat 缺 id/title: {p}"
+            )
 
 
 def test_base_info() -> None:
@@ -76,8 +78,10 @@ def test_base_info() -> None:
     data = contract.base_info_data(s)
     _check(contract.base_info_is_login(data) is True, "baseInfo: DATA.is_login != True")
     _check(contract.base_info_uid(data), "baseInfo: DATA.uid 空")
-    _check("cardno" in data.get("user_info", {}),
-           "baseInfo: DATA.user_info.cardno 缺(学号 vs uid 区分)")
+    _check(
+        "cardno" in data.get("user_info", {}),
+        "baseInfo: DATA.user_info.cardno 缺(学号 vs uid 区分)",
+    )
 
 
 def test_book_seats() -> None:
@@ -90,13 +94,15 @@ def test_book_seats() -> None:
     def msg(k: str) -> str:
         return s[k]["response"]["MESSAGE"]
 
-    _check("超出可预约座位时间范围" in msg("time_out_of_range"),
-           "book_seats: time_out_of_range MESSAGE 错")
-    _check(code("time_out_of_range") == "ParamError",
-           "book_seats: time_out_of_range CODE 错")
+    _check(
+        "超出可预约座位时间范围" in msg("time_out_of_range"),
+        "book_seats: time_out_of_range MESSAGE 错",
+    )
+    _check(code("time_out_of_range") == "ParamError", "book_seats: time_out_of_range CODE 错")
     _check("已有预约" in msg("duplicate"), "book_seats: duplicate MESSAGE 错")
-    _check("选择的座位无法预约" in msg("seat_unavailable"),
-           "book_seats: seat_unavailable MESSAGE 错")
+    _check(
+        "选择的座位无法预约" in msg("seat_unavailable"), "book_seats: seat_unavailable MESSAGE 错"
+    )
     _check(code("rate_limited") == 1, "book_seats: rate_limited CODE 非 1")
 
 
@@ -106,21 +112,31 @@ def test_my_booking_list() -> None:
     items = contract.bookings_from_response(s)
     _check(isinstance(items, list), "myBookingList: content.defaultItems 非列表")
     for it in items:
-        _check(all(k in it for k in ("seatNum", "time", "id")),
-               f"myBookingList: 项缺 seatNum/time/id: {it}")
-        _check(isinstance(contract.booking_begin_ts(it), int),
-               f"myBookingList: time 非可解析 int: {it}")
+        _check(
+            all(k in it for k in ("seatNum", "time", "id")),
+            f"myBookingList: 项缺 seatNum/time/id: {it}",
+        )
+        _check(
+            isinstance(contract.booking_begin_ts(it), int),
+            f"myBookingList: time 非可解析 int: {it}",
+        )
 
 
 def test_msg_constants_match_samples() -> None:
     """contract.MSG_* 必须与样例一致(单一源,不再两份对齐)。"""
     s = _load("book_seats.json")
-    _check(contract.MSG_TIME_OUT_OF_RANGE in s["time_out_of_range"]["response"]["MESSAGE"],
-           "contract.MSG_TIME_OUT_OF_RANGE 与样例不一致")
-    _check(contract.MSG_DUPLICATE in s["duplicate"]["response"]["MESSAGE"],
-           "contract.MSG_DUPLICATE 与样例不一致")
-    _check(contract.MSG_SEAT_UNAVAILABLE in s["seat_unavailable"]["response"]["MESSAGE"],
-           "contract.MSG_SEAT_UNAVAILABLE 与样例不一致")
+    _check(
+        contract.MSG_TIME_OUT_OF_RANGE in s["time_out_of_range"]["response"]["MESSAGE"],
+        "contract.MSG_TIME_OUT_OF_RANGE 与样例不一致",
+    )
+    _check(
+        contract.MSG_DUPLICATE in s["duplicate"]["response"]["MESSAGE"],
+        "contract.MSG_DUPLICATE 与样例不一致",
+    )
+    _check(
+        contract.MSG_SEAT_UNAVAILABLE in s["seat_unavailable"]["response"]["MESSAGE"],
+        "contract.MSG_SEAT_UNAVAILABLE 与样例不一致",
+    )
 
 
 TESTS = [

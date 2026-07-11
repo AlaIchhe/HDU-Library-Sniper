@@ -7,9 +7,8 @@ from typing import Any
 
 import requests
 
-from utils.encrypt import generate_api_token
-
 from core import contract
+from utils.encrypt import generate_api_token
 
 URLS = {
     "book_seat": "https://hdu.huitu.zhishulib.com/Seat/Index/bookSeats",
@@ -18,7 +17,7 @@ URLS = {
     "user_base_info": "https://hdu.huitu.zhishulib.com/User/Center/baseInfo",
     # 契约验证:myBookingList?fromType=web 才返回预约列表(content.defaultItems)。
     # todayUserBookSeat 只返回字符串 'todayUserBookSeatAction',拿不到数据——不可用。
-    "today_schedule": "https://hdu.huitu.zhishulib.com/Seat/Index/myBookingList?fromType=web"
+    "today_schedule": "https://hdu.huitu.zhishulib.com/Seat/Index/myBookingList?fromType=web",
 }
 
 DEFAULT_HEADERS = {

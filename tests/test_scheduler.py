@@ -1,9 +1,9 @@
 """GUI 定时任务功能单元测试。"""
 
+import sys
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import sys
+from unittest.mock import Mock, patch
 
 # 确保可以导入项目模块
 sys.path.insert(0, str(Path(__file__).parent))
@@ -15,6 +15,7 @@ class TestSchedulerService(unittest.TestCase):
     def setUp(self):
         """测试前准备。"""
         from services.scheduler import SchedulerService
+
         self.project_root = Path(__file__).parent
         self.service = SchedulerService(self.project_root)
 
@@ -32,16 +33,12 @@ class TestSchedulerService(unittest.TestCase):
         self.assertFalse(status.exists)
         self.assertIsNone(status.execute_time)
 
-        status = TaskStatus(
-            exists=True,
-            execute_time="23:59:55",
-            next_run="2026-07-12 23:59:55"
-        )
+        status = TaskStatus(exists=True, execute_time="23:59:55", next_run="2026-07-12 23:59:55")
         self.assertTrue(status.exists)
         self.assertEqual(status.execute_time, "23:59:55")
         self.assertEqual(status.next_run, "2026-07-12 23:59:55")
 
-    @patch('platform.system')
+    @patch("platform.system")
     def test_platform_detection(self, mock_system):
         """测试平台检测。"""
         from services.scheduler import SchedulerService
@@ -61,8 +58,8 @@ class TestSchedulerService(unittest.TestCase):
         service = SchedulerService(self.project_root)
         self.assertEqual(service.system, "Darwin")
 
-    @patch('subprocess.run')
-    @patch('platform.system')
+    @patch("subprocess.run")
+    @patch("platform.system")
     def test_get_task_status_windows_not_exists(self, mock_system, mock_run):
         """测试 Windows 任务状态查询（任务不存在）。"""
         from services.scheduler import SchedulerService
@@ -79,8 +76,8 @@ class TestSchedulerService(unittest.TestCase):
         status = service.get_task_status()
         self.assertFalse(status.exists)
 
-    @patch('subprocess.run')
-    @patch('platform.system')
+    @patch("subprocess.run")
+    @patch("platform.system")
     def test_get_task_status_windows_exists(self, mock_system, mock_run):
         """测试 Windows 任务状态查询（任务存在）。"""
         from services.scheduler import SchedulerService
@@ -123,6 +120,7 @@ class TestSchedulerConfigDialog(unittest.TestCase):
     def setUpClass(cls):
         """测试类初始化。"""
         from PySide6.QtWidgets import QApplication
+
         cls.app = QApplication.instance()
         if cls.app is None:
             cls.app = QApplication([])
@@ -145,8 +143,9 @@ class TestSchedulerConfigDialog(unittest.TestCase):
 
     def test_default_wake_to_run(self):
         """测试默认唤醒设置。"""
-        from gui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
         import platform
+
+        from gui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
 
         dialog = SchedulerConfigDialog()
         wake_to_run = dialog.get_wake_to_run()
@@ -158,8 +157,9 @@ class TestSchedulerConfigDialog(unittest.TestCase):
 
     def test_custom_time(self):
         """测试自定义执行时间。"""
-        from gui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
         from PySide6.QtCore import QTime
+
+        from gui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
 
         dialog = SchedulerConfigDialog()
 
@@ -177,7 +177,7 @@ class TestSchedulerConfigDialog(unittest.TestCase):
         dialog = SchedulerConfigDialog()
 
         # 验证时间编辑器存在
-        self.assertTrue(hasattr(dialog, 'time_edit'))
+        self.assertTrue(hasattr(dialog, "time_edit"))
         self.assertIsNotNone(dialog.time_edit)
 
         # 验证时间格式
@@ -191,6 +191,7 @@ class TestMainWindowIntegration(unittest.TestCase):
     def setUpClass(cls):
         """测试类初始化。"""
         from PySide6.QtWidgets import QApplication
+
         cls.app = QApplication.instance()
         if cls.app is None:
             cls.app = QApplication([])
@@ -219,15 +220,14 @@ class TestMainWindowIntegration(unittest.TestCase):
 
         for i, expected_name in enumerate(expected_tabs):
             actual_name = window.tabs.tabText(i)
-            self.assertEqual(actual_name, expected_name,
-                           f"标签页 {i} 名称不匹配")
+            self.assertEqual(actual_name, expected_name, f"标签页 {i} 名称不匹配")
 
     def test_scheduler_service_initialized(self):
         """测试 SchedulerService 已初始化。"""
         from gui.main_window import MainWindow
 
         window = MainWindow()
-        self.assertTrue(hasattr(window, 'scheduler_service'))
+        self.assertTrue(hasattr(window, "scheduler_service"))
         self.assertIsNotNone(window.scheduler_service)
 
     def test_scheduler_buttons_exist(self):
@@ -237,10 +237,10 @@ class TestMainWindowIntegration(unittest.TestCase):
         window = MainWindow()
 
         # 验证按钮存在
-        self.assertTrue(hasattr(window, 'config_task_btn'))
-        self.assertTrue(hasattr(window, 'remove_task_btn'))
-        self.assertTrue(hasattr(window, 'test_exec_btn'))
-        self.assertTrue(hasattr(window, 'refresh_status_btn'))
+        self.assertTrue(hasattr(window, "config_task_btn"))
+        self.assertTrue(hasattr(window, "remove_task_btn"))
+        self.assertTrue(hasattr(window, "test_exec_btn"))
+        self.assertTrue(hasattr(window, "refresh_status_btn"))
 
         # 验证按钮不为空
         self.assertIsNotNone(window.config_task_btn)
@@ -255,8 +255,8 @@ class TestMainWindowIntegration(unittest.TestCase):
         window = MainWindow()
 
         # 验证显示组件存在
-        self.assertTrue(hasattr(window, 'task_status_display'))
-        self.assertTrue(hasattr(window, 'scheduler_log_display'))
+        self.assertTrue(hasattr(window, "task_status_display"))
+        self.assertTrue(hasattr(window, "scheduler_log_display"))
 
         self.assertIsNotNone(window.task_status_display)
         self.assertIsNotNone(window.scheduler_log_display)
@@ -268,10 +268,10 @@ class TestMainWindowIntegration(unittest.TestCase):
         window = MainWindow()
 
         # 验证服务存在
-        self.assertTrue(hasattr(window, 'auth'))
-        self.assertTrue(hasattr(window, 'booking'))
-        self.assertTrue(hasattr(window, 'plan_service'))
-        self.assertTrue(hasattr(window, 'scheduler_service'))
+        self.assertTrue(hasattr(window, "auth"))
+        self.assertTrue(hasattr(window, "booking"))
+        self.assertTrue(hasattr(window, "plan_service"))
+        self.assertTrue(hasattr(window, "scheduler_service"))
 
         # 验证服务类型
         from services import AuthService, BookingService, PlanService
@@ -291,7 +291,7 @@ class TestSettingsWithProjectRoot(unittest.TestCase):
         from config.settings import load_settings
 
         settings = load_settings()
-        self.assertTrue(hasattr(settings, 'project_root'))
+        self.assertTrue(hasattr(settings, "project_root"))
         self.assertIsNotNone(settings.project_root)
         self.assertIsInstance(settings.project_root, Path)
 
@@ -300,8 +300,9 @@ class TestSettingsWithProjectRoot(unittest.TestCase):
         from config.settings import load_settings
 
         settings = load_settings()
-        self.assertTrue(settings.project_root.exists(),
-                       f"project_root 路径不存在: {settings.project_root}")
+        self.assertTrue(
+            settings.project_root.exists(), f"project_root 路径不存在: {settings.project_root}"
+        )
 
     def test_settings_other_attributes(self):
         """测试 Settings 其他属性。"""
@@ -310,10 +311,10 @@ class TestSettingsWithProjectRoot(unittest.TestCase):
         settings = load_settings()
 
         # 验证必要的属性存在
-        self.assertTrue(hasattr(settings, 'max_trials'))
-        self.assertTrue(hasattr(settings, 'retry_delay'))
-        self.assertTrue(hasattr(settings, 'credentials_file'))
-        self.assertTrue(hasattr(settings, 'plans_file'))
+        self.assertTrue(hasattr(settings, "max_trials"))
+        self.assertTrue(hasattr(settings, "retry_delay"))
+        self.assertTrue(hasattr(settings, "credentials_file"))
+        self.assertTrue(hasattr(settings, "plans_file"))
 
         # 验证默认值
         self.assertEqual(settings.max_trials, 5)
@@ -334,16 +335,15 @@ class TestDialogsExport(unittest.TestCase):
         from gui import dialogs
 
         expected_exports = [
-            'CreatePlanDialog',
-            'DeletePlansDialog',
-            'ModifyTimeDialog',
-            'BrowseRoomsDialog',
-            'SchedulerConfigDialog',
+            "CreatePlanDialog",
+            "DeletePlansDialog",
+            "ModifyTimeDialog",
+            "BrowseRoomsDialog",
+            "SchedulerConfigDialog",
         ]
 
         for dialog_name in expected_exports:
-            self.assertTrue(hasattr(dialogs, dialog_name),
-                          f"对话框 {dialog_name} 未导出")
+            self.assertTrue(hasattr(dialogs, dialog_name), f"对话框 {dialog_name} 未导出")
 
 
 def run_tests():
@@ -367,7 +367,7 @@ def run_tests():
     return result
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("=" * 70)
     print("GUI 定时任务功能单元测试")
     print("=" * 70)

@@ -85,7 +85,7 @@ class BrowserAuthService:
                     # 1) 打开入口，自动重定向到 SSO 登录页。
                     try:
                         page.goto(LOGIN_ENTRY_URL, wait_until="domcontentloaded", timeout=60000)
-                    except Exception as exc:
+                    except Exception:
                         # 初始加载慢/超时不阻断——但 SSO 页通常已可继续；若彻底没加载，下方等表单会失败。
                         pass
                     try:

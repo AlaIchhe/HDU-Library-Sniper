@@ -6,8 +6,7 @@
 """
 
 from core.client import HduLibraryError
-from core.sniper import BookingPlan, BookingResult, PlanStatus, PlanRepository
-
+from core.sniper import BookingPlan, BookingResult, PlanRepository, PlanStatus
 from services.auth import AuthService
 from services.booking import BookingService
 from services.browser_auth import BrowserAuthService
