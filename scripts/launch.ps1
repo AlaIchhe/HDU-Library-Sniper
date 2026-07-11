@@ -3,4 +3,5 @@
 
 # 使用 pythonw.exe 避免显示控制台窗口
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Start-Process -FilePath "pythonw.exe" -ArgumentList "main.py" -WorkingDirectory $scriptDir -WindowStyle Hidden
+$projectRoot = Split-Path -Parent $scriptDir
+Start-Process -FilePath "pythonw.exe" -ArgumentList "main.py" -WorkingDirectory $projectRoot -WindowStyle Hidden
