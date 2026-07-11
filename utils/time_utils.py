@@ -38,7 +38,10 @@ def parse_execute_time(text: str) -> datetime | None:
     # 构造目标时间
     now = now_cst()
     target = now.replace(
-        hour=parsed.hour, minute=parsed.minute, second=parsed.second, microsecond=0
+        hour=parsed.hour,
+        minute=parsed.minute,
+        second=parsed.second,
+        microsecond=0,
     )
 
     # 如果已过期，调整到明天

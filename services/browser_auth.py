@@ -20,6 +20,7 @@ from typing import Any
 from config.settings import Settings
 from core.client import HduLibraryError, LibraryClient
 
+
 # 登录入口：慧图根域名，浏览器会自动重定向到杭电统一身份认证 (sso.hdu.edu.cn)。
 LOGIN_ENTRY_URL = "https://hdu.huitu.zhishulib.com/"
 # 导出 Cookie 时只取目标域（登录流程会经过 sso.hdu.edu.cn 等其他域，只留慧图平台域）。
@@ -41,7 +42,10 @@ class BrowserAuthService:
         self.settings = settings
 
     def login_with_credentials(
-        self, student_id: str, password: str, headless: bool = True
+        self,
+        student_id: str,
+        password: str,
+        headless: bool = True,
     ) -> tuple[bool, str]:
         """headless 起浏览器，用学号+密码走杭电统一身份认证登录，导出 Cookie 并写入缓存。
 
@@ -74,11 +78,12 @@ class BrowserAuthService:
 
                 try:
                     context = browser.new_context(
-                        user_agent=DESKTOP_UA, viewport={"width": 1280, "height": 800}
+                        user_agent=DESKTOP_UA,
+                        viewport={"width": 1280, "height": 800},
                     )
                     # 抹掉 navigator.webdriver，降低 headless 被识别的概率。
                     context.add_init_script(
-                        "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+                        "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});",
                     )
                     page = context.new_page()
 
@@ -172,7 +177,7 @@ class BrowserAuthService:
                     const s = document.body.innerHTML || '';
                     return /captcha|geetest|recaptcha|验证码/i.test(s) &&
                            !!document.querySelector('iframe[src*="recaptcha"], .geetest, [class*="captcha"]');
-                }"""
+                }""",
             )
             if has_captcha:
                 reason += " 检测到验证码（风控触发），headless 无法自动通过，请稍后重试或核对凭据。"

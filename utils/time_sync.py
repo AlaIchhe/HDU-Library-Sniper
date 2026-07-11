@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+
 CST = ZoneInfo("Asia/Shanghai")
 
 
@@ -17,7 +18,10 @@ def build_begin_time(start_hour: int, book_days: int = 0) -> datetime:
     """根据开始小时和偏移天数构建预约开始时间。"""
     now = now_cst()
     return (now + timedelta(days=book_days)).replace(
-        hour=start_hour, minute=0, second=0, microsecond=0
+        hour=start_hour,
+        minute=0,
+        second=0,
+        microsecond=0,
     )
 
 

@@ -80,7 +80,7 @@ class ModifyTimeDialog(QDialog):
 
         # 按钮
         self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
         )
         self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("修改")
         self.button_box.accepted.connect(self.accept)
@@ -129,7 +129,7 @@ class ModifyTimeDialog(QDialog):
                 else:
                     raise ValueError("开始小时必须在 0-23 之间")
             except ValueError as e:
-                raise ValueError(f"开始小时格式错误: {e}")
+                raise ValueError(f"开始小时格式错误: {e}") from e
 
         # 使用时长
         dh = self.duration_input.text().strip()
@@ -141,7 +141,7 @@ class ModifyTimeDialog(QDialog):
                 else:
                     raise ValueError("使用时长必须在 1-15 之间")
             except ValueError as e:
-                raise ValueError(f"使用时长格式错误: {e}")
+                raise ValueError(f"使用时长格式错误: {e}") from e
 
         # 天数偏移
         bd = self.book_days_input.text().strip()
@@ -153,7 +153,7 @@ class ModifyTimeDialog(QDialog):
                 else:
                     raise ValueError("天数偏移必须在 0-7 之间")
             except ValueError as e:
-                raise ValueError(f"天数偏移格式错误: {e}")
+                raise ValueError(f"天数偏移格式错误: {e}") from e
 
         return kwargs
 
@@ -176,7 +176,9 @@ class ModifyTimeDialog(QDialog):
 
         if not kwargs:
             QMessageBox.warning(
-                self, "提示", "请至少输入一个要修改的参数\n\n留空表示保持原值，但至少要修改一个字段"
+                self,
+                "提示",
+                "请至少输入一个要修改的参数\n\n留空表示保持原值，但至少要修改一个字段",
             )
             return
 

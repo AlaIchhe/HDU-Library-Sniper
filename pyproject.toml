@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "hdu-library-sniper"
 version = "1.0.0"
@@ -14,26 +18,41 @@ authors = [
 ]
 readme = "README.md"
 license = { text = "MIT" }
+keywords = ["library", "booking", "automation", "hdu"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.scripts]
+hdu-sniper = "main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["core", "ui", "services", "utils"]
+include = ["main.py"]
 
 [dependency-groups]
 dev = [
     {include-group = "lint"},
     {include-group = "test"},
-    "pytest>=9.1.1",
-    "pytest-cov>=7.1.0",
-    "ruff>=0.15.21",
 ]
 lint = [
-    "ruff>=0.8.0",
+    "ruff>=0.15.21",
 ]
 test = [
-    "pytest>=8.0.0",
-    "pytest-cov>=4.1.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
 ]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+src = [".", "core", "ui", "services", "utils"]
 
 [tool.ruff.lint]
 select = [
@@ -48,13 +67,54 @@ select = [
     "SIM",    # flake8-simplify
     "RET",    # flake8-return
     "PTH",    # flake8-use-pathlib
+    "Q",      # flake8-quotes
+    "RSE",    # flake8-raise
+    "T20",    # flake8-print
+    "PIE",    # flake8-pie
+    "COM",    # flake8-commas
+    "DTZ",    # flake8-datetimez
+    "ARG",    # flake8-unused-arguments
+    "PL",     # pylint
+    "PERF",   # perflint
+    "RUF",    # ruff-specific rules
 ]
 ignore = [
-    "E501",   # line too long (handled by formatter)
+    "E501",    # line too long (handled by formatter)
+    "T201",    # print found (we may need print for debugging)
+    "PLR0913", # too many arguments
+    "PLR2004", # magic value in comparison
+    "COM812",  # conflicts with formatter
+    "RUF001",  # ambiguous unicode in strings (Chinese uses fullwidth punctuation)
+    "RUF002",  # ambiguous unicode in docstrings (Chinese uses fullwidth punctuation)
+    "RUF003",  # ambiguous unicode in comments (Chinese uses fullwidth punctuation)
+    "PLR0911", # too many return statements (complex business logic)
+    "PLR0912", # too many branches (complex business logic)
+    "PLR0915", # too many statements (complex business logic)
+    "DTZ007",  # datetime.strptime without %z (parsing user input time strings)
+    "SIM105",  # contextlib.suppress (prefer explicit try-except for clarity)
+    "PLW1510", # subprocess.run without check (we handle return codes manually)
+    "RUF059",  # unused unpacked variable (intentional for readability)
+    "PLR1714", # multiple comparisons (more readable as-is)
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # Allow assert in tests
+"tests/**" = ["S101", "PLR2004", "ARG001", "PLC0415"]  # Allow assert, magic values, unused args, and lazy imports in tests
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+"main.py" = ["PLC0415"]  # Allow lazy imports for conditional CLI modes
+"ui/**" = ["N802", "PLC0415"]  # Allow Qt method names (closeEvent) and lazy imports in UI
+"scripts/**" = ["PLC0415"]  # Allow lazy imports in scripts
+"services/browser_auth.py" = ["PLC0415"]  # Allow lazy playwright import (optional dependency)
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "ui", "services", "utils"]
+force-single-line = false
+lines-after-imports = 2
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+docstring-code-format = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -62,5 +122,9 @@ addopts = [
     "--cov=.",
     "--cov-report=term-missing",
     "--cov-fail-under=70",
+    "-v",
 ]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 

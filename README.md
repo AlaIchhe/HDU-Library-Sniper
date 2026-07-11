@@ -213,7 +213,7 @@ python main.py --daemon    # 或 pythonw.exe (Windows)
 ├── start.sh             # Linux/macOS 启动脚本
 ├── HDU图书馆抢座.vbs    # Windows 静默启动（无命令行窗口）
 ├── config/              # 配置目录（config.yaml + settings.py）
-├── gui/                 # GUI 界面
+├── ui/                 # GUI 界面
 │   ├── main_window.py   # 主窗口（认证、方案管理、抢座、定时任务）
 │   ├── dialogs/         # 对话框（创建方案、删除方案、修改时间、浏览房间、定时任务配置）
 │   ├── workers.py       # 异步工作线程（BookingWorker、AuthWorker、LoadFloorsWorker）
@@ -355,7 +355,7 @@ HDU-Library-Sniper/
 │   ├── client.py     # HTTP 客户端
 │   ├── room_browser.py  # 房间查询
 │   └── sniper/       # 抢座核心
-├── gui/              # GUI 界面
+├── ui/              # GUI 界面
 │   ├── dialogs/      # 对话框
 │   ├── main_window.py  # 主窗口
 │   └── workers.py    # 后台线程

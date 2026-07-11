@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from gui.workers import LoadFloorsWorker
 from services import PlanService
+from ui.workers import LoadFloorsWorker
 
 
 class BrowseRoomsDialog(QDialog):

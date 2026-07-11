@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import unquote
 
+
 # ---- MSG_* (实抓验证，见 samples/book_seats.json) ----------------------------------------
 # CODE=ParamError 被 time_out_of_range / duplicate / seat_unavailable 共用，
 # 只能靠 MESSAGE 子串区分(契约关键发现 #2)。

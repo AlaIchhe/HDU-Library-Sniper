@@ -107,7 +107,8 @@ class AuthWorker(QThread):
         """线程主函数：执行认证。"""
         try:
             success, message = self.browser_auth_service.login_with_credentials(
-                self.student_id, self.password
+                self.student_id,
+                self.password,
             )
             self.finished.emit(success, message)
         except Exception as exc:

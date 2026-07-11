@@ -14,6 +14,7 @@ from core import contract
 from core.client import ROOM_TYPE_MAP, HduLibraryError, LibraryClient, SeatQueryError
 from utils.time_sync import build_begin_time, get_seat_lookup_time
 
+
 if TYPE_CHECKING:
     # 仅类型注解用；运行期不依赖抢座编排包，避免循环导入。
     from core.sniper.plan import BookingPlan
@@ -45,7 +46,10 @@ class RoomBrowser:
         return self.client.get_room_types()
 
     def _load_seat_map(
-        self, room_query: str, lookup_time: Any, duration_hours: int
+        self,
+        room_query: str,
+        lookup_time: Any,
+        duration_hours: int,
     ) -> list[dict[str, Any]]:
         """公共解析：room_query -> detail.space_category -> cat_id/con_id -> seat_map。
 
@@ -74,7 +78,7 @@ class RoomBrowser:
                     room_name=contract.floor_name(f),
                     seat_count=len(seats),
                     seat_titles=titles,
-                )
+                ),
             )
         return result
 
@@ -108,7 +112,10 @@ class RoomBrowser:
         )
 
     def find_seat(
-        self, floors: list[dict[str, Any]], floor_id: str | int, seat_num: str | int
+        self,
+        floors: list[dict[str, Any]],
+        floor_id: str | int,
+        seat_num: str | int,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """在楼层列表中定位指定楼层和座位号。
 

@@ -71,7 +71,11 @@ class Sniper:
 
         try:
             result = self.client.book_seat(
-                seat_id, uid, begin_time, plan.duration_hours, dry_run=self.dry_run
+                seat_id,
+                uid,
+                begin_time,
+                plan.duration_hours,
+                dry_run=self.dry_run,
             )
         except HduLibraryError as exc:
             # 读/连超时 ≠ 预约失败。服务器很可能已处理请求只是响应缓慢。
@@ -87,7 +91,10 @@ class Sniper:
 
         if booking_failed(result):
             return BookingResult(
-                plan, False, _extract_message(result) or "预约接口返回失败", result
+                plan,
+                False,
+                _extract_message(result) or "预约接口返回失败",
+                result,
             )
 
         return BookingResult(plan, True, _extract_message(result) or "预约成功", result)
@@ -125,7 +132,7 @@ class Sniper:
                     return results
 
                 waiting_for_window = bool(
-                    result.raw_response and is_time_out_of_range(result.raw_response)
+                    result.raw_response and is_time_out_of_range(result.raw_response),
                 )
 
                 if waiting_for_window:
@@ -142,7 +149,9 @@ class Sniper:
                     decision = default_retry_decider(result.raw_response)
                     if decision.action == RetryDecision.STOP:
                         self.notifier.send(
-                            "预约中止", f"服务器返回: {decision.reason}", success=False
+                            "预约中止",
+                            f"服务器返回: {decision.reason}",
+                            success=False,
                         )
                         return results
                     if decision.action == RetryDecision.SKIP:
@@ -196,5 +205,5 @@ class Sniper:
                 f"开始时间: {build_begin_time(plan.start_hour, plan.book_days).isoformat()}",
                 f"时长: {plan.duration_hours} 小时",
                 f"服务器响应: {result.message}",
-            ]
+            ],
         )

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
 
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
 
@@ -15,7 +17,7 @@ _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
 class Settings:
     """抢座工具运行配置。"""
 
-    project_root: Path = Path.cwd()
+    project_root: Path | None = None
     max_trials: int = 5
     retry_delay: float = 1.0
     dry_run: bool = False
@@ -117,7 +119,5 @@ def save_credentials(path: str | Path, creds: Credentials) -> None:
         ),
         encoding="utf-8",
     )
-    try:
-        p.chmod(0o600)
-    except OSError:
-        pass  # Windows 无 POSIX 权限模型，忽略
+    with contextlib.suppress(OSError):
+        p.chmod(0o600)  # Windows 无 POSIX 权限模型，忽略

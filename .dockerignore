@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 敏感数据（不打包进镜像）
+data/
+logs/
+*.cache
+data/session.cache
+data/plans.yaml
+data/credentials.yaml
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# 文档
+docs/
+*.md
+!README.md
+
+# 测试
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Claude Code
+.claude/
+
+# Playwright MCP
+.playwright-mcp/
+
+# 其他开发文件
+Makefile
+*.log
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Docker 文件（避免递归复制）
+Dockerfile
+docker-compose.yml
+docker-compose.override.yml
+.dockerignore
+
+# 部署配置
+.libsniper.env
+
+# Ruff 缓存
+.ruff_cache/
+
+# 原始抓包样例
+fixtures/captures/

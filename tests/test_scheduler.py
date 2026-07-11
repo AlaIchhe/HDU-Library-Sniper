@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+
 # 确保可以导入项目模块
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -127,7 +128,7 @@ class TestSchedulerConfigDialog(unittest.TestCase):
 
     def test_dialog_creation(self):
         """测试对话框创建。"""
-        from gui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
+        from ui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
 
         dialog = SchedulerConfigDialog()
         self.assertIsNotNone(dialog)
@@ -135,7 +136,7 @@ class TestSchedulerConfigDialog(unittest.TestCase):
 
     def test_default_time(self):
         """测试默认执行时间。"""
-        from gui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
+        from ui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
 
         dialog = SchedulerConfigDialog()
         execute_time = dialog.get_execute_time()
@@ -145,7 +146,7 @@ class TestSchedulerConfigDialog(unittest.TestCase):
         """测试默认唤醒设置。"""
         import platform
 
-        from gui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
+        from ui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
 
         dialog = SchedulerConfigDialog()
         wake_to_run = dialog.get_wake_to_run()
@@ -159,7 +160,7 @@ class TestSchedulerConfigDialog(unittest.TestCase):
         """测试自定义执行时间。"""
         from PySide6.QtCore import QTime
 
-        from gui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
+        from ui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
 
         dialog = SchedulerConfigDialog()
 
@@ -172,7 +173,7 @@ class TestSchedulerConfigDialog(unittest.TestCase):
 
     def test_dialog_has_required_widgets(self):
         """测试对话框包含必要的组件。"""
-        from gui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
+        from ui.dialogs.scheduler_config_dialog import SchedulerConfigDialog
 
         dialog = SchedulerConfigDialog()
 
@@ -198,7 +199,7 @@ class TestMainWindowIntegration(unittest.TestCase):
 
     def test_main_window_creation(self):
         """测试主窗口创建。"""
-        from gui.main_window import MainWindow
+        from ui.main_window import MainWindow
 
         window = MainWindow()
         self.assertIsNotNone(window)
@@ -206,14 +207,14 @@ class TestMainWindowIntegration(unittest.TestCase):
 
     def test_tab_count(self):
         """测试标签页数量。"""
-        from gui.main_window import MainWindow
+        from ui.main_window import MainWindow
 
         window = MainWindow()
         self.assertEqual(window.tabs.count(), 4)
 
     def test_tab_names(self):
         """测试标签页名称。"""
-        from gui.main_window import MainWindow
+        from ui.main_window import MainWindow
 
         window = MainWindow()
         expected_tabs = ["认证", "方案管理", "抢座", "定时任务"]
@@ -224,7 +225,7 @@ class TestMainWindowIntegration(unittest.TestCase):
 
     def test_scheduler_service_initialized(self):
         """测试 SchedulerService 已初始化。"""
-        from gui.main_window import MainWindow
+        from ui.main_window import MainWindow
 
         window = MainWindow()
         self.assertTrue(hasattr(window, "scheduler_service"))
@@ -232,7 +233,7 @@ class TestMainWindowIntegration(unittest.TestCase):
 
     def test_scheduler_buttons_exist(self):
         """测试定时任务按钮存在。"""
-        from gui.main_window import MainWindow
+        from ui.main_window import MainWindow
 
         window = MainWindow()
 
@@ -250,7 +251,7 @@ class TestMainWindowIntegration(unittest.TestCase):
 
     def test_scheduler_display_widgets_exist(self):
         """测试定时任务显示组件存在。"""
-        from gui.main_window import MainWindow
+        from ui.main_window import MainWindow
 
         window = MainWindow()
 
@@ -263,7 +264,7 @@ class TestMainWindowIntegration(unittest.TestCase):
 
     def test_services_initialized(self):
         """测试所有服务已初始化。"""
-        from gui.main_window import MainWindow
+        from ui.main_window import MainWindow
 
         window = MainWindow()
 
@@ -301,7 +302,8 @@ class TestSettingsWithProjectRoot(unittest.TestCase):
 
         settings = load_settings()
         self.assertTrue(
-            settings.project_root.exists(), f"project_root 路径不存在: {settings.project_root}"
+            settings.project_root.exists(),
+            f"project_root 路径不存在: {settings.project_root}",
         )
 
     def test_settings_other_attributes(self):
@@ -326,13 +328,13 @@ class TestDialogsExport(unittest.TestCase):
 
     def test_scheduler_config_dialog_exported(self):
         """测试 SchedulerConfigDialog 已导出。"""
-        from gui.dialogs import SchedulerConfigDialog
+        from ui.dialogs import SchedulerConfigDialog
 
         self.assertIsNotNone(SchedulerConfigDialog)
 
     def test_all_dialogs_exported(self):
         """测试所有对话框已导出。"""
-        from gui import dialogs
+        from ui import dialogs
 
         expected_exports = [
             "CreatePlanDialog",
@@ -361,10 +363,7 @@ def run_tests():
 
     # 运行测试
     runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(suite)
-
-    # 返回结果
-    return result
+    return runner.run(suite)
 
 
 if __name__ == "__main__":

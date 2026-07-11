@@ -14,6 +14,13 @@ dist/
 venv/
 env/
 
+# uv
+uv.lock
+.python-version
+
+# Docker
+.env
+
 # IDE
 .vscode/
 .idea/

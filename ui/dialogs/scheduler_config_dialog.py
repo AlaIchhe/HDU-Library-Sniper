@@ -31,7 +31,7 @@ class SchedulerConfigDialog(QDialog):
         info = QLabel(
             "设置每天自动执行抢座的时间。\n\n"
             "建议设置在预约开放时间前几秒，例如图书馆 0:00 开放预约，\n"
-            "可设置为 23:59:55，提前 5 秒开始执行。"
+            "可设置为 23:59:55，提前 5 秒开始执行。",
         )
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -54,7 +54,7 @@ class SchedulerConfigDialog(QDialog):
             self.wake_checkbox.setChecked(True)
             self.wake_checkbox.setToolTip(
                 "启用后，即使电脑处于睡眠状态，也会在指定时间唤醒执行任务。\n"
-                "注意：完全关机状态无法唤醒。"
+                "注意：完全关机状态无法唤醒。",
             )
             layout.addWidget(self.wake_checkbox)
 
@@ -65,7 +65,7 @@ class SchedulerConfigDialog(QDialog):
             "• Windows: 需要保持电脑开机或睡眠（支持唤醒）\n"
             "• Linux: 需要保持电脑开机\n"
             "• 执行结果会推送通知（如已配置通知渠道）\n"
-            "• 详细日志保存在 logs/ 目录"
+            "• 详细日志保存在 logs/ 目录",
         )
         hint.setStyleSheet("color: gray; font-size: 11px; padding: 10px;")
         hint.setWordWrap(True)
@@ -73,7 +73,7 @@ class SchedulerConfigDialog(QDialog):
 
         # 按钮
         buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
