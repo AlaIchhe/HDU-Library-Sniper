@@ -42,7 +42,7 @@ jobs:
         run: python -m playwright install --with-deps chromium
 
       # ---- 注入方案/配置（学号+密码走环境变量，不落盘）----
-      # data/plans.yaml 已被 .gitignore 排除，Runner 上原本为空，这里从 Secret 写入。
+      # config/plans.yaml 已被 .gitignore 排除，Runner 上原本为空，这里从 Secret 写入。
       - name: Inject plans/config secrets
         env:
           HDU_PLANS_YAML:  ${{ secrets.HDU_PLANS_YAML }}
@@ -56,8 +56,8 @@ jobs:
             exit 1
           fi
           if [ -n "$HDU_PLANS_YAML" ]; then
-            printf '%s' "$HDU_PLANS_YAML" > data/plans.yaml
-            chmod 600 data/plans.yaml
+            printf '%s' "$HDU_PLANS_YAML" > config/plans.yaml
+            chmod 600 config/plans.yaml
           fi
           if [ -n "$HDU_CONFIG_YAML" ]; then
             printf '%s' "$HDU_CONFIG_YAML" > config/config.yaml
@@ -97,6 +97,6 @@ jobs:
       - name: Clear cache files
         if: always()
         run: |
-          rm -f data/session.cache data/plans.yaml
+          rm -f data/session.cache config/plans.yaml
           # 防止 runner /temp 残留敏感文件
           echo "✔ cache cleared"

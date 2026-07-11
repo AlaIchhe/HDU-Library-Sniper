@@ -26,7 +26,6 @@ data/
 logs/
 *.cache
 data/session.cache
-data/plans.yaml
 data/credentials.yaml
 
 # Git
