@@ -10,9 +10,9 @@ from cli.prompts import (
     format_countdown,
     input_float,
     input_int,
-    parse_execute_time,
     prompt_credentials,
 )
+from utils.time_utils import parse_execute_time
 from cli.views import format_progress_line, plan_labels, print_banner, print_plan_table
 from config.settings import Credentials, load_credentials, save_credentials
 from services import (
