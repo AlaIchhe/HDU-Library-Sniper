@@ -255,30 +255,6 @@ padding: 12px;
 color: {COLORS['text_primary']};
 """
 
-SUCCESS_BOX_STYLE = f"""
-background-color: #E8F5E9;
-border-left: 4px solid {COLORS['success']};
-border-radius: 6px;
-padding: 12px;
-color: {COLORS['text_primary']};
-"""
-
-WARNING_BOX_STYLE = f"""
-background-color: #FFF3E0;
-border-left: 4px solid {COLORS['warning']};
-border-radius: 6px;
-padding: 12px;
-color: {COLORS['text_primary']};
-"""
-
-ERROR_BOX_STYLE = f"""
-background-color: #FFEBEE;
-border-left: 4px solid {COLORS['error']};
-border-radius: 6px;
-padding: 12px;
-color: {COLORS['text_primary']};
-"""
-
 COUNTDOWN_STYLE = f"""
 font-size: 18pt;
 font-weight: bold;
