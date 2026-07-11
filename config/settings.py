@@ -29,7 +29,7 @@ class Settings:
     session_cache: str = "data/session.cache"
     # 学号 + 密码凭据（headless 登录用）；已 .gitignore，绝不提交。
     credentials_file: str = "data/credentials.yaml"
-    plans_file: str = "data/plans.yaml"
+    plans_file: str = "config/plans.yaml"
     log_file: str = "logs/booking.log"
     wechat_webhook: str = ""
 
@@ -65,7 +65,7 @@ def load_settings(path: str | Path = _DEFAULT_CONFIG_PATH) -> Settings:
         window_poll_interval=float(booking.get("window_poll_interval", 1.0)),
         session_cache=str(paths.get("session_cache", "data/session.cache")),
         credentials_file=str(paths.get("credentials_file", "data/credentials.yaml")),
-        plans_file=str(paths.get("plans_file", "data/plans.yaml")),
+        plans_file=str(paths.get("plans_file", "config/plans.yaml")),
         log_file=str(paths.get("log_file", "logs/booking.log")),
         wechat_webhook=str(notification.get("wechat_webhook", "")),
     )

@@ -28,9 +28,8 @@ uv.lock
 *.swo
 *~
 
-# 敏感数据：登录缓存、预约方案（含学号）、凭据（学号+密码）、运行日志
+# 敏感数据：登录缓存、凭据（学号+密码）、运行日志
 data/session.cache
-data/plans.yaml
 data/credentials.yaml
 logs/
 

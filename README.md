@@ -179,7 +179,7 @@ python main.py --daemon    # 或 pythonw.exe (Windows)
 ```
 
 **执行流程**：
-1. 读取配置文件（`plans.yaml`, `credentials.yaml`）
+1. 读取配置文件（`config/plans.yaml`, `data/credentials.yaml`）
 2. 尝试使用缓存登录，失败则用凭据续登
 3. 读取启用的方案
 4. 执行抢座（带重试、窗口轮询）
@@ -216,8 +216,9 @@ HDU-Library-Sniper/
 ├── docker-entrypoint.sh         # Docker 智能入口脚本
 ├── .env.example                 # Docker 环境变量模板
 │
-├── config/                      # 配置管理
+├── config/                      # 配置管理（用户配置，可提交）
 │   ├── config.yaml              # 用户配置文件
+│   ├── plans.yaml               # 预约方案配置
 │   └── settings.py              # 配置加载模块
 │
 ├── core/                        # 核心业务逻辑
@@ -262,10 +263,9 @@ HDU-Library-Sniper/
 │   ├── launch.bat               # Windows 静默启动脚本
 │   └── launch.ps1               # Windows PowerShell 启动脚本
 │
-├── data/                        # 运行时数据（已 gitignore）
+├── data/                        # 运行时敏感数据（已 gitignore）
 │   ├── session.cache            # 登录态缓存
-│   ├── credentials.yaml         # 学号+密码凭据
-│   └── plans.yaml               # 预约方案配置
+│   └── credentials.yaml         # 学号+密码凭据
 │
 ├── logs/                        # 运行日志（已 gitignore）
 │   └── booking.log              # 抢座执行日志
@@ -279,7 +279,7 @@ HDU-Library-Sniper/
     └── contracts/               # API 契约示例
 ```
 
-> ⚠️ **安全提示**: `data/` 和 `logs/` 目录包含敏感数据（登录态、凭据、日志），已加入 `.gitignore`，不会被提交到 Git。
+> ⚠️ **安全提示**: `data/` 和 `logs/` 目录包含敏感数据（登录态、凭据、日志），已加入 `.gitignore`，不会被提交到 Git。`config/plans.yaml` 是用户配置文件，可提交到仓库。
 
 ---
 

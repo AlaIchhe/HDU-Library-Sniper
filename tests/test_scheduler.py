@@ -317,6 +317,7 @@ class TestSettingsWithProjectRoot(unittest.TestCase):
         self.assertTrue(hasattr(settings, "retry_delay"))
         self.assertTrue(hasattr(settings, "credentials_file"))
         self.assertTrue(hasattr(settings, "plans_file"))
+        self.assertEqual(settings.plans_file, "config/plans.yaml")
 
         # 验证默认值
         self.assertEqual(settings.max_trials, 5)
