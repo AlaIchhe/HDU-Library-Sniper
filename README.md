@@ -38,12 +38,32 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
+### 运行方式
+
+项目支持三种运行模式：
+
+```bash
+python main.py              # 终端交互模式（默认）
+python main.py --gui        # GUI 图形界面模式
+python main.py --run-now    # 非交互模式（用于定时任务）
+```
+
+或使用快捷启动脚本：
+
+```bash
+# Windows
+start_gui.bat
+
+# Linux/macOS
+bash start_gui.sh
+```
+
 ### 登录验证
 
 首次运行需要登录：
 
 ```bash
-python main.py
+python main.py              # 或 python main.py --gui
 ```
 
 程序检测到没有有效登录态缓存时，会提示输入**学号**与**数字杭电密码**（密码不回显），随后在后台
