@@ -31,7 +31,3 @@ Flet Desktop          FastAPI + Flet Web          CLI / scheduler
 | 系统计划任务 | `python main.py --daemon` | 无 | 同上 |
 
 Web 进程内的浏览器会话共享同一个 `SniperApplication`。应用门面用进程级忙状态阻止两个会话同时启动预约任务；若未来需要多副本部署，应将任务互斥和事件状态迁移到外部协调组件，而不是直接增加 Uvicorn worker 数量。
-
-## 迁移期约束
-
-旧 Qt 界面仅通过 `legacy-qt` 可选依赖和 `--legacy-qt` 入口保留，用于功能对照。它不进入默认安装和 Docker 镜像；功能对齐后可整体删除 `src/ui` 下的 Qt 文件、对应测试和可选依赖。

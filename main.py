@@ -22,10 +22,6 @@ def main() -> None:
 
         sys.exit(BookingService(*build_runtime()).run_once())
 
-    elif "--legacy-qt" in sys.argv[1:]:
-        from ui.app import run_gui
-
-        run_gui()
     else:
         from ui.flet_app import run_flet_app
 

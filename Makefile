@@ -1,4 +1,4 @@
-.PHONY: help install dev lint format test run web legacy-qt clean docker-build docker-web docker-run docker-scheduled docker-logs docker-stop docker-clean
+.PHONY: help install dev lint format test run web clean docker-build docker-web docker-run docker-scheduled docker-logs docker-stop docker-clean
 
 # 默认目标：显示帮助
 help:
@@ -16,7 +16,6 @@ help:
 	@echo "运行:"
 	@echo "  make run         启动 Flet 桌面应用"
 	@echo "  make web         启动本地 Web UI"
-	@echo "  make legacy-qt   启动旧 Qt 界面（迁移期）"
 	@echo ""
 	@echo "Docker 容器化:"
 	@echo "  make docker-build      构建 Docker 镜像"
@@ -57,10 +56,6 @@ run:
 # 启动本地 Web UI
 web:
 	uv run python main.py --web
-
-# 启动迁移期旧 Qt 界面
-legacy-qt:
-	uv run --extra legacy-qt python main.py --legacy-qt
 
 # 清理缓存
 clean:
