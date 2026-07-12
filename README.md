@@ -204,7 +204,7 @@ python main.py --daemon    # 或 pythonw.exe (Windows)
 **特点**：
 - ✅ 完全非交互（无任何输入输出）
 - ✅ 适合系统定时任务调用
-- ✅ 轻量级（不加载 GUI 依赖）
+- ✅ 轻量级（不加载 UI 模块）
 - ✅ 日志文件记录详细信息
 
 ---
@@ -239,7 +239,7 @@ HDU-Library-Sniper/
 │   │
 │   ├── application/             # 与 UI 框架无关的应用门面和事件模型
 │   ├── interfaces/              # FastAPI/ASGI 服务入口
-│   ├── ui/                      # Flet 界面；旧 Qt 界面仅用于迁移期回归
+│   ├── ui/                      # Flet 桌面/Web 共用界面
 │   │   └── flet_app.py          # 桌面/Web 共用控件树
 │   │
 │   ├── services/                # 业务逻辑层
@@ -401,14 +401,14 @@ HDU-Library-Sniper/
 │   ├── config/          # 配置管理
 │   ├── core/            # 核心业务逻辑
 │   │   └── sniper/      # 抢座引擎
-│   ├── ui/              # 用户界面
-│   │   ├── dialogs/     # 对话框集合
-│   │   └── widgets/     # 自定义组件
+│   ├── application/     # 应用门面与事件模型
+│   ├── interfaces/      # FastAPI/ASGI 入口
+│   ├── ui/              # Flet 桌面/Web 共用界面
 │   ├── services/        # 业务逻辑层
 │   └── utils/           # 工具函数
 │
 ├── scripts/             # 脚本
-├── deploy/config/       # Docker/服务器只读配置挂载点
+├── deploy/config/       # Docker/服务器配置挂载点
 ├── tests/               # 测试套件
 └── docs/                # 文档
 ```
@@ -420,7 +420,6 @@ HDU-Library-Sniper/
 - **测试**: [pytest](https://pytest.org/) + pytest-cov
 - **跨平台 UI**: [Flet](https://flet.dev/) / Flutter（Windows、macOS、Web 共用控件树）
 - **Web/API**: [FastAPI](https://fastapi.tiangolo.com/) + ASGI
-- **旧界面**: PySide6 仅作为 `legacy-qt` 可选依赖保留到功能对齐完成
 - **自动化**: [Playwright](https://playwright.dev/python/) - 浏览器自动化
 
 ### 贡献指南

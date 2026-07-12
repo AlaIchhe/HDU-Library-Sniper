@@ -34,11 +34,6 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
-[project.optional-dependencies]
-legacy-qt = [
-    "pyside6>=6.11.1",
-]
-
 [project.scripts]
 hdu-sniper = "main:main"
 
@@ -111,7 +106,7 @@ ignore = [
 "tests/**" = ["S101", "PLR2004", "ARG001", "PLC0415"]  # Allow assert, magic values, unused args, and lazy imports in tests
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
 "main.py" = ["PLC0415"]  # Allow lazy imports for conditional CLI modes
-"src/ui/**" = ["N802", "PLC0415"]  # Allow legacy Qt method names and lazy UI imports
+"src/ui/**" = ["PLC0415"]  # Allow lazy imports for optional Web runtime components
 "scripts/**" = ["PLC0415"]  # Allow lazy imports in scripts
 "src/services/browser_auth.py" = ["PLC0415"]  # Allow lazy playwright import (optional dependency)
 
