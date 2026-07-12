@@ -4,7 +4,7 @@
 
 ```text
 /var/lib/hdu-sniper/
-├── config/   # settings.yaml、plans.yaml，只读挂载
+├── config/   # settings.yaml、plans.yaml
 ├── data/     # session.cache，持久化卷
 └── state/    # 日志，持久化卷
 ```
@@ -13,7 +13,6 @@
 
 ```bash
 cp config.example.yaml deploy/config/settings.yaml
-# 使用 GUI 创建方案，或自行准备 deploy/config/plans.yaml
 cp .env.example .env
 ```
 
@@ -38,6 +37,10 @@ HDU_PASSWORD_FILE=/run/secrets/password
 ```bash
 docker compose build
 
+# 启动 Web UI
+docker compose --profile web up -d
+# 浏览器访问 http://localhost:8000
+
 # 立即执行一次
 docker compose --profile run run --rm hdu-sniper-run
 
@@ -54,16 +57,28 @@ SCHEDULE=0 20 * * *
 
 生产编排环境更推荐使用宿主机 systemd timer、Kubernetes CronJob 或其他外部调度器启动一次性 `run-now` 容器。
 
-## GUI 容器
+## Web UI
 
-GUI 容器只适合 Linux X11 调试；正式桌面端应直接运行本机应用，让程序使用操作系统标准用户目录。
+Docker 不运行桌面窗口，也不需要 X11。Flet Web UI 与 Windows/macOS 桌面端使用同一套控件和应用门面：
 
 ```bash
-xhost +local:docker
-docker compose --profile gui up
+docker compose --profile web up -d --build
+docker compose logs -f hdu-sniper-web
 ```
 
-GUI profile 将 `deploy/config` 以可写方式挂载，以便保存方案；后台 profile 始终只读挂载配置。
+默认地址为 `http://localhost:8000`，可在 `.env` 中覆盖宿主机端口：
+
+```dotenv
+HDU_WEB_PORT=8080
+```
+
+可用于容器探针和反向代理的端点：
+
+- `GET /api/v1/health`：存活检查。
+- `GET /api/v1/status`：当前应用任务状态。
+- `/api/docs`：FastAPI OpenAPI 文档。
+
+Web profile 将 `deploy/config` 以可写方式挂载，以便在界面中保存方案；`run` 和 `scheduled` profile 始终只读挂载配置。对公网暴露时，应在反向代理层配置 TLS 和访问控制。
 
 ## 数据边界
 

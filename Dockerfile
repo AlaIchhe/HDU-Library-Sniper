@@ -13,22 +13,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     cron \
-    # PySide6 GUI 依赖
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libdbus-1-3 \
-    libxkbcommon-x11-0 \
-    libxcb-icccm4 \
-    libxcb-image0 \
-    libxcb-keysyms1 \
-    libxcb-randr0 \
-    libxcb-render-util0 \
-    libxcb-shape0 \
-    libxcb-xinerama0 \
-    libxcb-xfixes0 \
-    libxcb-cursor0 \
-    libegl1 \
-    libfontconfig1 \
     # Playwright 浏览器依赖
     libnss3 \
     libatk-bridge2.0-0 \
@@ -69,11 +53,14 @@ RUN mkdir -p /var/lib/hdu-sniper/config \
 ENV HDU_SNIPER_HOME=/var/lib/hdu-sniper \
     HDU_STUDENT_ID="" \
     HDU_PASSWORD="" \
-    DISPLAY=:0
+    FLET_SERVER_IP=0.0.0.0 \
+    FLET_SERVER_PORT=8000
+
+EXPOSE 8000
 
 # 入口点脚本
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["gui"]
+CMD ["web"]
