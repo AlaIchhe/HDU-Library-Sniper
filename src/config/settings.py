@@ -1,40 +1,39 @@
-"""配置加载：读取 config/config.yaml，缺失字段使用默认值。"""
+"""业务配置和凭据加载。"""
 
 from __future__ import annotations
 
 import contextlib
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
+from config.paths import AppPaths, resolve_app_paths
 
-_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
+
+SCHEMA_VERSION = 1
 
 
-@dataclass
+class ConfigError(ValueError):
+    """配置文件存在但内容无效。"""
+
+
+@dataclass(frozen=True)
 class Settings:
     """抢座工具运行配置。"""
 
-    project_root: Path | None = None
+    paths: AppPaths
     max_trials: int = 5
     retry_delay: float = 1.0
     dry_run: bool = False
-    # 预约窗口尚未开放（服务器返回"超出可预约座位时间范围"）时的等待策略：
-    # 不占用 max_trials 指数退避预算，按固定短间隔轮询，直到窗口开放或超时。
-    # 场景：定时任务在开放时刻（如 20:00:00）发起请求，但服务器实际开闸略晚几秒。
     window_wait_seconds: float = 30.0
     window_poll_interval: float = 1.0
-    session_cache: str = "data/session.cache"
-    # 学号 + 密码凭据（headless 登录用）；已 .gitignore，绝不提交。
-    credentials_file: str = "data/credentials.yaml"
-    plans_file: str = "config/plans.yaml"
-    log_file: str = "logs/booking.log"
     wechat_webhook: str = ""
 
 
-@dataclass
+@dataclass(frozen=True)
 class Credentials:
     """杭电统一身份认证凭据（学号 + 数字杭电密码）。"""
 
@@ -42,76 +41,120 @@ class Credentials:
     password: str
 
 
-def load_settings(path: str | Path = _DEFAULT_CONFIG_PATH) -> Settings:
-    """从 config.yaml 加载配置；文件不存在或字段缺失时回退到默认值。"""
-    path = Path(path)
+def _mapping(value: object, name: str) -> dict:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError(f"配置项 {name} 必须是映射")
+    return value
+
+
+def load_settings(
+    paths: AppPaths | None = None,
+    env: Mapping[str, str] | None = None,
+) -> Settings:
+    """从标准配置目录加载业务设置，文件缺失时使用内置默认值。"""
+    environ = os.environ if env is None else env
+    app_paths = paths or resolve_app_paths(environ)
+    settings_file = app_paths.settings_file
     data: dict = {}
-    if path.exists() and path.read_text(encoding="utf-8").strip():
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
-    booking = data.get("booking") or {}
-    paths = data.get("paths") or {}
-    notification = data.get("notification") or {}
+    if settings_file.exists():
+        try:
+            loaded = yaml.safe_load(settings_file.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            raise ConfigError(f"无法读取配置文件 {settings_file}: {exc}") from exc
+        data = _mapping(loaded, "根节点")
+        version = data.get("schema_version")
+        if version != SCHEMA_VERSION:
+            raise ConfigError(
+                f"不支持的配置版本 {version!r}，当前版本为 {SCHEMA_VERSION}: {settings_file}",
+            )
+        unknown_sections = set(data) - {"schema_version", "booking", "notification"}
+        if unknown_sections:
+            names = ", ".join(sorted(unknown_sections))
+            raise ConfigError(f"未知配置节点: {names}: {settings_file}")
 
-    # 项目根目录：config.yaml 所在目录的上一级
-    project_root = path.resolve().parent.parent
+    booking = _mapping(data.get("booking"), "booking")
+    notification = _mapping(data.get("notification"), "notification")
+    webhook = environ.get("HDU_WECHAT_WEBHOOK", "").strip()
+    dry_run = booking.get("dry_run", False)
+    if not isinstance(dry_run, bool):
+        raise ConfigError(f"booking.dry_run 必须是布尔值: {settings_file}")
 
-    return Settings(
-        project_root=project_root,
-        max_trials=int(booking.get("max_trials", 5)),
-        retry_delay=float(booking.get("retry_delay", 1.0)),
-        dry_run=bool(booking.get("dry_run", False)),
-        window_wait_seconds=float(booking.get("window_wait_seconds", 30.0)),
-        window_poll_interval=float(booking.get("window_poll_interval", 1.0)),
-        session_cache=str(paths.get("session_cache", "data/session.cache")),
-        credentials_file=str(paths.get("credentials_file", "data/credentials.yaml")),
-        plans_file=str(paths.get("plans_file", "config/plans.yaml")),
-        log_file=str(paths.get("log_file", "logs/booking.log")),
-        wechat_webhook=str(notification.get("wechat_webhook", "")),
-    )
+    try:
+        settings = Settings(
+            paths=app_paths,
+            max_trials=int(booking.get("max_trials", 5)),
+            retry_delay=float(booking.get("retry_delay", 1.0)),
+            dry_run=dry_run,
+            window_wait_seconds=float(booking.get("window_wait_seconds", 30.0)),
+            window_poll_interval=float(booking.get("window_poll_interval", 1.0)),
+            wechat_webhook=webhook or str(notification.get("wechat_webhook", "")),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"配置字段类型错误: {settings_file}: {exc}") from exc
+    if settings.max_trials < 1:
+        raise ConfigError("booking.max_trials 必须至少为 1")
+    if settings.retry_delay < 0:
+        raise ConfigError("booking.retry_delay 不能为负数")
+    if settings.window_wait_seconds < 0 or settings.window_poll_interval <= 0:
+        raise ConfigError("预约窗口等待时间不能为负，轮询间隔必须大于 0")
+    return settings
 
 
-def load_credentials(path: str | Path) -> Credentials | None:
-    """加载登录凭据：优先环境变量 ``HDU_STUDENT_ID`` / ``HDU_PASSWORD``（CI 用），
-    其次读取 ``path`` 指向的 YAML 文件（本地用）。两者都缺则返回 ``None``。
+def _secret_from_env(name: str, environ: Mapping[str, str]) -> str:
+    value = environ.get(name, "").strip()
+    file_value = environ.get(f"{name}_FILE", "").strip()
+    if value and file_value:
+        raise ConfigError(f"{name} 与 {name}_FILE 不能同时设置")
+    if value:
+        return value
+    if not file_value:
+        return ""
+    try:
+        return Path(file_value).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ConfigError(f"无法读取 {name}_FILE={file_value}: {exc}") from exc
 
-    YAML 格式::
 
-        student_id: "学号"
-        password: "数字杭电密码"
-    """
-    sid = os.environ.get("HDU_STUDENT_ID", "").strip()
-    pwd = os.environ.get("HDU_PASSWORD", "").strip()
-    if sid and pwd:
-        return Credentials(student_id=sid, password=pwd)
+def load_credentials(
+    path: str | Path,
+    env: Mapping[str, str] | None = None,
+) -> Credentials | None:
+    """优先从环境变量或 secret 文件读取凭据，其次读取桌面端凭据文件。"""
+    environ = os.environ if env is None else env
+    sid = _secret_from_env("HDU_STUDENT_ID", environ)
+    password = _secret_from_env("HDU_PASSWORD", environ)
+    if sid or password:
+        if not sid or not password:
+            raise ConfigError("HDU_STUDENT_ID 与 HDU_PASSWORD 必须成对提供")
+        return Credentials(student_id=sid, password=password)
 
-    p = Path(path).expanduser()
-    if not p.is_absolute():
-        p = Path.cwd() / p
-    if not p.exists():
+    credential_path = Path(path).expanduser()
+    if not credential_path.is_absolute():
+        raise ValueError(f"凭据路径必须是绝对路径: {credential_path}")
+    if not credential_path.exists():
         return None
     try:
-        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        data = yaml.safe_load(credential_path.read_text(encoding="utf-8")) or {}
     except (yaml.YAMLError, OSError):
         return None
     sid = str(data.get("student_id", "")).strip()
-    pwd = str(data.get("password", "")).strip()
-    if sid and pwd:
-        return Credentials(student_id=sid, password=pwd)
+    password = str(data.get("password", "")).strip()
+    if sid and password:
+        return Credentials(student_id=sid, password=password)
     return None
 
 
 def save_credentials(path: str | Path, creds: Credentials) -> None:
-    """把凭据写入 YAML 文件（本地复用 + 供非交互 --run-now 自愈登录）。
-
-    POSIX 下尝试 ``chmod 600``；写入失败抛 ``OSError`` 由调用方决定是否阻断。
-    文件已加入 ``.gitignore``，绝不应提交。
-    """
-    p = Path(path).expanduser()
-    if not p.is_absolute():
-        p = Path.cwd() / p
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(
+    """将桌面端凭据原子写入用户数据目录。"""
+    credential_path = Path(path).expanduser()
+    if not credential_path.is_absolute():
+        raise ValueError(f"凭据路径必须是绝对路径: {credential_path}")
+    credential_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = credential_path.with_suffix(f"{credential_path.suffix}.tmp")
+    temporary_path.write_text(
         yaml.safe_dump(
             {"student_id": creds.student_id, "password": creds.password},
             allow_unicode=True,
@@ -120,4 +163,5 @@ def save_credentials(path: str | Path, creds: Credentials) -> None:
         encoding="utf-8",
     )
     with contextlib.suppress(OSError):
-        p.chmod(0o600)  # Windows 无 POSIX 权限模型，忽略
+        temporary_path.chmod(0o600)
+    temporary_path.replace(credential_path)

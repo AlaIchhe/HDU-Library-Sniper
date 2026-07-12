@@ -148,11 +148,11 @@ class BookingService:
             return self._active_sniper is not None
 
     def _relogin_with_credentials(self) -> bool:
-        """缓存失效时，用已存凭据（环境变量或 data/credentials.yaml）headless 自愈登录。
+        """缓存失效时，用环境 secret 或用户数据目录凭据 headless 自愈登录。
 
         供非交互 ``--run-now`` 在 cookie 过期时自动续登，免去人工刷新。成功返回 True。
         """
-        creds = load_credentials(self.settings.credentials_file)
+        creds = load_credentials(self.settings.paths.credentials_file)
         if not creds:
             return False
         ok, msg = self.browser_auth.login_with_credentials(creds.student_id, creds.password)
@@ -165,7 +165,7 @@ class BookingService:
 
         专为外部调度器（Windows 任务计划程序 / cron / GitHub Actions）设计：
         全程无需键盘输入，跑完即退出。日志 / 结果通过 Notifier 写入
-        config.yaml 的 log_file，stdout 供 task.log 捕获。
+        用户状态目录中的 booking.log，stdout 供 task.log 捕获。
 
         认证顺序：先复用 session.cache；过期则用已存学号+密码 headless 自愈登录；
         两者都不可用才返回 AUTH_FAILED。
@@ -174,8 +174,8 @@ class BookingService:
         if not auth.try_cache() and not self._relogin_with_credentials():
             self.notifier.send(
                 "抢座任务无法启动",
-                "登录态已过期且自动登录失败。请在 data/credentials.yaml 填入"
-                "学号与数字杭电密码（或交互模式重新登录一次）后重试。",
+                "登录态已过期且自动登录失败。请通过 GUI 保存凭据，或为服务提供"
+                "HDU_STUDENT_ID/HDU_PASSWORD secret 后重试。",
                 success=False,
             )
             return ExitCode.AUTH_FAILED

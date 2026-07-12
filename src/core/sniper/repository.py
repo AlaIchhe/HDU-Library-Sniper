@@ -14,8 +14,10 @@ from core.sniper.plan import BookingPlan, PlanStatus
 class PlanRepository:
     """基于 YAML 文件的方案存储。"""
 
-    def __init__(self, file_path: str) -> None:
+    def __init__(self, file_path: str | Path) -> None:
         self._file = Path(file_path)
+        if not self._file.is_absolute():
+            raise ValueError(f"方案路径必须是绝对路径: {self._file}")
         self._cache: list[BookingPlan] | None = None
 
     def load_all(self) -> list[BookingPlan]:
@@ -36,10 +38,12 @@ class PlanRepository:
     def save_all(self, plans: list[BookingPlan]) -> None:
         self._file.parent.mkdir(parents=True, exist_ok=True)
         raw = [p.to_dict() for p in plans]
-        self._file.write_text(
+        temporary_file = self._file.with_suffix(f"{self._file.suffix}.tmp")
+        temporary_file.write_text(
             yaml.dump(raw, allow_unicode=True, encoding="utf-8").decode("utf-8"),
             encoding="utf-8",
         )
+        temporary_file.replace(self._file)
         self._cache = list(plans)
 
     def add(self, plan: BookingPlan) -> None:

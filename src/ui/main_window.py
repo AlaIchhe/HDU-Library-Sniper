@@ -63,8 +63,8 @@ class MainWindow(QMainWindow):
         self.browser_auth = BrowserAuthService(client, settings)
         self.booking = BookingService(settings, client, plans, notifier)
         self.plan_service = PlanService(client, plans, self.booking.room_browser)
-        self.scheduler_service = SchedulerService(settings.project_root)
-        self.credentials = load_credentials(settings.credentials_file)
+        self.scheduler_service = SchedulerService(settings.paths)
+        self.credentials = load_credentials(settings.paths.credentials_file)
 
         # 工作线程
         self.booking_worker: BookingWorker | None = None
@@ -410,8 +410,8 @@ class MainWindow(QMainWindow):
                 password=self.pwd_input.text().strip(),
             )
             try:
-                save_credentials(self.settings.credentials_file, creds)
-                self._append_auth_status(f"凭据已保存到 {self.settings.credentials_file}")
+                save_credentials(self.settings.paths.credentials_file, creds)
+                self._append_auth_status(f"凭据已保存到 {self.settings.paths.credentials_file}")
             except OSError as exc:
                 self._append_auth_status(f"凭据保存失败: {exc}")
         else:

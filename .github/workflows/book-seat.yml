@@ -6,7 +6,7 @@
 #
 # ⚠️ 凭据安全：学号 + 数字杭电密码 = 账户所有权，一律通过 Settings → Secrets 注入
 #    （HDU_STUDENT_ID / HDU_PASSWORD），绝对不要写进本文件、仓库代码、PR diff 或 commit。
-#    CI 用环境变量传凭据，不落盘；与本地 data/credentials.yaml 等价。
+#    CI 用环境变量传凭据，不落盘；桌面端则使用标准用户数据目录。
 
 name: HDU Library Seat Booking
 
@@ -23,26 +23,28 @@ jobs:
   book:
     runs-on: ubuntu-latest
     timeout-minutes: 6
+    env:
+      HDU_SNIPER_HOME: ${{ runner.temp }}/hdu-sniper
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install .
 
       # headless 登录需要 chromium 浏览器二进制 + 系统库
       - name: Install Playwright chromium
         run: python -m playwright install --with-deps chromium
 
       # ---- 注入方案/配置（学号+密码走环境变量，不落盘）----
-      # config/plans.yaml 已被 .gitignore 排除，Runner 上原本为空，这里从 Secret 写入。
+      # 配置写入临时 App Home，任务结束后统一清理。
       - name: Inject plans/config secrets
         env:
           HDU_PLANS_YAML:  ${{ secrets.HDU_PLANS_YAML }}
@@ -50,17 +52,17 @@ jobs:
           HDU_STUDENT_ID:  ${{ secrets.HDU_STUDENT_ID }}
         run: |
           set -e
-          mkdir -m 0700 -p data logs
+          mkdir -m 0700 -p "$HDU_SNIPER_HOME/config" "$HDU_SNIPER_HOME/data" "$HDU_SNIPER_HOME/state/logs"
           if [ -z "$HDU_STUDENT_ID" ]; then
             echo "::error::Secret HDU_STUDENT_ID 未设置或为空，请先在 Settings → Secrets 添加 HDU_STUDENT_ID 与 HDU_PASSWORD。"
             exit 1
           fi
           if [ -n "$HDU_PLANS_YAML" ]; then
-            printf '%s' "$HDU_PLANS_YAML" > config/plans.yaml
-            chmod 600 config/plans.yaml
+            printf '%s' "$HDU_PLANS_YAML" > "$HDU_SNIPER_HOME/config/plans.yaml"
+            chmod 600 "$HDU_SNIPER_HOME/config/plans.yaml"
           fi
           if [ -n "$HDU_CONFIG_YAML" ]; then
-            printf '%s' "$HDU_CONFIG_YAML" > config/config.yaml
+            printf '%s' "$HDU_CONFIG_YAML" > "$HDU_SNIPER_HOME/config/settings.yaml"
           fi
           echo "✔ secrets ready (plans/config injected; credentials via env)"
 
@@ -97,6 +99,6 @@ jobs:
       - name: Clear cache files
         if: always()
         run: |
-          rm -f data/session.cache config/plans.yaml
+          rm -rf "$HDU_SNIPER_HOME"
           # 防止 runner /temp 残留敏感文件
           echo "✔ cache cleared"

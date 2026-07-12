@@ -1,6 +1,8 @@
 """GUI 定时任务功能单元测试。"""
 
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -15,14 +17,22 @@ class TestSchedulerService(unittest.TestCase):
 
     def setUp(self):
         """测试前准备。"""
+        from config.paths import AppPaths
         from services.scheduler import SchedulerService
 
-        self.project_root = Path(__file__).parent
-        self.service = SchedulerService(self.project_root)
+        self.temp_dir = tempfile.TemporaryDirectory()
+        root = Path(self.temp_dir.name).resolve()
+        self.paths = AppPaths(root / "config", root / "data", root / "state", root / "logs")
+        self.install_root = Path(__file__).resolve().parent
+        self.service = SchedulerService(self.paths, self.install_root)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
 
     def test_init(self):
         """测试初始化。"""
-        self.assertEqual(self.service.project_root, self.project_root)
+        self.assertEqual(self.service.install_root, self.install_root)
+        self.assertEqual(self.service.paths, self.paths)
         self.assertIsNotNone(self.service.system)
         self.assertEqual(self.service.task_name, "HDU-Library-Sniper-Daily")
 
@@ -46,17 +56,17 @@ class TestSchedulerService(unittest.TestCase):
 
         # 测试 Windows
         mock_system.return_value = "Windows"
-        service = SchedulerService(self.project_root)
+        service = SchedulerService(self.paths, self.install_root)
         self.assertEqual(service.system, "Windows")
 
         # 测试 Linux
         mock_system.return_value = "Linux"
-        service = SchedulerService(self.project_root)
+        service = SchedulerService(self.paths, self.install_root)
         self.assertEqual(service.system, "Linux")
 
         # 测试 macOS
         mock_system.return_value = "Darwin"
-        service = SchedulerService(self.project_root)
+        service = SchedulerService(self.paths, self.install_root)
         self.assertEqual(service.system, "Darwin")
 
     @patch("subprocess.run")
@@ -66,7 +76,7 @@ class TestSchedulerService(unittest.TestCase):
         from services.scheduler import SchedulerService
 
         mock_system.return_value = "Windows"
-        service = SchedulerService(self.project_root)
+        service = SchedulerService(self.paths, self.install_root)
 
         # 模拟任务不存在
         mock_result = Mock()
@@ -84,7 +94,7 @@ class TestSchedulerService(unittest.TestCase):
         from services.scheduler import SchedulerService
 
         mock_system.return_value = "Windows"
-        service = SchedulerService(self.project_root)
+        service = SchedulerService(self.paths, self.install_root)
 
         # 模拟任务存在
         mock_result = Mock()
@@ -106,12 +116,31 @@ class TestSchedulerService(unittest.TestCase):
 
         # 创建一个临时路径，确保没有 pythonw.exe
         temp_root = Path("/nonexistent/path")
-        service = self.service.__class__(temp_root)
+        service = self.service.__class__(self.paths, temp_root)
 
         # 这个测试可能会找到系统 PATH 中的 pythonw
         result = service._find_pythonw()
         # 只验证返回值类型
         self.assertTrue(result is None or isinstance(result, Path))
+
+    @patch("subprocess.Popen")
+    @patch("subprocess.run")
+    def test_linux_cron_carries_app_home(self, mock_run, mock_popen):
+        """cron 命令显式继承部署 home，并只用绝对运行路径。"""
+        mock_run.return_value = Mock(returncode=1, stdout="")
+        process = Mock(returncode=0)
+        process.communicate.return_value = ("", "")
+        mock_popen.return_value = process
+        self.service.system = "Linux"
+
+        with patch.dict(os.environ, {"HDU_SNIPER_HOME": self.temp_dir.name}):
+            success, _ = self.service._configure_linux_cron("20:00:00")
+
+        self.assertTrue(success)
+        crontab = process.communicate.call_args.kwargs["input"]
+        self.assertIn("HDU_SNIPER_HOME=", crontab)
+        self.assertIn(str(self.service.paths.task_log), crontab)
+        self.assertIn("# HDU-Library-Sniper", crontab)
 
 
 class TestSchedulerConfigDialog(unittest.TestCase):
@@ -193,9 +222,20 @@ class TestMainWindowIntegration(unittest.TestCase):
         """测试类初始化。"""
         from PySide6.QtWidgets import QApplication
 
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.old_home = os.environ.get("HDU_SNIPER_HOME")
+        os.environ["HDU_SNIPER_HOME"] = cls.temp_dir.name
         cls.app = QApplication.instance()
         if cls.app is None:
             cls.app = QApplication([])
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.old_home is None:
+            os.environ.pop("HDU_SNIPER_HOME", None)
+        else:
+            os.environ["HDU_SNIPER_HOME"] = cls.old_home
+        cls.temp_dir.cleanup()
 
     def test_main_window_creation(self):
         """测试主窗口创建。"""
@@ -217,7 +257,7 @@ class TestMainWindowIntegration(unittest.TestCase):
         from ui.main_window import MainWindow
 
         window = MainWindow()
-        expected_tabs = ["认证", "方案管理", "抢座", "定时任务"]
+        expected_tabs = ["🔐 认证", "📋 方案管理", "⚡ 抢座", "⏰ 定时任务"]
 
         for i, expected_name in enumerate(expected_tabs):
             actual_name = window.tabs.tabText(i)
@@ -284,40 +324,30 @@ class TestMainWindowIntegration(unittest.TestCase):
         self.assertIsInstance(window.scheduler_service, SchedulerService)
 
 
-class TestSettingsWithProjectRoot(unittest.TestCase):
-    """Settings project_root 属性测试。"""
+class TestSettingsPaths(unittest.TestCase):
+    """Settings 使用统一绝对路径。"""
 
-    def test_settings_has_project_root(self):
-        """测试 Settings 包含 project_root 属性。"""
-        from config.settings import load_settings
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
 
-        settings = load_settings()
-        self.assertTrue(hasattr(settings, "project_root"))
-        self.assertIsNotNone(settings.project_root)
-        self.assertIsInstance(settings.project_root, Path)
-
-    def test_project_root_is_valid_path(self):
-        """测试 project_root 是有效路径。"""
-        from config.settings import load_settings
-
-        settings = load_settings()
-        self.assertTrue(
-            settings.project_root.exists(),
-            f"project_root 路径不存在: {settings.project_root}",
-        )
+    def tearDown(self):
+        self.temp_dir.cleanup()
 
     def test_settings_other_attributes(self):
         """测试 Settings 其他属性。"""
+        from config.paths import resolve_app_paths
         from config.settings import load_settings
 
-        settings = load_settings()
+        paths = resolve_app_paths({"HDU_SNIPER_HOME": self.temp_dir.name})
+        settings = load_settings(paths, env={})
 
         # 验证必要的属性存在
         self.assertTrue(hasattr(settings, "max_trials"))
         self.assertTrue(hasattr(settings, "retry_delay"))
-        self.assertTrue(hasattr(settings, "credentials_file"))
-        self.assertTrue(hasattr(settings, "plans_file"))
-        self.assertEqual(settings.plans_file, "config/plans.yaml")
+        self.assertFalse(hasattr(settings, "project_root"))
+        self.assertTrue(settings.paths.plans_file.is_absolute())
+        self.assertTrue(settings.paths.credentials_file.is_absolute())
+        self.assertEqual(settings.paths.plans_file, paths.config_dir / "plans.yaml")
 
         # 验证默认值
         self.assertEqual(settings.max_trials, 5)
@@ -359,7 +389,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestSchedulerService))
     suite.addTests(loader.loadTestsFromTestCase(TestSchedulerConfigDialog))
     suite.addTests(loader.loadTestsFromTestCase(TestMainWindowIntegration))
-    suite.addTests(loader.loadTestsFromTestCase(TestSettingsWithProjectRoot))
+    suite.addTests(loader.loadTestsFromTestCase(TestSettingsPaths))
     suite.addTests(loader.loadTestsFromTestCase(TestDialogsExport))
 
     # 运行测试

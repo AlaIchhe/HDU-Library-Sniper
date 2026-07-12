@@ -153,7 +153,7 @@ class LibraryClient:
         """加载 session.cache（原始 Cookie 字符串，由 ``save_cookie_cache`` 写入）。"""
         path = Path(cache_path).expanduser()
         if not path.is_absolute():
-            path = Path.cwd() / path
+            raise ValueError(f"会话缓存路径必须是绝对路径: {path}")
         if not path.exists() or not path.read_text(encoding="utf-8").strip():
             raise CookieError(f"Cookie 缓存为空或不存在：{path}")
         self.set_cookie_header(path.read_text(encoding="utf-8").strip())
@@ -164,10 +164,10 @@ class LibraryClient:
         写入失败（如磁盘不可写）静默忽略——缓存仅用于加速后续非交互登录，
         失败不应阻断当前已成功的认证流程（与历史行为一致）。
         """
+        path = Path(cache_path).expanduser()
+        if not path.is_absolute():
+            raise ValueError(f"会话缓存路径必须是绝对路径: {path}")
         try:
-            path = Path(cache_path).expanduser()
-            if not path.is_absolute():
-                path = Path.cwd() / path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(cookie_string, encoding="utf-8")
         except OSError:

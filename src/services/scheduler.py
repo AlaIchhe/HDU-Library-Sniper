@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import os
 import platform
+import shlex
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from config.paths import APP_HOME_ENV, AppPaths
+
+
+TASK_MARKER = "HDU-Library-Sniper"
 
 
 @dataclass
@@ -22,10 +29,25 @@ class TaskStatus:
 class SchedulerService:
     """定时任务管理服务。"""
 
-    def __init__(self, project_root: Path):
-        self.project_root = project_root
+    def __init__(self, paths: AppPaths, install_root: Path | None = None):
+        self.paths = paths
+        self.install_root = install_root or Path(__file__).resolve().parents[2]
         self.system = platform.system()
         self.task_name = "HDU-Library-Sniper-Daily"
+
+    @property
+    def main_script(self) -> Path:
+        return self.install_root / "main.py"
+
+    def _launcher_command(self, *, background: bool = False) -> list[str]:
+        """返回当前安装形态下可再次启动本程序的命令。"""
+        if getattr(sys, "frozen", False):
+            return [sys.executable]
+
+        executable = Path(sys.executable)
+        if background and self.system == "Windows":
+            executable = self._find_pythonw() or executable
+        return [str(executable), str(self.main_script)]
 
     def configure_task(self, execute_time: str, wake_to_run: bool = True) -> tuple[bool, str]:
         """配置定时任务。
@@ -73,23 +95,14 @@ class SchedulerService:
         Returns:
             (成功?, 输出/错误消息)
         """
-        # 查找 pythonw.exe (Windows) 或 python3 (Linux)
-        if self.system == "Windows":
-            python_exe = self._find_pythonw()
-            if not python_exe:
-                return False, "未找到 pythonw.exe，请确保已安装 Python"
-        else:
-            python_exe = "python3"
-
-        main_py = self.project_root / "main.py"
-        if not main_py.exists():
-            return False, f"未找到 main.py: {main_py}"
+        if not getattr(sys, "frozen", False) and not self.main_script.exists():
+            return False, f"未找到程序入口: {self.main_script}"
 
         # 执行测试
         try:
             result = subprocess.run(
-                [str(python_exe), str(main_py), "--daemon"],
-                cwd=str(self.project_root),
+                [*self._launcher_command(), "--daemon"],
+                cwd=str(self.install_root),
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -116,13 +129,15 @@ class SchedulerService:
 
     def _configure_windows_task(self, execute_time: str, wake_to_run: bool) -> tuple[bool, str]:
         """使用 AutoSchedule.ps1 配置 Windows 任务。"""
-        ps_script = self.project_root / "scripts" / "AutoSchedule.ps1"
+        ps_script = self.install_root / "scripts" / "AutoSchedule.ps1"
         if not ps_script.exists():
             return False, f"未找到 AutoSchedule.ps1: {ps_script}"
 
         # 设置环境变量
         env = os.environ.copy()
-        env["SNIPER_WORKDIR"] = str(self.project_root)
+        env["SNIPER_WORKDIR"] = str(self.install_root)
+        env["SNIPER_TASK_LOG"] = str(self.paths.task_log)
+        env["PYTHON_EXE"] = self._launcher_command()[0]
         env["SNIPER_DAILY_AT"] = execute_time
         env["SNIPER_TASK_NAME"] = self.task_name
         env["SNIPER_WAKE_TO_RUN"] = "1" if wake_to_run else "0"
@@ -131,7 +146,7 @@ class SchedulerService:
         try:
             result = subprocess.run(
                 ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", str(ps_script)],
-                cwd=str(self.project_root),
+                cwd=str(self.install_root),
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -204,14 +219,14 @@ class SchedulerService:
     def _find_pythonw(self) -> Path | None:
         """查找 pythonw.exe。"""
         # 1. 项目根目录
-        local = self.project_root / "pythonw.exe"
+        local = self.install_root / "pythonw.exe"
         if local.exists():
             return local
 
         # 2. 虚拟环境
         venv_paths = [
-            self.project_root / "venv" / "Scripts" / "pythonw.exe",
-            self.project_root / ".venv" / "Scripts" / "pythonw.exe",
+            self.install_root / "venv" / "Scripts" / "pythonw.exe",
+            self.install_root / ".venv" / "Scripts" / "pythonw.exe",
         ]
         for venv_path in venv_paths:
             if venv_path.exists():
@@ -246,11 +261,14 @@ class SchedulerService:
         cron_time = f"{minute} {hour} * * *"
 
         # 构造 cron 命令
-        python_exe = "python3"
-        main_py = self.project_root / "main.py"
+        command = shlex.join([*self._launcher_command(), "--daemon"])
+        home = os.environ.get(APP_HOME_ENV, "").strip()
+        home_prefix = f"{APP_HOME_ENV}={shlex.quote(home)} " if home else ""
         cron_command = (
-            f"{cron_time} {python_exe} {main_py} --daemon >> {self.project_root}/logs/task.log 2>&1"
+            f"{cron_time} {home_prefix}{command} >> {shlex.quote(str(self.paths.task_log))} 2>&1"
+            f" # {TASK_MARKER}"
         )
+        self.paths.log_dir.mkdir(parents=True, exist_ok=True)
 
         # 读取现有 crontab
         try:
@@ -264,14 +282,9 @@ class SchedulerService:
             existing = ""
 
         # 移除旧任务
-        lines = [
-            line
-            for line in existing.split("\n")
-            if "HDU-Library-Sniper" not in line and main_py.name not in line
-        ]
+        lines = [line for line in existing.split("\n") if TASK_MARKER not in line]
 
         # 添加新任务
-        lines.append("# HDU-Library-Sniper Daily Task")
         lines.append(cron_command)
 
         new_crontab = "\n".join(lines) + "\n"
@@ -310,14 +323,8 @@ class SchedulerService:
                 return True, "没有配置定时任务"
 
             existing = result.stdout
-            main_py = self.project_root / "main.py"
-
             # 移除相关任务
-            lines = [
-                line
-                for line in existing.split("\n")
-                if "HDU-Library-Sniper" not in line and main_py.name not in line
-            ]
+            lines = [line for line in existing.split("\n") if TASK_MARKER not in line]
 
             new_crontab = "\n".join(lines) + "\n"
 
@@ -350,11 +357,9 @@ class SchedulerService:
                 return TaskStatus(exists=False)
 
             crontab = result.stdout
-            main_py = self.project_root / "main.py"
-
             # 查找相关任务
             for line in crontab.split("\n"):
-                if main_py.name in line and "--daemon" in line:
+                if TASK_MARKER in line and "--daemon" in line:
                     # 提取时间
                     parts = line.split()
                     if len(parts) >= 5:

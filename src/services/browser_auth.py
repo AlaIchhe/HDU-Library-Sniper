@@ -73,7 +73,7 @@ class BrowserAuthService:
                         False,
                         f"无法启动浏览器（可能未安装 chromium 或无桌面环境）：{exc}\n"
                         "请执行 `playwright install chromium`；"
-                        "无桌面环境请把别处生成的 data/session.cache 拷贝过来。",
+                        "无桌面环境请提供环境凭据，让程序自动建立会话缓存。",
                     )
 
                 try:
@@ -221,9 +221,9 @@ class BrowserAuthService:
         except HduLibraryError as exc:
             return False, f"用户信息识别失败：{exc}"
 
-        self.client.save_cookie_cache(self.settings.session_cache, cookie_str)
+        self.client.save_cookie_cache(self.settings.paths.session_cache, cookie_str)
         return (
             True,
             f"认证成功：{self.client.name or '(未知姓名)'} (UID: {self.client.uid})"
-            f"，已写入 {self.settings.session_cache}",
+            f"，已写入 {self.settings.paths.session_cache}",
         )

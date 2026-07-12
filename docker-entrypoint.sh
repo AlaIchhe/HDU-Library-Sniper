@@ -3,18 +3,8 @@ set -e
 
 # HDU Library Sniper - Docker 入口点脚本
 
-# 确保数据目录存在
-mkdir -p /app/data /app/logs
-
-# 如果提供了环境变量凭据，写入 credentials.yaml
-if [ -n "$HDU_STUDENT_ID" ] && [ -n "$HDU_PASSWORD" ]; then
-    echo "检测到环境变量凭据，写入配置文件..."
-    cat > /app/data/credentials.yaml <<EOF
-student_id: "$HDU_STUDENT_ID"
-password: "$HDU_PASSWORD"
-EOF
-    chmod 600 /app/data/credentials.yaml
-fi
+# 只创建可写运行目录；凭据始终由应用直接读取，不写入持久化卷。
+mkdir -p "$HDU_SNIPER_HOME/data" "$HDU_SNIPER_HOME/state/logs"
 
 # 根据命令参数执行不同模式
 case "$1" in
@@ -39,11 +29,22 @@ case "$1" in
         SCHEDULE="${SCHEDULE:-0 20 * * *}"
         echo "定时规则: $SCHEDULE"
 
-        # 安装 cron
-        apt-get update && apt-get install -y cron
+        # cron 不继承容器启动环境；仅将必要变量写入 /run 临时文件。
+        env_file=/run/hdu-sniper.env
+        : > "$env_file"
+        for name in HDU_SNIPER_HOME HDU_STUDENT_ID HDU_PASSWORD HDU_STUDENT_ID_FILE HDU_PASSWORD_FILE HDU_WECHAT_WEBHOOK; do
+            if [ -n "${!name:-}" ]; then
+                printf 'export %s=%q\n' "$name" "${!name}" >> "$env_file"
+            fi
+        done
+        chmod 600 "$env_file"
 
         # 创建 crontab 条目
-        echo "$SCHEDULE cd /app && uv run python main.py --daemon >> /app/logs/cron.log 2>&1" | crontab -
+        {
+            echo "SHELL=/bin/bash"
+            echo "PATH=/usr/local/bin:/usr/bin:/bin"
+            echo "$SCHEDULE . $env_file; cd /app && uv run python main.py --daemon >> $HDU_SNIPER_HOME/state/logs/task.log 2>&1"
+        } | crontab -
 
         # 启动 cron（前台运行）
         echo "Cron 任务已配置，启动 cron 守护进程..."
