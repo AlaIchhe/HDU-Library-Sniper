@@ -3,7 +3,8 @@ param(
     [string]$AppHome = "",
     [string]$TaskLog = "",
     [string]$WorkDir = "",
-    [string]$PythonExe = ""
+    [string]$PythonExe = "",
+    [switch]$Frozen
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,7 +53,11 @@ if ($Execute) {
         New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
     }
     Set-Location -Path $WorkDir
-    & $PythonExe -m hdu_sniper --run-now *>> $TaskLog
+    if ($Frozen) {
+        & $PythonExe --run-now *>> $TaskLog
+    } else {
+        & $PythonExe -m hdu_sniper --run-now *>> $TaskLog
+    }
     Exit $LASTEXITCODE
 }
 
@@ -81,6 +86,9 @@ $ActionArgument = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
     ' -PythonExe "' + $PythonExe + '"'
 if ($env:HDU_SNIPER_HOME) {
     $ActionArgument += ' -AppHome "' + $env:HDU_SNIPER_HOME + '"'
+}
+if ($Frozen -or $env:SNIPER_FROZEN -eq "1") {
+    $ActionArgument += ' -Frozen'
 }
 
 $Action = New-ScheduledTaskAction `

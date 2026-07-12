@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import sys
+import os
 
 
 def main() -> None:
@@ -14,17 +14,19 @@ def main() -> None:
     - --daemon / --run-now: 后台执行（由系统定时任务调用，用户不可见）
     """
 
-    if "--daemon" in sys.argv[1:] or "--run-now" in sys.argv[1:]:
-        # 后台守护进程模式：静默执行抢座
-        # 用于系统定时任务调用，用户不应该直接运行此模式
-        from hdu_sniper.runtime import get_app
+    import sys
 
-        sys.exit(get_app().booking.run_once())
+    if "--web" in sys.argv[1:]:
+        import uvicorn
 
-    else:
-        from hdu_sniper.ui.app import run_flet_app
+        host = os.environ.get("FLET_SERVER_IP", "0.0.0.0")
+        port = int(os.environ.get("FLET_SERVER_PORT", "8000"))
+        uvicorn.run("hdu_sniper.server:app", host=host, port=port)
+        return
 
-        run_flet_app(web="--web" in sys.argv[1:])
+    from hdu_sniper.desktop import main as desktop_main
+
+    desktop_main()
 
 
 if __name__ == "__main__":

@@ -25,13 +25,22 @@
 
 ## 🚀 快速开始
 
-### 环境要求
+### 桌面版（推荐）
+
+从 GitHub Releases 下载对应平台的安装包：
+
+- Windows：`HDU-Library-Sniper-Setup-<version>.exe`
+- macOS：`HDU-Library-Sniper-<version>-macos.dmg`
+
+安装后从开始菜单或 Launchpad 启动。桌面安装包已经包含运行时和登录浏览器，不需要安装 Python，也不需要执行任何脚本。
+
+### 源码环境要求
 
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) - 现代 Python 包管理器
 - 浏览器二进制：`playwright install chromium`（headless 登录用，约 150MB，仅首次）
 
-### 安装
+### 源码安装
 
 **1. 安装 uv（如果未安装）**
 
@@ -58,7 +67,7 @@ uv sync
 uv run playwright install chromium
 ```
 
-### 启动软件
+### 源码启动
 
 **Windows 用户（推荐）**：
 - 双击 `scripts/launch.bat` — 静默启动，无命令行窗口
@@ -359,6 +368,10 @@ uv run python -m hdu_sniper
 make web               # 启动本地 Web UI
 uv run python -m hdu_sniper --web
 
+# 构建桌面安装包（必须在目标操作系统上执行）
+make desktop-windows
+make desktop-macos
+
 # 清理缓存
 make clean
 ```
@@ -397,6 +410,8 @@ HDU-Library-Sniper/
 - **Web/API**: [FastAPI](https://fastapi.tiangolo.com/) + ASGI
 - **自动化**: [Playwright](https://playwright.dev/python/) - 浏览器自动化
 
+桌面发布、内置 Chromium、代码签名和安装器说明见 [桌面应用发布](docs/DESKTOP-RELEASE.md)。
+
 ### 贡献指南
 
 1. Fork 本仓库
@@ -417,7 +432,3 @@ HDU-Library-Sniper/
 - 本项目仅供学习交流使用，使用本工具产生的一切后果由使用者自行承担。
 - 请勿滥用：频繁请求可能对正常服务造成影响，请合理设置重试间隔。
 - 学号、密码与 Cookie 均为登录凭据，请勿在社交平台或不信任的环境中泄露。
-
----
-
-*© 2026 LongElk (AlaIchhe) — MIT License*

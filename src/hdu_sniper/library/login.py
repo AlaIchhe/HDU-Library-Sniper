@@ -14,7 +14,10 @@
 
 from __future__ import annotations
 
+import os
 import re
+import sys
+from pathlib import Path
 from typing import Any
 
 from hdu_sniper.config import Settings
@@ -32,6 +35,26 @@ DESKTOP_UA = (
 )
 # 登录成功后 CAS 会重定向回慧图域；以此作为登录成功的信号。
 _HUITU_URL = re.compile(r"huitu\.zhishulib\.com")
+
+
+def configure_packaged_browser() -> Path | None:
+    """Point Playwright at Chromium bundled with a frozen desktop app."""
+    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if configured:
+        return Path(configured)
+    if not getattr(sys, "frozen", False):
+        return None
+
+    executable_dir = Path(sys.executable).resolve().parent
+    bundle_dir = Path(getattr(sys, "_MEIPASS", executable_dir))
+    for candidate in (
+        bundle_dir / "playwright-browsers",
+        executable_dir / "playwright-browsers",
+    ):
+        if candidate.is_dir():
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(candidate)
+            return candidate
+    return None
 
 
 class LibraryLogin:
@@ -63,6 +86,7 @@ class LibraryLogin:
         返回 (是否成功, 给用户的提示消息)。Playwright 缺失 / 登录失败时给出可操作的报错，
         不抛异常。
         """
+        configure_packaged_browser()
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
@@ -80,11 +104,14 @@ class LibraryLogin:
                         args=["--disable-blink-features=AutomationControlled"],
                     )
                 except Exception as exc:
+                    packaged_hint = (
+                        "安装包缺少内置浏览器，请重新安装桌面应用。"
+                        if getattr(sys, "frozen", False)
+                        else "请执行 `playwright install chromium`。"
+                    )
                     return (
                         False,
-                        f"无法启动浏览器（可能未安装 chromium 或无桌面环境）：{exc}\n"
-                        "请执行 `playwright install chromium`；"
-                        "无桌面环境请提供环境凭据，让程序自动建立会话缓存。",
+                        f"无法启动登录浏览器：{exc}\n{packaged_hint}",
                     )
 
                 try:
