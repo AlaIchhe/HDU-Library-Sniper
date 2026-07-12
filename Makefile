@@ -1,4 +1,4 @@
-.PHONY: help install dev lint format test run clean docker-build docker-gui docker-daemon docker-scheduled docker-logs docker-stop docker-clean
+.PHONY: help install dev lint format test run clean docker-build docker-gui docker-run docker-scheduled docker-logs docker-stop docker-clean
 
 # 默认目标：显示帮助
 help:
@@ -19,7 +19,7 @@ help:
 	@echo "Docker 容器化:"
 	@echo "  make docker-build      构建 Docker 镜像"
 	@echo "  make docker-gui        启动 GUI 模式（需要 X11）"
-	@echo "  make docker-daemon     启动守护模式（单次执行）"
+	@echo "  make docker-run        立即执行一次"
 	@echo "  make docker-scheduled  启动定时任务模式（后台）"
 	@echo "  make docker-logs       查看容器日志"
 	@echo "  make docker-stop       停止所有容器"
@@ -69,32 +69,31 @@ docker-build:
 docker-gui:
 	@echo "启动 GUI 模式（需要 X11 转发）..."
 	@echo "Linux/macOS: 先运行 'xhost +local:docker'"
-	docker-compose --profile gui up
+	docker compose --profile gui up
 
-# 启动守护模式（单次执行）
-docker-daemon:
-	@echo "启动守护模式（单次执行）..."
-	docker-compose --profile daemon up
+# 立即执行一次
+docker-run:
+	@echo "立即执行一次..."
+	docker compose --profile run run --rm hdu-sniper-run
 
 # 启动定时任务模式（后台运行）
 docker-scheduled:
 	@echo "启动定时任务模式..."
-	docker-compose --profile scheduled up -d
+	docker compose --profile scheduled up -d
 	@echo "使用 'make docker-logs' 查看日志"
 
 # 查看容器日志
 docker-logs:
 	@echo "查看容器日志（Ctrl+C 退出）..."
-	docker-compose logs -f
+	docker compose logs -f
 
 # 停止所有容器
 docker-stop:
 	@echo "停止所有容器..."
-	docker-compose --profile gui --profile daemon --profile scheduled down
+	docker compose --profile gui --profile run --profile scheduled down
 
 # 清理容器和镜像
 docker-clean: docker-stop
 	@echo "清理容器和镜像..."
 	docker rmi hdu-library-sniper:latest || true
 	docker system prune -f
-

@@ -24,6 +24,8 @@ env/
 # 敏感数据（不打包进镜像）
 data/
 logs/
+deploy/config/
+secrets/
 *.cache
 data/session.cache
 data/credentials.yaml

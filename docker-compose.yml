@@ -1,7 +1,12 @@
-version: '3.8'
+x-runtime: &runtime
+  HDU_SNIPER_HOME: /var/lib/hdu-sniper
+  HDU_STUDENT_ID: ${HDU_STUDENT_ID:-}
+  HDU_PASSWORD: ${HDU_PASSWORD:-}
+  HDU_STUDENT_ID_FILE: ${HDU_STUDENT_ID_FILE:-}
+  HDU_PASSWORD_FILE: ${HDU_PASSWORD_FILE:-}
+  HDU_WECHAT_WEBHOOK: ${HDU_WECHAT_WEBHOOK:-}
 
 services:
-  # GUI 模式（需要 X11 转发）
   hdu-sniper-gui:
     build:
       context: .
@@ -9,45 +14,31 @@ services:
     image: hdu-library-sniper:latest
     container_name: hdu-sniper-gui
     environment:
-      # X11 显示转发
-      - DISPLAY=${DISPLAY:-:0}
-      # 可选：通过环境变量提供凭据
-      - HDU_STUDENT_ID=${HDU_STUDENT_ID:-}
-      - HDU_PASSWORD=${HDU_PASSWORD:-}
+      <<: *runtime
+      DISPLAY: ${DISPLAY:-:0}
     volumes:
-      # X11 socket 转发（Linux）
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      # 持久化数据
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./src/config:/app/src/config
+      - ./deploy/config:/var/lib/hdu-sniper/config:rw
+      - sniper-data:/var/lib/hdu-sniper/data
+      - sniper-state:/var/lib/hdu-sniper/state
     network_mode: host
-    profiles:
-      - gui
+    profiles: [gui]
     command: gui
 
-  # 守护模式（后台自动抢座）
-  hdu-sniper-daemon:
+  hdu-sniper-run:
     build:
       context: .
       dockerfile: Dockerfile
     image: hdu-library-sniper:latest
-    container_name: hdu-sniper-daemon
-    environment:
-      # 必须通过环境变量或 data/credentials.yaml 提供凭据
-      - HDU_STUDENT_ID=${HDU_STUDENT_ID:-}
-      - HDU_PASSWORD=${HDU_PASSWORD:-}
+    container_name: hdu-sniper-run
+    environment: *runtime
     volumes:
-      # 持久化数据（凭据、预约方案、会话缓存）
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./src/config:/app/src/config
-    restart: unless-stopped
-    profiles:
-      - daemon
-    command: daemon
+      - ./deploy/config:/var/lib/hdu-sniper/config:ro
+      - sniper-data:/var/lib/hdu-sniper/data
+      - sniper-state:/var/lib/hdu-sniper/state
+    profiles: [run]
+    command: run-now
 
-  # 定时任务模式（使用 cron 定时执行）
   hdu-sniper-scheduled:
     build:
       context: .
@@ -55,22 +46,16 @@ services:
     image: hdu-library-sniper:latest
     container_name: hdu-sniper-scheduled
     environment:
-      - HDU_STUDENT_ID=${HDU_STUDENT_ID:-}
-      - HDU_PASSWORD=${HDU_PASSWORD:-}
-      # 定时执行时间（cron 格式）
-      - SCHEDULE=${SCHEDULE:-0 20 * * *}
+      <<: *runtime
+      SCHEDULE: ${SCHEDULE:-0 20 * * *}
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./src/config:/app/src/config
+      - ./deploy/config:/var/lib/hdu-sniper/config:ro
+      - sniper-data:/var/lib/hdu-sniper/data
+      - sniper-state:/var/lib/hdu-sniper/state
     restart: unless-stopped
-    profiles:
-      - scheduled
+    profiles: [scheduled]
     command: scheduled
 
-# 数据卷（可选：使用 Docker 管理的卷）
 volumes:
-  data:
-    driver: local
-  logs:
-    driver: local
+  sniper-data:
+  sniper-state:

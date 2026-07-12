@@ -15,11 +15,13 @@ venv/
 env/
 
 # uv
-uv.lock
 .python-version
+.uv-cache/
 
 # Docker
 .env
+deploy/config/*
+!deploy/config/README.md
 
 # IDE
 .vscode/

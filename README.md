@@ -80,17 +80,17 @@ make run                # 使用 Makefile
 - **学号**：你的学号
 - **密码**：数字杭电密码
 
-点击"登录"按钮，程序会在后台启动 headless 浏览器完成登录，自动保存登录态到 `data/session.cache`。
+点击"登录"按钮，程序会在后台启动 headless 浏览器完成登录，并将登录态保存到当前用户的标准应用数据目录。
 
-凭据会保存到 `data/credentials.yaml`（已 gitignore），供后续自动续登使用。
+凭据保存在当前用户的标准应用数据目录，供后续自动续登使用；不会写入源码仓库。
 
 > 登录依赖 Playwright（headless 浏览器）：
 > ```bash
-> pip install -r requirements.txt   # 含 playwright
-> playwright install chromium       # 下载浏览器二进制（约 150MB，仅首次）
+> uv sync
+> uv run playwright install chromium  # 下载浏览器二进制（约 150MB，仅首次）
 > ```
 >
-> 无桌面环境（SSH / Linux 服务器 / SYSTEM 计划任务）也能 headless 登录，只要已安装 chromium。
+> 无桌面环境（SSH / Linux 服务器 / 系统计划任务）也能 headless 登录，只要已安装 chromium。
 
 ### 2. 创建预约方案
 
@@ -134,7 +134,7 @@ make run                # 使用 Makefile
 - ✅ Windows：需保持电脑开机或睡眠（支持自动唤醒）
 - ✅ Linux：需保持电脑开机
 - ✅ 执行结果会推送通知（如已配置通知渠道）
-- ✅ 详细日志保存在 `logs/` 目录
+- ✅ 详细日志保存在当前用户的标准日志目录
 
 **其他功能**：
 - **移除定时任务**：取消自动执行
@@ -149,9 +149,9 @@ make run                # 使用 Makefile
 
 GUI 调用 `scripts/AutoSchedule.ps1` 自动注册到 Windows 任务计划程序：
 - 任务名称：`HDU-Library-Sniper-Daily`
-- 账户：`NT AUTHORITY\SYSTEM`（不管用户是否登录都运行）
+- 账户：创建任务的当前桌面用户
 - 触发器：每天指定时间
-- 操作：`pythonw.exe main.py --daemon`
+- 操作：PowerShell 包装器调用当前 Python 与 `main.py --run-now`
 - 支持睡眠唤醒（可配置）
 
 可在"任务计划程序"中查看和管理：
@@ -163,12 +163,12 @@ Win + R → taskschd.msc → 任务计划程序库 → HDU-Library-Sniper-Daily
 
 GUI 自动配置 crontab：
 - 每天指定时间触发
-- 命令：`python3 main.py --daemon`
-- 日志输出到 `logs/task.log`
+- 命令：当前 Python 解释器与 `main.py --daemon` 的绝对路径
+- 日志输出到标准用户日志目录中的 `task.log`
 
 查看已配置任务：
 ```bash
-crontab -l | grep main.py
+crontab -l | grep HDU-Library-Sniper
 ```
 
 ### 后台执行模式
@@ -179,7 +179,7 @@ python main.py --daemon    # 或 pythonw.exe (Windows)
 ```
 
 **执行流程**：
-1. 读取配置文件（`src/config/plans.yaml`, `data/credentials.yaml`）
+1. 从系统标准用户目录读取设置、方案和凭据
 2. 尝试使用缓存登录，失败则用凭据续登
 3. 读取启用的方案
 4. 执行抢座（带重试、窗口轮询）
@@ -212,15 +212,14 @@ HDU-Library-Sniper/
 ├── uv.lock                      # 依赖锁定文件
 ├── Makefile                     # 快捷命令（install/lint/test/run/docker-*）
 ├── Dockerfile                   # Docker 多阶段构建配置
-├── docker-compose.yml           # Docker 多模式编排（gui/daemon/scheduled）
+├── docker-compose.yml           # Docker 多模式编排（gui/run/scheduled）
 ├── docker-entrypoint.sh         # Docker 智能入口脚本
 ├── .env.example                 # Docker 环境变量模板
 │
 ├── src/                         # 核心业务代码
-│   ├── config/                  # 配置管理（用户配置，可提交）
-│   │   ├── config.yaml          # 用户配置文件
-│   │   ├── plans.yaml           # 预约方案配置
-│   │   └── settings.py          # 配置加载模块
+│   ├── config/                  # 配置与运行目录解析
+│   │   ├── paths.py             # 标准用户目录 / HDU_SNIPER_HOME
+│   │   └── settings.py          # 业务配置与凭据加载
 │   │
 │   ├── core/                    # 核心业务逻辑
 │   │   ├── client.py            # 图书馆 API 客户端
@@ -264,13 +263,6 @@ HDU-Library-Sniper/
 │   ├── launch.bat               # Windows 静默启动脚本
 │   └── launch.ps1               # Windows PowerShell 启动脚本
 │
-├── data/                        # 运行时敏感数据（已 gitignore）
-│   ├── session.cache            # 登录态缓存
-│   └── credentials.yaml         # 学号+密码凭据
-│
-├── logs/                        # 运行日志（已 gitignore）
-│   └── booking.log              # 抢座执行日志
-│
 ├── tests/                       # 测试套件
 │   ├── test_contracts.py        # 接口契约测试
 │   └── test_scheduler.py        # 定时任务测试
@@ -280,7 +272,7 @@ HDU-Library-Sniper/
     └── contracts/               # API 契约示例
 ```
 
-> ⚠️ **安全提示**: `data/` 和 `logs/` 目录包含敏感数据（登录态、凭据、日志），已加入 `.gitignore`，不会被提交到 Git。`src/config/plans.yaml` 是用户配置文件，可提交到仓库。
+> ⚠️ **安全提示**：桌面端运行数据位于操作系统标准用户目录；Docker/服务器位于 `HDU_SNIPER_HOME`。凭据和会话缓存都不应提交到仓库。
 
 ---
 
@@ -300,8 +292,8 @@ A: 不能。需要保持电脑开机或睡眠状态。
 ### Q: 如何查看抢座结果？
 
 A: 三种方式：
-1. 查看通知推送（需在 `src/config/config.yaml` 配置 webhook）
-2. 查看 `logs/` 目录下的日志文件
+1. 查看通知推送（在用户配置目录的 `settings.yaml` 中配置 webhook）
+2. 查看用户日志目录中的日志文件
 3. 在 GUI 的"定时任务"标签页点击"测试执行"查看执行情况
 
 ### Q: 如何修改定时任务的执行时间？
@@ -312,7 +304,7 @@ A: 重新点击"配置定时任务"，输入新的时间即可覆盖原有配置
 
 A: 
 1. 点击"测试执行"按钮，查看具体错误信息
-2. 检查日志文件 `logs/` 目录
+2. 检查标准用户日志目录
 3. 确认方案已启用（在"方案管理"标签页查看）
 4. 确认登录状态有效（在"认证"标签页重新登录）
 
@@ -329,7 +321,7 @@ A:
 
 ### 通知推送
 
-编辑 `config/config.yaml`：
+参考 `config.example.yaml`，编辑用户配置目录中的 `settings.yaml`：
 
 ```yaml
 notification:
@@ -340,13 +332,15 @@ notification:
 
 ### 重试策略
 
-编辑 `config/config.yaml`：
+编辑同一个 `settings.yaml`：
 
 ```yaml
-max_trials: 5                    # 最大重试次数
-retry_delay: 1.5                 # 重试间隔（秒）
-window_wait_seconds: 300         # 窗口未开放时等待时间（秒）
-window_poll_interval: 2          # 窗口轮询间隔（秒）
+schema_version: 1
+booking:
+  max_trials: 5
+  retry_delay: 1.5
+  window_wait_seconds: 300
+  window_poll_interval: 2
 ```
 
 ### GitHub Actions（备选方案）
@@ -400,6 +394,7 @@ HDU-Library-Sniper/
 ├── Makefile             # 快捷命令
 ├── Dockerfile           # Docker 构建
 ├── docker-compose.yml   # Docker 编排
+├── config.example.yaml # 业务配置示例
 │
 ├── src/                 # 核心业务代码
 │   ├── config/          # 配置管理
@@ -412,8 +407,7 @@ HDU-Library-Sniper/
 │   └── utils/           # 工具函数
 │
 ├── scripts/             # 脚本
-├── data/                # 运行时数据（gitignore）
-├── logs/                # 运行日志（gitignore）
+├── deploy/config/       # Docker/服务器只读配置挂载点
 ├── tests/               # 测试套件
 └── docs/                # 文档
 ```

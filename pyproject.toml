@@ -8,10 +8,12 @@ version = "1.0.0"
 description = "杭州电子科技大学图书馆座位自动抢座工具"
 requires-python = ">=3.11"
 dependencies = [
+    "platformdirs>=4.3.8",
     "playwright>=1.61.0",
     "pyside6>=6.11.1",
     "pyyaml>=6.0.3",
     "requests>=2.34.2",
+    "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 authors = [
     { name = "AlaIchhe", email = "your.email@example.com" }
@@ -127,4 +129,3 @@ addopts = [
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-

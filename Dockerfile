@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # 基础工具
     curl \
     ca-certificates \
+    cron \
     # PySide6 GUI 依赖
     libgl1-mesa-glx \
     libglib2.0-0 \
@@ -59,11 +60,14 @@ RUN uv sync --frozen --no-dev
 # 安装 Playwright 浏览器（仅 Chromium，减小镜像体积）
 RUN uv run playwright install --with-deps chromium
 
-# 创建数据目录
-RUN mkdir -p /app/data /app/logs
+# 创建容器运行目录
+RUN mkdir -p /var/lib/hdu-sniper/config \
+    /var/lib/hdu-sniper/data \
+    /var/lib/hdu-sniper/state/logs
 
 # 暴露环境变量配置
-ENV HDU_STUDENT_ID="" \
+ENV HDU_SNIPER_HOME=/var/lib/hdu-sniper \
+    HDU_STUDENT_ID="" \
     HDU_PASSWORD="" \
     DISPLAY=:0
 

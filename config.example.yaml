@@ -1,0 +1,13 @@
+# HDU 图书馆抢座工具业务配置示例
+schema_version: 1
+
+booking:
+  max_trials: 5
+  retry_delay: 1.0
+  dry_run: false
+  window_wait_seconds: 30.0
+  window_poll_interval: 1.0
+
+notification:
+  # 也可通过 HDU_WECHAT_WEBHOOK 环境变量提供
+  wechat_webhook: ""

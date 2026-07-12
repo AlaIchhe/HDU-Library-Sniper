@@ -12,6 +12,6 @@ def build_runtime() -> tuple[Settings, LibraryClient, PlanRepository, Notifier]:
     """加载配置并构造运行时四件套，供交互式应用与非交互入口共用。"""
     settings = load_settings()
     client = LibraryClient()
-    plans = PlanRepository(settings.plans_file)
-    notifier = Notifier(settings.log_file, settings.wechat_webhook)
+    plans = PlanRepository(settings.paths.plans_file)
+    notifier = Notifier(settings.paths.booking_log, settings.wechat_webhook)
     return settings, client, plans, notifier

@@ -19,7 +19,7 @@ class AuthService:
     def try_cache(self) -> bool:
         """仅尝试用已缓存的 Cookie 认证，不做任何交互式输入。供非交互模式使用。"""
         try:
-            self.client.load_cookie_cache(self.settings.session_cache)
+            self.client.load_cookie_cache(self.settings.paths.session_cache)
             if self.client.validate_cookie():
                 self.client.resolve_uid()
                 return True
