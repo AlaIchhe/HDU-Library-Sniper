@@ -10,7 +10,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from config.paths import APP_HOME_ENV, AppPaths
+from hdu_sniper.paths import APP_HOME_ENV, AppPaths
 
 
 TASK_MARKER = "HDU-Library-Sniper"
@@ -35,10 +35,6 @@ class SchedulerService:
         self.system = platform.system()
         self.task_name = "HDU-Library-Sniper-Daily"
 
-    @property
-    def main_script(self) -> Path:
-        return self.install_root / "main.py"
-
     def _launcher_command(self, *, background: bool = False) -> list[str]:
         """返回当前安装形态下可再次启动本程序的命令。"""
         if getattr(sys, "frozen", False):
@@ -47,7 +43,7 @@ class SchedulerService:
         executable = Path(sys.executable)
         if background and self.system == "Windows":
             executable = self._find_pythonw() or executable
-        return [str(executable), str(self.main_script)]
+        return [str(executable), "-m", "hdu_sniper"]
 
     def configure_task(self, execute_time: str, wake_to_run: bool = True) -> tuple[bool, str]:
         """配置定时任务。
@@ -95,9 +91,6 @@ class SchedulerService:
         Returns:
             (成功?, 输出/错误消息)
         """
-        if not getattr(sys, "frozen", False) and not self.main_script.exists():
-            return False, f"未找到程序入口: {self.main_script}"
-
         # 执行测试
         try:
             result = subprocess.run(

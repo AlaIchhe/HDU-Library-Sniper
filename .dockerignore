@@ -75,6 +75,7 @@ docker-compose.override.yml
 
 # Ruff 缓存
 .ruff_cache/
+.uv-cache*/
 
 # 原始抓包样例
 fixtures/captures/

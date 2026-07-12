@@ -62,7 +62,7 @@ class SeatPoi(TypedDict):
     """座位图里的单个座位 ``seatMap.POIs[]``。"""
 
     id: str  # seat_id,bookSeats 的 seats[0]
-    title: str  # 座位号,RoomBrowser.find_seat 用它匹配 plan.seat_num
+    title: str  # 座位号，LibraryRooms.find_seat 用它匹配 plan.seat_num
     state: str | int  # 可用性状态(0/'1'/'3' 见过;含义未完全确定,'3' 对应某时刻已被占)
     x: str
     y: str

@@ -65,12 +65,12 @@ uv run playwright install chromium
 
 **命令行启动**：
 ```bash
-uv run python main.py   # 使用 uv 运行
+uv run python -m hdu_sniper   # 使用 uv 运行
 # 或
 make run                # 使用 Makefile
 
 # 本地启动 Web UI（服务器/Docker 使用同一入口）
-uv run python main.py --web
+uv run python -m hdu_sniper --web
 ```
 
 Docker 部署参见 [docs/DOCKER.md](docs/DOCKER.md)。默认 Web 地址为 `http://localhost:8000`。
@@ -157,7 +157,7 @@ Docker 部署参见 [docs/DOCKER.md](docs/DOCKER.md)。默认 Web 地址为 `htt
 - 任务名称：`HDU-Library-Sniper-Daily`
 - 账户：创建任务的当前桌面用户
 - 触发器：每天指定时间
-- 操作：PowerShell 包装器调用当前 Python 与 `main.py --run-now`
+- 操作：PowerShell 包装器调用当前 Python 与 `-m hdu_sniper --run-now`
 - 支持睡眠唤醒（可配置）
 
 可在"任务计划程序"中查看和管理：
@@ -169,7 +169,7 @@ Win + R → taskschd.msc → 任务计划程序库 → HDU-Library-Sniper-Daily
 
 应用自动配置 crontab：
 - 每天指定时间触发
-- 命令：当前 Python 解释器与 `main.py --daemon` 的绝对路径
+- 命令：当前 Python 解释器与 `-m hdu_sniper --daemon`
 - 日志输出到标准用户日志目录中的 `task.log`
 
 查看已配置任务：
@@ -181,7 +181,7 @@ crontab -l | grep HDU-Library-Sniper
 
 定时任务触发的命令：
 ```bash
-python main.py --daemon    # 或 pythonw.exe (Windows)
+python -m hdu_sniper --daemon    # 或 pythonw.exe (Windows)
 ```
 
 **执行流程**：
@@ -213,7 +213,6 @@ python main.py --daemon    # 或 pythonw.exe (Windows)
 
 ```
 HDU-Library-Sniper/
-├── main.py                      # 统一入口（Flet 桌面/Web / 后台执行）
 ├── pyproject.toml               # 项目配置（依赖、工具链）
 ├── uv.lock                      # 依赖锁定文件
 ├── Makefile                     # 快捷命令（install/lint/test/run/docker-*）
@@ -222,39 +221,18 @@ HDU-Library-Sniper/
 ├── docker-entrypoint.sh         # Docker 智能入口脚本
 ├── .env.example                 # Docker 环境变量模板
 │
-├── src/                         # 核心业务代码
-│   ├── config/                  # 配置与运行目录解析
-│   │   ├── paths.py             # 标准用户目录 / HDU_SNIPER_HOME
-│   │   └── settings.py          # 业务配置与凭据加载
-│   │
-│   ├── core/                    # 核心业务逻辑
-│   │   ├── client.py            # 图书馆 API 客户端
-│   │   ├── contract.py          # 接口契约定义
-│   │   ├── room_browser.py      # 房间/座位查询
-│   │   └── sniper/              # 抢座引擎
-│   │       ├── sniper.py        # 核心抢座逻辑
-│   │       ├── plan.py          # 预约方案模型
-│   │       ├── retry.py         # 重试策略
-│   │       └── repository.py    # 方案持久化
-│   │
-│   ├── application/             # 与 UI 框架无关的应用门面和事件模型
-│   ├── interfaces/              # FastAPI/ASGI 服务入口
-│   ├── ui/                      # Flet 桌面/Web 共用界面
-│   │   └── flet_app.py          # 桌面/Web 共用控件树
-│   │
-│   ├── services/                # 业务逻辑层
-│   │   ├── auth.py              # 认证服务
-│   │   ├── booking.py           # 抢座服务
-│   │   ├── plans.py             # 方案管理服务
-│   │   ├── scheduler.py         # 定时任务管理服务
-│   │   ├── runtime.py           # 运行时构建
-│   │   └── browser_auth.py      # 浏览器自动登录
-│   │
-│   └── utils/                   # 工具函数
-│       ├── encrypt.py           # API 签名生成
-│       ├── notifier.py          # 通知推送（日志 + 微信 webhook）
-│       ├── time_sync.py         # 时间同步
-│       └── time_utils.py        # 时间解析工具
+├── src/hdu_sniper/              # 可安装应用包
+│   ├── __main__.py              # 桌面/Web/后台统一入口
+│   ├── app.py                   # UI/API 共用应用门面
+│   ├── runtime.py               # 唯一运行时组合根
+│   ├── config.py                # 业务配置与凭据加载
+│   ├── paths.py                 # 标准用户目录 / HDU_SNIPER_HOME
+│   ├── booking/                 # 预约模型、方案、重试与执行流程
+│   ├── library/                 # 图书馆 API、登录、房间与响应解析
+│   ├── ui/app.py                # Flet 桌面/Web 共用控件树
+│   ├── server.py                # FastAPI/ASGI 服务入口
+│   ├── scheduler.py             # 系统定时任务
+│   └── notifier.py              # 日志与 webhook 通知
 │
 ├── scripts/
 │   ├── AutoSchedule.ps1         # Windows 任务计划自动注册脚本
@@ -376,10 +354,10 @@ uv run pytest
 
 # 运行应用
 make run               # 启动 Flet 桌面端
-uv run python main.py
+uv run python -m hdu_sniper
 
 make web               # 启动本地 Web UI
-uv run python main.py --web
+uv run python -m hdu_sniper --web
 
 # 清理缓存
 make clean
@@ -389,7 +367,6 @@ make clean
 
 ```
 HDU-Library-Sniper/
-├── main.py              # 统一入口
 ├── pyproject.toml       # 项目配置
 ├── uv.lock              # 依赖锁定
 ├── Makefile             # 快捷命令
@@ -397,15 +374,13 @@ HDU-Library-Sniper/
 ├── docker-compose.yml   # Docker 编排
 ├── config.example.yaml # 业务配置示例
 │
-├── src/                 # 核心业务代码
-│   ├── config/          # 配置管理
-│   ├── core/            # 核心业务逻辑
-│   │   └── sniper/      # 抢座引擎
-│   ├── application/     # 应用门面与事件模型
-│   ├── interfaces/      # FastAPI/ASGI 入口
+├── src/hdu_sniper/      # 按业务能力组织的应用包
+│   ├── booking/         # 预约业务
+│   ├── library/         # 图书馆系统集成
 │   ├── ui/              # Flet 桌面/Web 共用界面
-│   ├── services/        # 业务逻辑层
-│   └── utils/           # 工具函数
+│   ├── app.py           # 应用门面
+│   ├── runtime.py       # 依赖装配
+│   └── server.py        # FastAPI/ASGI 入口
 │
 ├── scripts/             # 脚本
 ├── deploy/config/       # Docker/服务器配置挂载点

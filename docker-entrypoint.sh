@@ -10,12 +10,12 @@ mkdir -p "$HDU_SNIPER_HOME/data" "$HDU_SNIPER_HOME/state/logs"
 case "$1" in
     web)
         echo "启动 Web UI..."
-        exec uv run python main.py --web
+        exec uv run python -m hdu_sniper --web
         ;;
 
     daemon)
         echo "启动守护模式（单次执行）..."
-        exec uv run python main.py --daemon
+        exec uv run python -m hdu_sniper --daemon
         ;;
 
     scheduled)
@@ -38,7 +38,7 @@ case "$1" in
         {
             echo "SHELL=/bin/bash"
             echo "PATH=/usr/local/bin:/usr/bin:/bin"
-            echo "$SCHEDULE . $env_file; cd /app && uv run python main.py --daemon >> $HDU_SNIPER_HOME/state/logs/task.log 2>&1"
+            echo "$SCHEDULE . $env_file; cd /app && uv run python -m hdu_sniper --daemon >> $HDU_SNIPER_HOME/state/logs/task.log 2>&1"
         } | crontab -
 
         # 启动 cron（前台运行）
@@ -48,7 +48,7 @@ case "$1" in
 
     run-now)
         echo "立即执行一次抢座..."
-        exec uv run python main.py --run-now
+        exec uv run python -m hdu_sniper --run-now
         ;;
 
     shell)

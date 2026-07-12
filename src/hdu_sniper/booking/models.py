@@ -60,3 +60,13 @@ class BookingPlan:
     def enabled(self) -> bool:
         """兼容属性：判断方案是否启用。"""
         return self.status == PlanStatus.ENABLED
+
+
+@dataclass
+class BookingResult:
+    """一次预约尝试的结果。"""
+
+    plan: BookingPlan
+    success: bool = False
+    message: str = ""
+    raw_response: dict[str, Any] | None = None

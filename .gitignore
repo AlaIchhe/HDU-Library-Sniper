@@ -16,7 +16,13 @@ env/
 
 # uv
 .python-version
-.uv-cache/
+.uv-cache*/
+
+# 测试与检查产物
+.coverage
+.pytest_cache/
+.ruff_cache/
+htmlcov/
 
 # Docker
 .env

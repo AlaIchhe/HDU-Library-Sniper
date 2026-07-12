@@ -41,3 +41,29 @@ def get_seat_lookup_time(now: datetime | None = None) -> datetime:
     if current.hour < 7:
         return current.replace(hour=8, minute=0, second=0, microsecond=0)
     return current
+
+
+def parse_execute_time(text: str) -> datetime | None:
+    """解析 HH:MM 或 HH:MM:SS，已过时间自动顺延到次日。"""
+    text = text.strip()
+    if not text:
+        return None
+
+    parsed = None
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            parsed = datetime.strptime(text, fmt).time()
+            break
+        except ValueError:
+            continue
+    if parsed is None:
+        raise ValueError("时间格式应为 HH:MM 或 HH:MM:SS")
+
+    now = now_cst()
+    target = now.replace(
+        hour=parsed.hour,
+        minute=parsed.minute,
+        second=parsed.second,
+        microsecond=0,
+    )
+    return target + timedelta(days=1) if target <= now else target

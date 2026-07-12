@@ -6,25 +6,20 @@ import asyncio
 import contextlib
 import os
 from datetime import datetime
-from functools import lru_cache
 
 import flet as ft
 
-from application import ApplicationEvent, EventKind, JobState, SniperApplication, build_application
-from core.client import ROOM_TYPE_MAP
-from utils.time_utils import parse_execute_time
-
-
-@lru_cache(maxsize=1)
-def get_application() -> SniperApplication:
-    """返回进程级应用实例，确保多个 Web 会话共享任务互斥和状态。"""
-    return build_application()
+from hdu_sniper.app import SniperApp
+from hdu_sniper.booking.time import parse_execute_time
+from hdu_sniper.events import ApplicationEvent, EventKind, JobState
+from hdu_sniper.library.client import ROOM_TYPE_MAP
+from hdu_sniper.runtime import get_app
 
 
 class SniperFletView:
     """单个 Flet Page 的展示适配器。"""
 
-    def __init__(self, page: ft.Page, application: SniperApplication) -> None:
+    def __init__(self, page: ft.Page, application: SniperApp) -> None:
         self.page = page
         self.application = application
         self.selected_plan_ids: set[str] = set()
@@ -739,7 +734,7 @@ class SniperFletView:
 
 
 def flet_main(page: ft.Page) -> None:
-    SniperFletView(page, get_application())
+    SniperFletView(page, get_app())
 
 
 def run_flet_app(*, web: bool = False) -> None:
@@ -749,6 +744,6 @@ def run_flet_app(*, web: bool = False) -> None:
 
         host = os.environ.get("FLET_SERVER_IP", "0.0.0.0")
         port = int(os.environ.get("FLET_SERVER_PORT", "8000"))
-        uvicorn.run("interfaces.api:app", host=host, port=port)
+        uvicorn.run("hdu_sniper.server:app", host=host, port=port)
     else:
         ft.run(flet_main, view=ft.AppView.FLET_APP)

@@ -70,7 +70,7 @@ Session 默认带 `LAB_JSON=1`(`core/client.py:DEFAULT_SESSION_PARAMS`)。对 `b
 
 4. **限流响应**:`CODE=1`(整数!)`MESSAGE="请求太频繁了,请稍后再试"`。`booking_failed` 把它当失败 → `default_retry_decider` 落到 SKIP。可考虑改为退避重试(非必须)。
 
-5. **seat 对象**:`{id=seat_id, title=座位号, state, x/y/w/h, have_socket, gender, locker}`。`RoomBrowser.find_seat` 用 `title`(`contract.seat_title`)匹配 `seat_num`,返回后用 `id`(`contract.seat_id`)作 `seats[0]`——**正确**。`state` 含义(0/'1'/'3' 哪个=可用)**未完全确定**,只知 '3' 在某查询时刻对应已被占。
+5. **seat 对象**:`{id=seat_id, title=座位号, state, x/y/w/h, have_socket, gender, locker}`。`LibraryRooms.find_seat` 用 `title`（`responses.seat_title`）匹配 `seat_num`，返回后用 `id`（`responses.seat_id`）作 `seats[0]`——**正确**。`state` 含义（0/'1'/'3' 哪个=可用）**未完全确定**，只知 '3' 在某查询时刻对应已被占。
 
 6. **bookSeats success 形状未实抓**:探测的每个时段都撞 duplicate(时段冲突)或 seat_unavailable(被占),**未产生任何真实预约**(无需取消)。`CODE="ok"` 由 baseInfo 信封一致性推断;如需实抓,在 web UI 约一个确实空的座,看 network 响应即可。
 

@@ -72,7 +72,7 @@ jobs:
         env:
           HDU_STUDENT_ID: ${{ secrets.HDU_STUDENT_ID }}
           HDU_PASSWORD:   ${{ secrets.HDU_PASSWORD }}
-        run: python main.py --run-now
+        run: python -m hdu_sniper --run-now
         continue-on-error: true
 
       - name: Push notification

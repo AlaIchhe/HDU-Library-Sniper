@@ -7,8 +7,8 @@ from typing import Any
 
 import requests
 
-from core import contract
-from utils.encrypt import generate_api_token
+from hdu_sniper.library import responses
+from hdu_sniper.library.signing import generate_api_token
 
 
 URLS = {
@@ -186,10 +186,10 @@ class LibraryClient:
         except HduLibraryError:
             return False
         try:
-            info = contract.base_info_data(data)
+            info = responses.base_info_data(data)
         except KeyError:
             return False
-        return contract.base_info_is_login(info) and contract.base_info_uid(info).isdigit()
+        return responses.base_info_is_login(info) and responses.base_info_uid(info).isdigit()
 
     def resolve_uid(self) -> str:
         """从 baseInfo 的 ``DATA.uid`` 读取当前登录用户 uid。契约见
@@ -201,12 +201,12 @@ class LibraryClient:
         except HduLibraryError as exc:
             raise HduLibraryError(f"用户信息请求失败：{exc}") from exc
         try:
-            info = contract.base_info_data(data)
+            info = responses.base_info_data(data)
         except KeyError as exc:
             raise HduLibraryError(f"用户信息解析失败：{exc}") from exc
-        if not contract.base_info_is_login(info):
+        if not responses.base_info_is_login(info):
             raise HduLibraryError("Cookie 无效或已过期，无法获取 uid。")
-        uid = contract.base_info_uid(info)
+        uid = responses.base_info_uid(info)
         if not uid.isdigit():
             raise HduLibraryError(
                 f"未能从接口识别 uid（got {uid!r}），请在配置中填写 uid 或更新 Cookie。",
@@ -218,7 +218,7 @@ class LibraryClient:
         """获取所有可用房间类型。契约见 docs/contracts/samples/room_types.json。"""
         data = self._request("GET", self.urls["query_rooms"])
         try:
-            return contract.room_types_from_response(data)
+            return responses.room_types_from_response(data)
         except (KeyError, IndexError, TypeError) as exc:
             raise RoomQueryError(f"房间类型解析失败：{exc}") from exc
 
@@ -226,7 +226,7 @@ class LibraryClient:
         """查询单个房间详情。契约见 docs/contracts/samples/room_detail.json。"""
         response = self._request("GET", self.urls["query_seats"] + "?" + room_query_string)
         try:
-            return contract.room_detail_from_response(response)
+            return responses.room_detail_from_response(response)
         except (KeyError, TypeError) as exc:
             raise RoomQueryError(f"房间信息解析失败：{exc}") from exc
 
@@ -248,7 +248,7 @@ class LibraryClient:
         }
         response = self._request("POST", self.urls["query_seats"], payload)
         try:
-            return contract.floors_from_response(response)
+            return responses.floors_from_response(response)
         except (KeyError, IndexError, TypeError) as exc:
             raise SeatQueryError(f"座位分布解析失败：{exc}") from exc
 
@@ -262,7 +262,7 @@ class LibraryClient:
         访问器容错(结构漂移返回 ``[]``)，故此处不包错。
         """
         data = self._request("GET", self.urls["today_schedule"])
-        return contract.bookings_from_response(data)
+        return responses.bookings_from_response(data)
 
     def find_confirmed_booking(self, begin_ts: int) -> dict[str, Any] | None:
         """超时幂等确认：在用户预约记录中查找与 begin_ts 匹配的预约。
@@ -287,7 +287,7 @@ class LibraryClient:
             if not isinstance(item, dict):
                 continue
             try:
-                item_begin_ts = contract.booking_begin_ts(item)
+                item_begin_ts = responses.booking_begin_ts(item)
             except (TypeError, ValueError):
                 continue
             if abs(item_begin_ts - begin_ts) <= 1:
