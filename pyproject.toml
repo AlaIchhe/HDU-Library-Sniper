@@ -37,6 +37,20 @@ classifiers = [
 [project.scripts]
 hdu-sniper = "hdu_sniper.__main__:main"
 
+[tool.flet]
+product = "HDU Library Sniper"
+artifact = "HDU-Library-Sniper"
+project = "hdu_library_sniper"
+company = "HDU Library Sniper Contributors"
+org = "io.github.alaichhe"
+copyright = "Copyright (C) 2026 HDU Library Sniper Contributors"
+build_number = 1
+
+[tool.flet.app]
+path = "src"
+module = "desktop.py"
+exclude = ["__pycache__", "*.pyc"]
+
 [tool.hatch.build]
 exclude = [
     "/.coverage",
@@ -45,6 +59,8 @@ exclude = [
     "/.uv-cache*",
     "/.venv",
     "/dist",
+    "/packaging/.cache",
+    "/*.spec",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -53,10 +69,15 @@ packages = ["src/hdu_sniper"]
 [dependency-groups]
 dev = [
     {include-group = "lint"},
+    {include-group = "package"},
     {include-group = "test"},
 ]
 lint = [
     "ruff>=0.15.21",
+]
+package = [
+    "pillow>=11.3.0",
+    "pyinstaller>=6.14.0,<7",
 ]
 test = [
     "pytest>=9.1.1",

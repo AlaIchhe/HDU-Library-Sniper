@@ -31,7 +31,15 @@ class SchedulerService:
 
     def __init__(self, paths: AppPaths, install_root: Path | None = None):
         self.paths = paths
-        self.install_root = install_root or Path(__file__).resolve().parents[2]
+        if install_root is not None:
+            self.install_root = install_root
+            self.resource_root = install_root
+        elif getattr(sys, "frozen", False):
+            self.install_root = Path(sys.executable).resolve().parent
+            self.resource_root = Path(getattr(sys, "_MEIPASS", self.install_root))
+        else:
+            self.install_root = Path(__file__).resolve().parents[2]
+            self.resource_root = self.install_root
         self.system = platform.system()
         self.task_name = "HDU-Library-Sniper-Daily"
 
@@ -122,7 +130,7 @@ class SchedulerService:
 
     def _configure_windows_task(self, execute_time: str, wake_to_run: bool) -> tuple[bool, str]:
         """使用 AutoSchedule.ps1 配置 Windows 任务。"""
-        ps_script = self.install_root / "scripts" / "AutoSchedule.ps1"
+        ps_script = self.resource_root / "scripts" / "AutoSchedule.ps1"
         if not ps_script.exists():
             return False, f"未找到 AutoSchedule.ps1: {ps_script}"
 
@@ -134,6 +142,7 @@ class SchedulerService:
         env["SNIPER_DAILY_AT"] = execute_time
         env["SNIPER_TASK_NAME"] = self.task_name
         env["SNIPER_WAKE_TO_RUN"] = "1" if wake_to_run else "0"
+        env["SNIPER_FROZEN"] = "1" if getattr(sys, "frozen", False) else "0"
 
         # 执行 PowerShell 脚本
         try:

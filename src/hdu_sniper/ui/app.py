@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 from datetime import datetime
 
 import flet as ft
@@ -737,13 +736,6 @@ def flet_main(page: ft.Page) -> None:
     SniperFletView(page, get_app())
 
 
-def run_flet_app(*, web: bool = False) -> None:
-    """启动桌面 Flet 客户端或 Docker Web 服务。"""
-    if web:
-        import uvicorn
-
-        host = os.environ.get("FLET_SERVER_IP", "0.0.0.0")
-        port = int(os.environ.get("FLET_SERVER_PORT", "8000"))
-        uvicorn.run("hdu_sniper.server:app", host=host, port=port)
-    else:
-        ft.run(flet_main, view=ft.AppView.FLET_APP)
+def run_flet_app() -> None:
+    """启动桌面 Flet 客户端。"""
+    ft.run(flet_main, view=ft.AppView.FLET_APP)

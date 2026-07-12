@@ -1,4 +1,4 @@
-.PHONY: help install dev lint format test run web clean docker-build docker-web docker-run docker-scheduled docker-logs docker-stop docker-clean
+.PHONY: help install dev lint format test run web desktop-windows desktop-macos clean docker-build docker-web docker-run docker-scheduled docker-logs docker-stop docker-clean
 
 # 默认目标：显示帮助
 help:
@@ -16,6 +16,8 @@ help:
 	@echo "运行:"
 	@echo "  make run         启动 Flet 桌面应用"
 	@echo "  make web         启动本地 Web UI"
+	@echo "  make desktop-windows  构建 Windows 安装程序"
+	@echo "  make desktop-macos    构建 macOS DMG"
 	@echo ""
 	@echo "Docker 容器化:"
 	@echo "  make docker-build      构建 Docker 镜像"
@@ -56,6 +58,13 @@ run:
 # 启动本地 Web UI
 web:
 	uv run python -m hdu_sniper --web
+
+# 构建用户可直接安装的桌面应用
+desktop-windows:
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Windows.ps1
+
+desktop-macos:
+	bash scripts/build-macos.sh
 
 # 清理缓存
 clean:
