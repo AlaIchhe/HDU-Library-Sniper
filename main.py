@@ -6,10 +6,11 @@ import sys
 
 
 def main() -> None:
-    """统一入口：GUI 界面 / 后台守护进程。
+    """统一入口：Flet 桌面/Web 界面或后台执行。
 
     模式：
-    - 默认: 启动 GUI 界面（用户唯一交互方式）
+    - 默认: 启动 Flet 桌面界面
+    - --web: 启动 Flet Web 服务（Docker/服务器）
     - --daemon / --run-now: 后台执行（由系统定时任务调用，用户不可见）
     """
 
@@ -21,12 +22,14 @@ def main() -> None:
 
         sys.exit(BookingService(*build_runtime()).run_once())
 
-    else:
-        # GUI 界面模式（默认）
-        # 这是用户唯一应该看到的交互界面
+    elif "--legacy-qt" in sys.argv[1:]:
         from ui.app import run_gui
 
         run_gui()
+    else:
+        from ui.flet_app import run_flet_app
+
+        run_flet_app(web="--web" in sys.argv[1:])
 
 
 if __name__ == "__main__":

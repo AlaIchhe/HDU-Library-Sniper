@@ -8,13 +8,16 @@ version = "1.0.0"
 description = "杭州电子科技大学图书馆座位自动抢座工具"
 requires-python = ">=3.11"
 dependencies = [
+    "fastapi>=0.116.0",
+    "flet[all]>=0.85.3,<0.86",
     "platformdirs>=4.3.8",
     "playwright>=1.61.0",
-    "pyside6>=6.11.1",
     "pyyaml>=6.0.3",
     "requests>=2.34.2",
     "tzdata>=2025.2; sys_platform == 'win32'",
+    "uvicorn>=0.35.0",
 ]
+
 authors = [
     { name = "AlaIchhe", email = "your.email@example.com" }
 ]
@@ -31,11 +34,16 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
+[project.optional-dependencies]
+legacy-qt = [
+    "pyside6>=6.11.1",
+]
+
 [project.scripts]
 hdu-sniper = "main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/core", "src/ui", "src/services", "src/utils", "src/config"]
+packages = ["src/application", "src/config", "src/core", "src/interfaces", "src/services", "src/ui", "src/utils"]
 include = ["main.py"]
 
 [dependency-groups]
@@ -103,12 +111,12 @@ ignore = [
 "tests/**" = ["S101", "PLR2004", "ARG001", "PLC0415"]  # Allow assert, magic values, unused args, and lazy imports in tests
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
 "main.py" = ["PLC0415"]  # Allow lazy imports for conditional CLI modes
-"src/ui/**" = ["N802", "PLC0415"]  # Allow Qt method names (closeEvent) and lazy imports in UI
+"src/ui/**" = ["N802", "PLC0415"]  # Allow legacy Qt method names and lazy UI imports
 "scripts/**" = ["PLC0415"]  # Allow lazy imports in scripts
 "src/services/browser_auth.py" = ["PLC0415"]  # Allow lazy playwright import (optional dependency)
 
 [tool.ruff.lint.isort]
-known-first-party = ["core", "ui", "services", "utils", "config"]
+known-first-party = ["application", "config", "core", "interfaces", "services", "ui", "utils"]
 force-single-line = false
 lines-after-imports = 2
 

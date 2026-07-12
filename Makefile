@@ -1,4 +1,4 @@
-.PHONY: help install dev lint format test run clean docker-build docker-gui docker-run docker-scheduled docker-logs docker-stop docker-clean
+.PHONY: help install dev lint format test run web legacy-qt clean docker-build docker-web docker-run docker-scheduled docker-logs docker-stop docker-clean
 
 # 默认目标：显示帮助
 help:
@@ -14,11 +14,13 @@ help:
 	@echo "  make test        运行测试套件"
 	@echo ""
 	@echo "运行:"
-	@echo "  make run         启动 GUI 应用"
+	@echo "  make run         启动 Flet 桌面应用"
+	@echo "  make web         启动本地 Web UI"
+	@echo "  make legacy-qt   启动旧 Qt 界面（迁移期）"
 	@echo ""
 	@echo "Docker 容器化:"
 	@echo "  make docker-build      构建 Docker 镜像"
-	@echo "  make docker-gui        启动 GUI 模式（需要 X11）"
+	@echo "  make docker-web        启动 Web UI"
 	@echo "  make docker-run        立即执行一次"
 	@echo "  make docker-scheduled  启动定时任务模式（后台）"
 	@echo "  make docker-logs       查看容器日志"
@@ -52,6 +54,14 @@ test:
 run:
 	uv run python main.py
 
+# 启动本地 Web UI
+web:
+	uv run python main.py --web
+
+# 启动迁移期旧 Qt 界面
+legacy-qt:
+	uv run --extra legacy-qt python main.py --legacy-qt
+
 # 清理缓存
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
@@ -65,11 +75,11 @@ clean:
 docker-build:
 	docker build -t hdu-library-sniper:latest .
 
-# 启动 GUI 模式（需要 X11）
-docker-gui:
-	@echo "启动 GUI 模式（需要 X11 转发）..."
-	@echo "Linux/macOS: 先运行 'xhost +local:docker'"
-	docker compose --profile gui up
+# 启动 Web UI
+docker-web:
+	@echo "启动 Web UI..."
+	docker compose --profile web up -d --build
+	@echo "访问 http://localhost:$${HDU_WEB_PORT:-8000}"
 
 # 立即执行一次
 docker-run:
@@ -90,7 +100,7 @@ docker-logs:
 # 停止所有容器
 docker-stop:
 	@echo "停止所有容器..."
-	docker compose --profile gui --profile run --profile scheduled down
+	docker compose --profile web --profile run --profile scheduled down
 
 # 清理容器和镜像
 docker-clean: docker-stop

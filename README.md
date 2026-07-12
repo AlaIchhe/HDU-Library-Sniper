@@ -10,7 +10,7 @@
 
 | 特性 | 说明 |
 | --- | --- |
-| 🎨 图形界面 | 简洁易用的 GUI 界面，方案配置、抢座、定时任务一站式管理 |
+| 🎨 跨平台界面 | Flet/Flutter 桌面端与 Docker Web UI 共用同一套交互体验 |
 | ⚡ 即时抢座 | 立即尝试预约，按方案优先级逐个尝试，任一成功即停止 |
 | 🕗 定时预约 | 设定目标时间（如 `23:59:55`），程序自动等待到点后发起抢占 |
 | ⏰ 定时任务 | 一键配置系统定时任务，每天自动抢座，无需手动执行 |
@@ -68,7 +68,13 @@ uv run playwright install chromium
 uv run python main.py   # 使用 uv 运行
 # 或
 make run                # 使用 Makefile
+
+# 本地启动 Web UI（服务器/Docker 使用同一入口）
+uv run python main.py --web
 ```
+
+Docker 部署参见 [docs/DOCKER.md](docs/DOCKER.md)。默认 Web 地址为 `http://localhost:8000`。
+分层和多宿主边界参见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ---
 
@@ -94,7 +100,7 @@ make run                # 使用 Makefile
 
 ### 2. 创建预约方案
 
-切换到"方案管理"标签页，点击"创建方案"：
+切换到"方案"工作区，填写新建方案表单：
 
 1. **选择房间类型**：自习室、阅览室、讨论室等
 2. **选择楼层**：程序会自动加载该房间类型的所有楼层
@@ -113,7 +119,7 @@ make run                # 使用 Makefile
 
 ### 3. 手动抢座（可选）
 
-切换到"抢座"标签页：
+切换到"执行"工作区：
 
 - **立即执行**：留空执行时间，点击"开始抢座"
 - **定时执行**：输入时间（如 `23:59:55`），程序会倒计时等待到点后执行
@@ -122,7 +128,7 @@ make run                # 使用 Makefile
 
 ### 4. 配置定时任务（推荐）
 
-切换到"定时任务"标签页，点击"配置定时任务"：
+切换到"调度"工作区，填写每天执行时间并保存：
 
 1. **设置执行时间**：例如 `23:59:55`（图书馆 0:00 开放预约，提前 5 秒准备）
 2. **Windows 用户**：勾选"唤醒计算机以运行任务"（睡眠状态也能自动唤醒执行）
@@ -147,7 +153,7 @@ make run                # 使用 Makefile
 
 ### Windows 实现
 
-GUI 调用 `scripts/AutoSchedule.ps1` 自动注册到 Windows 任务计划程序：
+应用调用 `scripts/AutoSchedule.ps1` 自动注册到 Windows 任务计划程序：
 - 任务名称：`HDU-Library-Sniper-Daily`
 - 账户：创建任务的当前桌面用户
 - 触发器：每天指定时间
@@ -161,7 +167,7 @@ Win + R → taskschd.msc → 任务计划程序库 → HDU-Library-Sniper-Daily
 
 ### Linux 实现
 
-GUI 自动配置 crontab：
+应用自动配置 crontab：
 - 每天指定时间触发
 - 命令：当前 Python 解释器与 `main.py --daemon` 的绝对路径
 - 日志输出到标准用户日志目录中的 `task.log`
@@ -207,12 +213,12 @@ python main.py --daemon    # 或 pythonw.exe (Windows)
 
 ```
 HDU-Library-Sniper/
-├── main.py                      # 统一入口（GUI 模式 / 后台守护进程模式）
+├── main.py                      # 统一入口（Flet 桌面/Web / 后台执行）
 ├── pyproject.toml               # 项目配置（依赖、工具链）
 ├── uv.lock                      # 依赖锁定文件
 ├── Makefile                     # 快捷命令（install/lint/test/run/docker-*）
 ├── Dockerfile                   # Docker 多阶段构建配置
-├── docker-compose.yml           # Docker 多模式编排（gui/run/scheduled）
+├── docker-compose.yml           # Docker 多模式编排（web/run/scheduled）
 ├── docker-entrypoint.sh         # Docker 智能入口脚本
 ├── .env.example                 # Docker 环境变量模板
 │
@@ -231,18 +237,10 @@ HDU-Library-Sniper/
 │   │       ├── retry.py         # 重试策略
 │   │       └── repository.py    # 方案持久化
 │   │
-│   ├── ui/                      # 用户界面（PySide6）
-│   │   ├── app.py               # GUI 启动入口
-│   │   ├── main_window.py       # 主窗口（认证、方案管理、抢座、定时任务）
-│   │   ├── styles.py            # UI 样式定义
-│   │   ├── workers.py           # 异步工作线程
-│   │   ├── widgets/             # 自定义组件
-│   │   └── dialogs/             # 对话框
-│   │       ├── create_plan_dialog.py
-│   │       ├── delete_plans_dialog.py
-│   │       ├── modify_time_dialog.py
-│   │       ├── browse_rooms_dialog.py
-│   │       └── scheduler_config_dialog.py
+│   ├── application/             # 与 UI 框架无关的应用门面和事件模型
+│   ├── interfaces/              # FastAPI/ASGI 服务入口
+│   ├── ui/                      # Flet 界面；旧 Qt 界面仅用于迁移期回归
+│   │   └── flet_app.py          # 桌面/Web 共用控件树
 │   │
 │   ├── services/                # 业务逻辑层
 │   │   ├── auth.py              # 认证服务
@@ -294,7 +292,7 @@ A: 不能。需要保持电脑开机或睡眠状态。
 A: 三种方式：
 1. 查看通知推送（在用户配置目录的 `settings.yaml` 中配置 webhook）
 2. 查看用户日志目录中的日志文件
-3. 在 GUI 的"定时任务"标签页点击"测试执行"查看执行情况
+3. 在"调度"工作区点击"测试执行"查看执行情况
 
 ### Q: 如何修改定时任务的执行时间？
 
@@ -377,8 +375,11 @@ make test              # 运行测试套件
 uv run pytest
 
 # 运行应用
-make run               # 启动 GUI
+make run               # 启动 Flet 桌面端
 uv run python main.py
+
+make web               # 启动本地 Web UI
+uv run python main.py --web
 
 # 清理缓存
 make clean
@@ -417,7 +418,9 @@ HDU-Library-Sniper/
 - **包管理**: [uv](https://docs.astral.sh/uv/) - 快速、现代的 Python 包管理器
 - **代码质量**: [ruff](https://docs.astral.sh/ruff/) - 极速 linter + formatter
 - **测试**: [pytest](https://pytest.org/) + pytest-cov
-- **GUI**: [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python)
+- **跨平台 UI**: [Flet](https://flet.dev/) / Flutter（Windows、macOS、Web 共用控件树）
+- **Web/API**: [FastAPI](https://fastapi.tiangolo.com/) + ASGI
+- **旧界面**: PySide6 仅作为 `legacy-qt` 可选依赖保留到功能对齐完成
 - **自动化**: [Playwright](https://playwright.dev/python/) - 浏览器自动化
 
 ### 贡献指南

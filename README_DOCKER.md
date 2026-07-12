@@ -4,6 +4,12 @@
 cp config.example.yaml deploy/config/settings.yaml
 cp .env.example .env
 docker compose build
+docker compose --profile web up -d
+```
+
+打开 `http://localhost:8000` 使用 Web UI。立即执行一次：
+
+```bash
 docker compose --profile run run --rm hdu-sniper-run
 ```
 

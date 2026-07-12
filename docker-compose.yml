@@ -7,23 +7,22 @@ x-runtime: &runtime
   HDU_WECHAT_WEBHOOK: ${HDU_WECHAT_WEBHOOK:-}
 
 services:
-  hdu-sniper-gui:
+  hdu-sniper-web:
     build:
       context: .
       dockerfile: Dockerfile
     image: hdu-library-sniper:latest
-    container_name: hdu-sniper-gui
-    environment:
-      <<: *runtime
-      DISPLAY: ${DISPLAY:-:0}
+    container_name: hdu-sniper-web
+    environment: *runtime
+    ports:
+      - ${HDU_WEB_PORT:-8000}:8000
     volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ./deploy/config:/var/lib/hdu-sniper/config:rw
       - sniper-data:/var/lib/hdu-sniper/data
       - sniper-state:/var/lib/hdu-sniper/state
-    network_mode: host
-    profiles: [gui]
-    command: gui
+    restart: unless-stopped
+    profiles: [web]
+    command: web
 
   hdu-sniper-run:
     build:

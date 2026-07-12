@@ -4,12 +4,15 @@ import os
 import sys
 import tempfile
 import unittest
+from importlib.util import find_spec
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 
 # 确保可以导入项目模块
 sys.path.insert(0, str(Path(__file__).parent))
+
+LEGACY_QT_AVAILABLE = find_spec("PySide6") is not None
 
 
 class TestSchedulerService(unittest.TestCase):
@@ -143,6 +146,7 @@ class TestSchedulerService(unittest.TestCase):
         self.assertIn("# HDU-Library-Sniper", crontab)
 
 
+@unittest.skipUnless(LEGACY_QT_AVAILABLE, "需要 legacy-qt 可选依赖")
 class TestSchedulerConfigDialog(unittest.TestCase):
     """SchedulerConfigDialog 单元测试。"""
 
@@ -214,6 +218,7 @@ class TestSchedulerConfigDialog(unittest.TestCase):
         self.assertEqual(dialog.time_edit.displayFormat(), "HH:mm:ss")
 
 
+@unittest.skipUnless(LEGACY_QT_AVAILABLE, "需要 legacy-qt 可选依赖")
 class TestMainWindowIntegration(unittest.TestCase):
     """MainWindow 集成测试。"""
 
@@ -354,6 +359,7 @@ class TestSettingsPaths(unittest.TestCase):
         self.assertGreater(settings.retry_delay, 0)
 
 
+@unittest.skipUnless(LEGACY_QT_AVAILABLE, "需要 legacy-qt 可选依赖")
 class TestDialogsExport(unittest.TestCase):
     """测试 dialogs 模块导出。"""
 

@@ -8,14 +8,9 @@ mkdir -p "$HDU_SNIPER_HOME/data" "$HDU_SNIPER_HOME/state/logs"
 
 # 根据命令参数执行不同模式
 case "$1" in
-    gui)
-        echo "启动 GUI 模式..."
-        # 检查 DISPLAY 环境变量
-        if [ -z "$DISPLAY" ]; then
-            echo "警告：未设置 DISPLAY 环境变量，GUI 可能无法显示"
-            echo "请使用: docker run -e DISPLAY=\$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix ..."
-        fi
-        exec uv run python main.py
+    web)
+        echo "启动 Web UI..."
+        exec uv run python main.py --web
         ;;
 
     daemon)
@@ -63,7 +58,7 @@ case "$1" in
 
     *)
         echo "使用方式:"
-        echo "  docker run ... hdu-library-sniper gui          # 启动 GUI 界面"
+        echo "  docker run ... hdu-library-sniper web          # 启动 Web UI"
         echo "  docker run ... hdu-library-sniper daemon       # 执行一次抢座（守护模式）"
         echo "  docker run ... hdu-library-sniper scheduled    # 定时执行抢座"
         echo "  docker run ... hdu-library-sniper run-now      # 立即执行一次"
