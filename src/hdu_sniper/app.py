@@ -8,43 +8,48 @@ from collections.abc import Callable
 from datetime import datetime
 from threading import RLock
 
-from application.events import ApplicationEvent, EventKind, JobState
-from config.settings import Credentials, Settings, load_credentials, save_credentials
-from core.client import LibraryClient
-from core.room_browser import FloorInfo
-from core.sniper import BookingPlan, BookingResult, PlanRepository
-from services import AuthService, BookingService, BrowserAuthService, PlanService, build_runtime
-from services.scheduler import SchedulerService, TaskStatus
-from utils.notifier import Notifier
+from hdu_sniper.booking.models import BookingPlan, BookingResult
+from hdu_sniper.booking.plans import BookingPlans
+from hdu_sniper.booking.runner import BookingRunner
+from hdu_sniper.config import Credentials, Settings, load_credentials, save_credentials
+from hdu_sniper.events import ApplicationEvent, EventKind, JobState
+from hdu_sniper.library.client import LibraryClient
+from hdu_sniper.library.login import LibraryLogin
+from hdu_sniper.library.rooms import FloorInfo
+from hdu_sniper.notifier import Notifier
+from hdu_sniper.scheduler import SchedulerService, TaskStatus
 
 
 EventHandler = Callable[[ApplicationEvent], None]
 
 
-class SniperApplication:
+class SniperApp:
     """线程安全的应用用例门面，不暴露 UI 框架或工作线程类型。"""
 
     def __init__(
         self,
         settings: Settings,
         client: LibraryClient,
-        plans: PlanRepository,
+        plans: BookingPlans,
         notifier: Notifier,
         *,
-        auth: AuthService | None = None,
-        browser_auth: BrowserAuthService | None = None,
-        booking: BookingService | None = None,
-        plan_service: PlanService | None = None,
+        login: LibraryLogin | None = None,
+        booking: BookingRunner | None = None,
         scheduler: SchedulerService | None = None,
     ) -> None:
         self.settings = settings
         self.client = client
         self.plans = plans
         self.notifier = notifier
-        self.auth = auth or AuthService(client, settings)
-        self.booking = booking or BookingService(settings, client, plans, notifier)
-        self.browser_auth = browser_auth or self.booking.browser_auth
-        self.plan_service = plan_service or PlanService(client, plans, self.booking.room_browser)
+        self.login = login or LibraryLogin(client, settings)
+        self.booking = booking or BookingRunner(
+            settings,
+            client,
+            plans,
+            notifier,
+            rooms=plans.rooms,
+            login=self.login,
+        )
         self.scheduler = scheduler or SchedulerService(settings.paths)
 
         self._lock = RLock()
@@ -103,7 +108,7 @@ class SniperApplication:
         self._publish(EventKind.STATE, message)
 
     def try_cached_authentication(self) -> bool:
-        authenticated = self.auth.try_cache()
+        authenticated = self.login.try_cache()
         with self._lock:
             self._authenticated = authenticated
         self._publish(
@@ -121,7 +126,7 @@ class SniperApplication:
             return False, "已有任务正在运行"
         self._set_state(JobState.AUTHENTICATING, "正在认证")
         try:
-            success, message = self.browser_auth.login_with_credentials(student_id, password)
+            success, message = self.login.login_with_credentials(student_id, password)
             if success:
                 save_credentials(
                     self.settings.paths.credentials_file,
@@ -139,25 +144,25 @@ class SniperApplication:
             return False, message
 
     def list_plans(self) -> list[BookingPlan]:
-        return self.plan_service.list_plans()
+        return self.plans.list_all()
 
     def list_enabled_plans(self) -> list[BookingPlan]:
-        return self.plan_service.list_enabled()
+        return self.plans.list_enabled()
 
     def list_room_types(self) -> list[dict]:
-        return self.plan_service.list_room_types()
+        return self.plans.list_room_types()
 
     def list_floors(self, room_query: str) -> list[FloorInfo]:
-        return self.plan_service.list_floors(room_query)
+        return self.plans.list_floors(room_query)
 
     def create_plan(self, **values) -> tuple[BookingPlan, list[str], bool]:
-        return self.plan_service.create_plan(**values)
+        return self.plans.create(**values)
 
     def delete_plans(self, plan_ids: list[str]) -> int:
-        return self.plan_service.delete_plans(plan_ids)
+        return self.plans.delete(plan_ids)
 
     def modify_plan_times(self, plan_ids: list[str], **values) -> int:
-        return self.plan_service.modify_time(plan_ids, **values)
+        return self.plans.update_times(plan_ids, **values)
 
     def run_booking(self, execute_at: datetime | None = None) -> list[BookingResult]:
         if self.busy:
@@ -187,14 +192,14 @@ class SniperApplication:
 
         try:
             if execute_at:
-                results = self.booking.book_scheduled(
+                results = self.booking.run_at(
                     plans,
                     execute_at,
                     on_countdown=on_countdown,
                     on_progress=on_progress,
                 )
             else:
-                results = self.booking.book_now(plans, on_progress=on_progress)
+                results = self.booking.run_now(plans, on_progress=on_progress)
         except Exception as exc:
             message = f"抢座任务出错: {exc}"
             self._set_state(JobState.FAILED, message)
@@ -220,7 +225,7 @@ class SniperApplication:
         if self.state not in {JobState.WAITING, JobState.RUNNING}:
             return False
         self._set_state(JobState.CANCELLING, "正在取消任务")
-        return self.booking.cancel_active()
+        return self.booking.cancel()
 
     def scheduler_status(self) -> TaskStatus:
         return self.scheduler.get_task_status()
@@ -239,9 +244,3 @@ class SniperApplication:
         result = self.scheduler.test_execution()
         self._publish(EventKind.SCHEDULER, result[1], {"success": result[0]})
         return result
-
-
-def build_application() -> SniperApplication:
-    """从统一运行时构造应用门面。"""
-    settings, client, plans, notifier = build_runtime()
-    return SniperApplication(settings, client, plans, notifier)

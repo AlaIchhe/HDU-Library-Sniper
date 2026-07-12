@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core import contract
-from core.sniper.plan import BookingPlan
+from hdu_sniper.library import responses
 
 
 class RetryDecision:
@@ -45,7 +44,7 @@ def booking_failed(result: Any) -> bool:
 
 def is_time_out_of_range(result: dict[str, Any]) -> bool:
     """判断预约失败是否为"预约窗口尚未开放"（超出可预约座位时间范围）。"""
-    return contract.MSG_TIME_OUT_OF_RANGE in _extract_message(result)
+    return responses.MSG_TIME_OUT_OF_RANGE in _extract_message(result)
 
 
 def default_retry_decider(result: dict[str, Any]) -> RetryDecision:
@@ -57,28 +56,14 @@ def default_retry_decider(result: dict[str, Any]) -> RetryDecision:
     samples/book_seats.json)，运行期单一源在 ``core.contract``。
     """
     message = _extract_message(result)
-    if contract.MSG_TIME_OUT_OF_RANGE in message:
+    if responses.MSG_TIME_OUT_OF_RANGE in message:
         return RetryDecision(RetryDecision.CONTINUE, "预约窗口尚未开放，等待后重试")
-    if contract.MSG_DUPLICATE in message:
+    if responses.MSG_DUPLICATE in message:
         return RetryDecision(RetryDecision.SKIP, "已有预约，无需重复")
-    if contract.MSG_SEAT_UNAVAILABLE in message:
+    if responses.MSG_SEAT_UNAVAILABLE in message:
         return RetryDecision(RetryDecision.SKIP, "座位不可用，换下一个方案")
-    if contract.MSG_INVALID_REQUEST in message:
+    if responses.MSG_INVALID_REQUEST in message:
         return RetryDecision(RetryDecision.STOP, "非法请求 — 请检查系统更新")
     if booking_failed(result):
         return RetryDecision(RetryDecision.SKIP, message or "预约接口返回失败")
     return RetryDecision(RetryDecision.CONTINUE, "")
-
-
-class BookingResult:
-    def __init__(
-        self,
-        plan: BookingPlan,
-        success: bool = False,
-        message: str = "",
-        raw_response: dict[str, Any] | None = None,
-    ) -> None:
-        self.plan = plan
-        self.success = success
-        self.message = message
-        self.raw_response = raw_response

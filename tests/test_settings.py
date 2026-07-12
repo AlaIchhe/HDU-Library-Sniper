@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from config.paths import resolve_app_paths
-from config.settings import (
+from hdu_sniper.config import (
     ConfigError,
     Credentials,
     load_credentials,
     load_settings,
     save_credentials,
 )
+from hdu_sniper.paths import resolve_app_paths
 
 
 def test_home_override_uses_portable_layout(tmp_path: Path) -> None:

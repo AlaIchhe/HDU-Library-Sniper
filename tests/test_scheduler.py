@@ -11,8 +11,8 @@ class TestSchedulerService(unittest.TestCase):
     """SchedulerService 单元测试。"""
 
     def setUp(self):
-        from config.paths import AppPaths
-        from services.scheduler import SchedulerService
+        from hdu_sniper.paths import AppPaths
+        from hdu_sniper.scheduler import SchedulerService
 
         self.temp_dir = tempfile.TemporaryDirectory()
         root = Path(self.temp_dir.name).resolve()
@@ -30,7 +30,7 @@ class TestSchedulerService(unittest.TestCase):
         self.assertEqual(self.service.task_name, "HDU-Library-Sniper-Daily")
 
     def test_task_status_structure(self):
-        from services.scheduler import TaskStatus
+        from hdu_sniper.scheduler import TaskStatus
 
         status = TaskStatus(exists=False)
         self.assertFalse(status.exists)
@@ -43,7 +43,7 @@ class TestSchedulerService(unittest.TestCase):
 
     @patch("platform.system")
     def test_platform_detection(self, mock_system):
-        from services.scheduler import SchedulerService
+        from hdu_sniper.scheduler import SchedulerService
 
         for platform_name in ("Windows", "Linux", "Darwin"):
             mock_system.return_value = platform_name
@@ -53,7 +53,7 @@ class TestSchedulerService(unittest.TestCase):
     @patch("subprocess.run")
     @patch("platform.system")
     def test_get_task_status_windows_not_exists(self, mock_system, mock_run):
-        from services.scheduler import SchedulerService
+        from hdu_sniper.scheduler import SchedulerService
 
         mock_system.return_value = "Windows"
         mock_run.return_value = Mock(returncode=1, stdout="")
@@ -64,7 +64,7 @@ class TestSchedulerService(unittest.TestCase):
     @patch("subprocess.run")
     @patch("platform.system")
     def test_get_task_status_windows_exists(self, mock_system, mock_run):
-        from services.scheduler import SchedulerService
+        from hdu_sniper.scheduler import SchedulerService
 
         mock_system.return_value = "Windows"
         mock_run.return_value = Mock(
@@ -116,8 +116,8 @@ class TestSettingsPaths(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_settings_other_attributes(self):
-        from config.paths import resolve_app_paths
-        from config.settings import load_settings
+        from hdu_sniper.config import load_settings
+        from hdu_sniper.paths import resolve_app_paths
 
         paths = resolve_app_paths({"HDU_SNIPER_HOME": self.temp_dir.name})
         settings = load_settings(paths, env={})

@@ -10,14 +10,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from core import contract
-from core.client import ROOM_TYPE_MAP, HduLibraryError, LibraryClient, SeatQueryError
-from utils.time_sync import build_begin_time, get_seat_lookup_time
+from hdu_sniper.booking.time import build_begin_time, get_seat_lookup_time
+from hdu_sniper.library import responses
+from hdu_sniper.library.client import (
+    ROOM_TYPE_MAP,
+    HduLibraryError,
+    LibraryClient,
+    SeatQueryError,
+)
 
 
 if TYPE_CHECKING:
     # 仅类型注解用；运行期不依赖抢座编排包，避免循环导入。
-    from core.sniper.plan import BookingPlan
+    from hdu_sniper.booking.models import BookingPlan
 
 
 @dataclass
@@ -30,7 +35,7 @@ class FloorInfo:
     seat_titles: list[str]
 
 
-class RoomBrowser:
+class LibraryRooms:
     """慧图房间类型 / 楼层座位布局查询的唯一归属。
 
     浏览（``list_floors``，按 ``get_seat_lookup_time`` 查询）与抢座
@@ -53,13 +58,13 @@ class RoomBrowser:
     ) -> list[dict[str, Any]]:
         """公共解析：room_query -> detail.space_category -> cat_id/con_id -> seat_map。
 
-        字段契约见 ``contract.space_category_id`` / ``contract.space_category_content_id``
-        / ``contract.floors_from_response``(sample: room_detail.json / seat_map.json)。
+        字段契约见 ``responses.space_category_id`` / ``responses.space_category_content_id``
+        / ``responses.floors_from_response``（sample: room_detail.json / seat_map.json）。
         """
         detail = self.client.get_room_detail(room_query)
         return self.client.get_seat_map(
-            contract.space_category_id(detail),
-            contract.space_category_content_id(detail),
+            responses.space_category_id(detail),
+            responses.space_category_content_id(detail),
             lookup_time,
             duration_hours,
         )
@@ -70,12 +75,12 @@ class RoomBrowser:
 
         result: list[FloorInfo] = []
         for f in floors:
-            seats = contract.floor_seats(f)
-            titles = sorted(t for t in (contract.seat_title(s) for s in seats) if t)
+            seats = responses.floor_seats(f)
+            titles = sorted(t for t in (responses.seat_title(s) for s in seats) if t)
             result.append(
                 FloorInfo(
-                    floor_id=contract.floor_id(f),
-                    room_name=contract.floor_name(f),
+                    floor_id=responses.floor_id(f),
+                    room_name=responses.floor_name(f),
                     seat_count=len(seats),
                     seat_titles=titles,
                 ),
@@ -119,9 +124,9 @@ class RoomBrowser:
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """在楼层列表中定位指定楼层和座位号。
 
-        楼层匹配 ``contract.floor_id``(= ``seatMap.info.id``)；座位匹配
-        ``contract.seat_title``(= ``seatMap.POIs[].title``=座位号)，返回的座位
-        ``id`` 由调用方经 ``contract.seat_id`` 取作 ``bookSeats`` 的 ``seats[0]``。
+        楼层匹配 ``responses.floor_id``（= ``seatMap.info.id``）；座位匹配
+        ``responses.seat_title``（= ``seatMap.POIs[].title`` = 座位号），返回的座位
+        ``id`` 由调用方经 ``responses.seat_id`` 取作 ``bookSeats`` 的 ``seats[0]``。
         """
         floor_id = str(floor_id)
         seat_num = str(seat_num)
@@ -129,8 +134,8 @@ class RoomBrowser:
         target_floor = None
 
         for item in floors:
-            fid = contract.floor_id(item)
-            floor_names.append(f"{contract.floor_name(item)}={fid}")
+            fid = responses.floor_id(item)
+            floor_names.append(f"{responses.floor_name(item)}={fid}")
             if fid == floor_id:
                 target_floor = item
                 break
@@ -138,12 +143,12 @@ class RoomBrowser:
         if not target_floor:
             raise SeatQueryError(f"找不到楼层 id={floor_id}。可用楼层：{', '.join(floor_names)}")
 
-        seats = contract.floor_seats(target_floor)
-        matches = [seat for seat in seats if contract.seat_title(seat) == seat_num]
+        seats = responses.floor_seats(target_floor)
+        matches = [seat for seat in seats if responses.seat_title(seat) == seat_num]
         if not matches:
-            raise SeatQueryError(f"{contract.floor_name(target_floor)} 中找不到 {seat_num} 座")
+            raise SeatQueryError(f"{responses.floor_name(target_floor)} 中找不到 {seat_num} 座")
         if len(matches) > 1:
-            raise SeatQueryError(f"{contract.floor_name(target_floor)} 中存在多个 {seat_num} 座")
+            raise SeatQueryError(f"{responses.floor_name(target_floor)} 中存在多个 {seat_num} 座")
         return target_floor, matches[0]
 
     @staticmethod

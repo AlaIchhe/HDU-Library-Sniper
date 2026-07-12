@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from config.paths import AppPaths, resolve_app_paths
+from hdu_sniper.paths import AppPaths, resolve_app_paths
 
 
 SCHEMA_VERSION = 1

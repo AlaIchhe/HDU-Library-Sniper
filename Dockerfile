@@ -35,7 +35,6 @@ WORKDIR /app
 
 # 复制项目文件
 COPY pyproject.toml uv.lock ./
-COPY main.py ./
 COPY src ./src
 
 # 安装 Python 依赖

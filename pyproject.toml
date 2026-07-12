@@ -35,11 +35,20 @@ classifiers = [
 ]
 
 [project.scripts]
-hdu-sniper = "main:main"
+hdu-sniper = "hdu_sniper.__main__:main"
+
+[tool.hatch.build]
+exclude = [
+    "/.coverage",
+    "/.pytest_cache",
+    "/.ruff_cache",
+    "/.uv-cache*",
+    "/.venv",
+    "/dist",
+]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/application", "src/config", "src/core", "src/interfaces", "src/services", "src/ui", "src/utils"]
-include = ["main.py"]
+packages = ["src/hdu_sniper"]
 
 [dependency-groups]
 dev = [
@@ -105,13 +114,13 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004", "ARG001", "PLC0415"]  # Allow assert, magic values, unused args, and lazy imports in tests
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
-"main.py" = ["PLC0415"]  # Allow lazy imports for conditional CLI modes
-"src/ui/**" = ["PLC0415"]  # Allow lazy imports for optional Web runtime components
+"src/hdu_sniper/__main__.py" = ["PLC0415"]  # Allow lazy imports for conditional CLI modes
+"src/hdu_sniper/ui/**" = ["PLC0415"]  # Allow lazy imports for optional Web runtime components
 "scripts/**" = ["PLC0415"]  # Allow lazy imports in scripts
-"src/services/browser_auth.py" = ["PLC0415"]  # Allow lazy playwright import (optional dependency)
+"src/hdu_sniper/library/login.py" = ["PLC0415"]  # Allow lazy playwright import
 
 [tool.ruff.lint.isort]
-known-first-party = ["application", "config", "core", "interfaces", "services", "ui", "utils"]
+known-first-party = ["hdu_sniper"]
 force-single-line = false
 lines-after-imports = 2
 

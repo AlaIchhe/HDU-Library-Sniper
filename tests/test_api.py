@@ -6,8 +6,8 @@ from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
-from application import JobState
-from interfaces.api import app
+from hdu_sniper.events import JobState
+from hdu_sniper.server import app
 
 
 def test_health_endpoint_precedes_flet_mount() -> None:
@@ -23,7 +23,7 @@ def test_status_endpoint_does_not_expose_secrets() -> None:
     application.authenticated = True
     application.list_plans.return_value = [Mock(enabled=True), Mock(enabled=False)]
 
-    with patch("interfaces.api.get_application", return_value=application):
+    with patch("hdu_sniper.server.get_app", return_value=application):
         response = TestClient(app).get("/api/v1/status")
 
     assert response.status_code == 200

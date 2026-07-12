@@ -17,13 +17,12 @@ def main() -> None:
     if "--daemon" in sys.argv[1:] or "--run-now" in sys.argv[1:]:
         # 后台守护进程模式：静默执行抢座
         # 用于系统定时任务调用，用户不应该直接运行此模式
-        from services.booking import BookingService
-        from services.runtime import build_runtime
+        from hdu_sniper.runtime import get_app
 
-        sys.exit(BookingService(*build_runtime()).run_once())
+        sys.exit(get_app().booking.run_once())
 
     else:
-        from ui.flet_app import run_flet_app
+        from hdu_sniper.ui.app import run_flet_app
 
         run_flet_app(web="--web" in sys.argv[1:])
 

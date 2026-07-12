@@ -5,7 +5,8 @@ from __future__ import annotations
 import flet as ft
 from fastapi import FastAPI
 
-from ui.flet_app import flet_main, get_application
+from hdu_sniper.runtime import get_app
+from hdu_sniper.ui.app import flet_main
 
 
 app = FastAPI(
@@ -23,7 +24,7 @@ def health() -> dict[str, str]:
 
 @app.get("/api/v1/status", tags=["system"])
 def status() -> dict:
-    application = get_application()
+    application = get_app()
     plans = application.list_plans()
     return {
         "state": application.state,

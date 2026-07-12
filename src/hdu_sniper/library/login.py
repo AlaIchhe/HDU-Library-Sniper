@@ -1,9 +1,9 @@
-"""浏览器认证服务：用 Playwright 起 headless 浏览器，以学号+密码走杭电统一身份认证
+"""图书馆登录：复用 Cookie 缓存或通过 Playwright 获取新会话。
+
+用 Playwright 起 headless 浏览器，以学号+密码走杭电统一身份认证
 （sso.hdu.edu.cn）完成登录，导出慧图平台 Cookie 写入缓存。
 
-与 AuthService（纯 requests 缓存复用）分工：
-- AuthService.try_cache：非交互读 session.cache，供 --run-now / SYSTEM 任务 / CI 复用。
-- BrowserAuthService.login_with_credentials：学号+密码 headless 登录，产出登录态 Cookie。
+同时支持复用 ``session.cache`` 与通过学号、密码进行 headless 登录。
 两者读写同一个 session.cache 文件。
 
 登录链路（实测）：
@@ -17,8 +17,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from config.settings import Settings
-from core.client import HduLibraryError, LibraryClient
+from hdu_sniper.config import Settings
+from hdu_sniper.library.client import CookieError, HduLibraryError, LibraryClient
 
 
 # 登录入口：慧图根域名，浏览器会自动重定向到杭电统一身份认证 (sso.hdu.edu.cn)。
@@ -34,12 +34,23 @@ DESKTOP_UA = (
 _HUITU_URL = re.compile(r"huitu\.zhishulib\.com")
 
 
-class BrowserAuthService:
+class LibraryLogin:
     """用 Playwright 驱动 headless 浏览器以学号+密码登录，产出登录态 Cookie 写入 session.cache。"""
 
     def __init__(self, client: LibraryClient, settings: Settings) -> None:
         self.client = client
         self.settings = settings
+
+    def try_cache(self) -> bool:
+        """尝试复用 session.cache 中的登录态。"""
+        try:
+            self.client.load_cookie_cache(self.settings.paths.session_cache)
+            if self.client.validate_cookie():
+                self.client.resolve_uid()
+                return True
+        except (CookieError, HduLibraryError):
+            pass
+        return False
 
     def login_with_credentials(
         self,
@@ -201,7 +212,7 @@ class BrowserAuthService:
         """把 Cookie 字符串塞进 client，联网验证 is_login + 解析 uid，通过则写缓存。
 
         复用 LibraryClient 的契约确认（set_cookie_header / validate_cookie /
-        resolve_uid / save_cookie_cache），不重写验证逻辑，也不依赖 AuthService。
+        resolve_uid / save_cookie_cache），不重写验证逻辑。
         """
         try:
             self.client.set_cookie_header(cookie_str)

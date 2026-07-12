@@ -1,6 +1,6 @@
 """慧图 API 契约结构校验。
 
-加载 ``docs/contracts/samples/*.json``,对每条 ``core.contract`` 访问器在样例上
+加载 ``docs/contracts/samples/*.json``,对每条 ``library.responses`` 访问器在样例上
 断言其输出——测试与运行代码共享**同一**魔法路径真源(访问器名),服务器改响应结构
 → 重新抓包更新样例 → 本测试非零退出,提醒契约漂移。
 
@@ -19,9 +19,9 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))  # 使 from core import contract 可导入
+sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from core import contract  # noqa: E402
+from hdu_sniper.library import responses  # noqa: E402
 
 
 CONTRACTS_DIR = REPO_ROOT / "docs" / "contracts"
@@ -42,11 +42,11 @@ def _check(cond: bool, msg: str) -> None:
 def test_room_types() -> None:
     """contract.room_types_from_response: samples/room_types.json"""
     s = _load("room_types.json")
-    items = contract.room_types_from_response(s)
+    items = responses.room_types_from_response(s)
     _check(isinstance(items, list) and len(items) > 0, "room_types: 解析出非空列表")
     for it in items:
         _check(
-            contract.room_type_name(it) and contract.room_type_query(it),
+            responses.room_type_name(it) and responses.room_type_query(it),
             f"room_types: 项缺 name/query: {it}",
         )
 
@@ -54,23 +54,23 @@ def test_room_types() -> None:
 def test_room_detail() -> None:
     """contract.room_detail_from_response / space_category_id: samples/room_detail.json"""
     s = _load("room_detail.json")
-    detail = contract.room_detail_from_response(s)
-    _check(contract.space_category_id(detail), "room_detail: space_category_id 空")
-    _check(contract.space_category_content_id(detail), "room_detail: content_id 空")
+    detail = responses.room_detail_from_response(s)
+    _check(responses.space_category_id(detail), "room_detail: space_category_id 空")
+    _check(responses.space_category_content_id(detail), "room_detail: content_id 空")
 
 
 def test_seat_map() -> None:
     """contract.floors_from_response + floor_id/floor_seats/seat_id/seat_title: samples/seat_map.json"""
     s = _load("seat_map.json")
-    floors = contract.floors_from_response(s)
+    floors = responses.floors_from_response(s)
     _check(isinstance(floors, list) and len(floors) > 0, "seat_map: 楼层非空列表")
     for f in floors:
-        _check(contract.floor_id(f), f"seat_map: 楼层缺 floor_id: {contract.floor_name(f)}")
-        seats = contract.floor_seats(f)
-        _check(isinstance(seats, list), f"seat_map: {contract.floor_name(f)} seats 非列表")
+        _check(responses.floor_id(f), f"seat_map: 楼层缺 floor_id: {responses.floor_name(f)}")
+        seats = responses.floor_seats(f)
+        _check(isinstance(seats, list), f"seat_map: {responses.floor_name(f)} seats 非列表")
         for p in seats:
             _check(
-                contract.seat_id(p) and contract.seat_title(p),
+                responses.seat_id(p) and responses.seat_title(p),
                 f"seat_map: seat 缺 id/title: {p}",
             )
 
@@ -78,9 +78,9 @@ def test_seat_map() -> None:
 def test_base_info() -> None:
     """contract.base_info_data → is_login/uid;学号 vs uid 钉死"""
     s = _load("baseInfo.json")
-    data = contract.base_info_data(s)
-    _check(contract.base_info_is_login(data) is True, "baseInfo: DATA.is_login != True")
-    _check(contract.base_info_uid(data), "baseInfo: DATA.uid 空")
+    data = responses.base_info_data(s)
+    _check(responses.base_info_is_login(data) is True, "baseInfo: DATA.is_login != True")
+    _check(responses.base_info_uid(data), "baseInfo: DATA.uid 空")
     _check(
         "cardno" in data.get("user_info", {}),
         "baseInfo: DATA.user_info.cardno 缺(学号 vs uid 区分)",
@@ -113,7 +113,7 @@ def test_book_seats() -> None:
 def test_my_booking_list() -> None:
     """contract.bookings_from_response + booking_begin_ts:真实字段 seatNum/time/id。"""
     s = _load("myBookingList.json")
-    items = contract.bookings_from_response(s)
+    items = responses.bookings_from_response(s)
     _check(isinstance(items, list), "myBookingList: content.defaultItems 非列表")
     for it in items:
         _check(
@@ -121,7 +121,7 @@ def test_my_booking_list() -> None:
             f"myBookingList: 项缺 seatNum/time/id: {it}",
         )
         _check(
-            isinstance(contract.booking_begin_ts(it), int),
+            isinstance(responses.booking_begin_ts(it), int),
             f"myBookingList: time 非可解析 int: {it}",
         )
 
@@ -130,15 +130,15 @@ def test_msg_constants_match_samples() -> None:
     """contract.MSG_* 必须与样例一致(单一源,不再两份对齐)。"""
     s = _load("book_seats.json")
     _check(
-        contract.MSG_TIME_OUT_OF_RANGE in s["time_out_of_range"]["response"]["MESSAGE"],
+        responses.MSG_TIME_OUT_OF_RANGE in s["time_out_of_range"]["response"]["MESSAGE"],
         "contract.MSG_TIME_OUT_OF_RANGE 与样例不一致",
     )
     _check(
-        contract.MSG_DUPLICATE in s["duplicate"]["response"]["MESSAGE"],
+        responses.MSG_DUPLICATE in s["duplicate"]["response"]["MESSAGE"],
         "contract.MSG_DUPLICATE 与样例不一致",
     )
     _check(
-        contract.MSG_SEAT_UNAVAILABLE in s["seat_unavailable"]["response"]["MESSAGE"],
+        responses.MSG_SEAT_UNAVAILABLE in s["seat_unavailable"]["response"]["MESSAGE"],
         "contract.MSG_SEAT_UNAVAILABLE 与样例不一致",
     )
 

@@ -52,7 +52,7 @@ if ($Execute) {
         New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
     }
     Set-Location -Path $WorkDir
-    & $PythonExe (Join-Path $WorkDir "main.py") --run-now *>> $TaskLog
+    & $PythonExe -m hdu_sniper --run-now *>> $TaskLog
     Exit $LASTEXITCODE
 }
 

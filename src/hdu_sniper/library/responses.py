@@ -109,7 +109,7 @@ def seat_id(seat: dict[str, Any]) -> str:
 
 
 def seat_title(seat: dict[str, Any]) -> str:
-    """座位 ``title``(座位号，``RoomBrowser.find_seat`` 用它匹配 plan.seat_num)。"""
+    """座位 ``title``（座位号，``LibraryRooms.find_seat`` 用它匹配方案）。"""
     return str(seat.get("title", ""))
 
 

@@ -51,11 +51,11 @@ test:
 
 # 启动应用
 run:
-	uv run python main.py
+	uv run python -m hdu_sniper
 
 # 启动本地 Web UI
 web:
-	uv run python main.py --web
+	uv run python -m hdu_sniper --web
 
 # 清理缓存
 clean:
