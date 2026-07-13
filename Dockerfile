@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     cron \
+    tzdata \
     # Playwright 浏览器依赖
     libnss3 \
     libatk-bridge2.0-0 \
@@ -36,6 +37,7 @@ WORKDIR /app
 # 复制项目文件
 COPY pyproject.toml uv.lock ./
 COPY src ./src
+COPY assets ./assets
 
 # 安装 Python 依赖
 RUN uv sync --frozen --no-dev
@@ -52,6 +54,7 @@ RUN mkdir -p /var/lib/hdu-sniper/config \
 ENV HDU_SNIPER_HOME=/var/lib/hdu-sniper \
     HDU_STUDENT_ID="" \
     HDU_PASSWORD="" \
+    TZ=Asia/Shanghai \
     FLET_SERVER_IP=0.0.0.0 \
     FLET_SERVER_PORT=8000
 

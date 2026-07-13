@@ -88,7 +88,6 @@ class BookingPlans:
         *,
         start_hour: int | None = None,
         duration_hours: int | None = None,
-        book_days: int | None = None,
     ) -> int:
         plans = self.list_all()
         modified = 0
@@ -99,8 +98,6 @@ class BookingPlans:
                 plan.start_hour = start_hour
             if duration_hours is not None:
                 plan.duration_hours = duration_hours
-            if book_days is not None:
-                plan.book_days = book_days
             modified += 1
         if modified:
             self.save_all(plans)
@@ -115,7 +112,6 @@ class BookingPlans:
         seat_num: str,
         start_hour: int,
         duration_hours: int,
-        book_days: int,
     ) -> tuple[BookingPlan, list[str], bool]:
         room_type = LibraryRooms.resolve_room_type(room_type_name)
         fell_back = room_type is None
@@ -126,7 +122,6 @@ class BookingPlans:
             start_hour=start_hour,
             duration_hours=duration_hours,
             booker_name=self.client.name or self.client.uid,
-            book_days=book_days,
             room_query=room_query,
         )
         errors = plan.validate()

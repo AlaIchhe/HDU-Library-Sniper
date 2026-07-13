@@ -66,6 +66,9 @@ exclude = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/hdu_sniper"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"assets/fonts" = "hdu_sniper/assets/fonts"
+
 [dependency-groups]
 dev = [
     {include-group = "lint"},
@@ -154,7 +157,7 @@ docstring-code-format = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [
-    "--cov=.",
+    "--cov=src/hdu_sniper",
     "--cov-report=term-missing",
     "--cov-fail-under=70",
     "-v",

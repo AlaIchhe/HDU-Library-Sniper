@@ -21,7 +21,6 @@ class BookingPlan:
     start_hour: int
     duration_hours: int
     booker_name: str = ""
-    book_days: int = 0
     status: str = PlanStatus.ENABLED
     room_query: str = ""
     plan_id: str | None = None
@@ -40,8 +39,6 @@ class BookingPlan:
             errors.append(f"开始小时超出范围：{self.start_hour}")
         if self.duration_hours <= 0:
             errors.append(f"时长必须为正数：{self.duration_hours}")
-        if self.book_days < 0:
-            errors.append(f"天数偏移不能为负：{self.book_days}")
         return errors
 
     def to_dict(self) -> dict[str, Any]:

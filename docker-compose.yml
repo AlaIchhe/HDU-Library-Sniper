@@ -46,13 +46,13 @@ services:
     container_name: hdu-sniper-scheduled
     environment:
       <<: *runtime
-      SCHEDULE: ${SCHEDULE:-0 20 * * *}
     volumes:
       - ./deploy/config:/var/lib/hdu-sniper/config:ro
       - sniper-data:/var/lib/hdu-sniper/data
       - sniper-state:/var/lib/hdu-sniper/state
     restart: unless-stopped
-    profiles: [scheduled]
+    # 启动 web profile 时同时启动调度伴生容器，避免只有界面没有每日任务。
+    profiles: [web, scheduled]
     command: scheduled
 
 volumes:

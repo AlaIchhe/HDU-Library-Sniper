@@ -11,7 +11,6 @@ from typing import Any
 class JobState(StrEnum):
     IDLE = "idle"
     AUTHENTICATING = "authenticating"
-    WAITING = "waiting"
     RUNNING = "running"
     CANCELLING = "cancelling"
     SUCCEEDED = "succeeded"
@@ -22,11 +21,10 @@ class JobState(StrEnum):
 class EventKind(StrEnum):
     STATE = "state"
     AUTH = "auth"
-    COUNTDOWN = "countdown"
+    AUTH_REQUIRED = "auth_required"
     PROGRESS = "progress"
     RESULT = "result"
     ERROR = "error"
-    SCHEDULER = "scheduler"
 
 
 @dataclass(frozen=True)

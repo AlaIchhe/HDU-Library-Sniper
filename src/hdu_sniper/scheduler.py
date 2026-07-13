@@ -14,6 +14,7 @@ from hdu_sniper.paths import APP_HOME_ENV, AppPaths
 
 
 TASK_MARKER = "HDU-Library-Sniper"
+DAILY_RUN_TIME = "20:00:00"
 
 
 @dataclass
@@ -53,20 +54,12 @@ class SchedulerService:
             executable = self._find_pythonw() or executable
         return [str(executable), "-m", "hdu_sniper"]
 
-    def configure_task(self, execute_time: str, wake_to_run: bool = True) -> tuple[bool, str]:
-        """配置定时任务。
-
-        Args:
-            execute_time: 执行时间（HH:mm:ss）
-            wake_to_run: 是否唤醒计算机（仅 Windows）
-
-        Returns:
-            (成功?, 消息)
-        """
+    def configure_task(self, wake_to_run: bool = True) -> tuple[bool, str]:
+        """配置固定为每天 20:00 的系统任务。"""
         if self.system == "Windows":
-            return self._configure_windows_task(execute_time, wake_to_run)
+            return self._configure_windows_task(DAILY_RUN_TIME, wake_to_run)
         if self.system == "Linux" or self.system == "Darwin":
-            return self._configure_linux_cron(execute_time)
+            return self._configure_linux_cron(DAILY_RUN_TIME)
         return False, f"不支持的操作系统: {self.system}"
 
     def remove_task(self) -> tuple[bool, str]:

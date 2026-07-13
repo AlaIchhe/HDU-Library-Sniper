@@ -1,6 +1,6 @@
 """房间 / 楼层 / 座位领域查询：浏览选房与抢座编排共用的唯一解析入口。
 
-响应结构解析(魔法路径)统一委托 ``core.contract`` 访问器；本模块只在
+响应结构解析（魔法路径）统一委托 ``library.responses`` 访问器；本模块只在
 领域层把"楼层/座位"组合成 ``FloorInfo`` 或定位特定座位，不再重复遍历
 ``seatMap.info.id`` / ``POIs[].title``。
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from hdu_sniper.booking.time import build_begin_time, get_seat_lookup_time
+from hdu_sniper.booking.time import build_begin_time, planning_lookup_times
 from hdu_sniper.library import responses
 from hdu_sniper.library.client import (
     ROOM_TYPE_MAP,
@@ -38,7 +38,7 @@ class FloorInfo:
 class LibraryRooms:
     """慧图房间类型 / 楼层座位布局查询的唯一归属。
 
-    浏览（``list_floors``，按 ``get_seat_lookup_time`` 查询）与抢座
+    浏览（``list_floors``，合并今天至后天的布局）与抢座
     （``get_floors_for_booking``，按预约 ``build_begin_time`` 查询）共享同一
     ``_load_seat_map`` 解析路径，消除原与 ``Sniper._resolve_floors`` 的重复。
     """
@@ -70,22 +70,45 @@ class LibraryRooms:
         )
 
     def list_floors(self, room_query: str) -> list[FloorInfo]:
-        """查询某房间类型下的楼层列表（含座位数与座位号），供交互式浏览。"""
-        floors = self._load_seat_map(room_query, get_seat_lookup_time(), 1)
+        """合并今天、明天、后天的楼层和座位，避免当天状态阻止创建方案。"""
+        merged: dict[str, tuple[str, set[str]]] = {}
+        failures: list[str] = []
+        successful_queries = 0
+        for lookup_time in planning_lookup_times():
+            try:
+                floors = self._load_seat_map(room_query, lookup_time, 1)
+            except HduLibraryError as exc:
+                failures.append(f"{lookup_time.date()}: {exc}")
+                continue
+            successful_queries += 1
+            for floor in floors:
+                floor_id = responses.floor_id(floor)
+                room_name = responses.floor_name(floor)
+                titles = {
+                    title
+                    for title in (
+                        responses.seat_title(seat) for seat in responses.floor_seats(floor)
+                    )
+                    if title
+                }
+                if floor_id in merged:
+                    merged[floor_id][1].update(titles)
+                else:
+                    merged[floor_id] = (room_name, titles)
 
-        result: list[FloorInfo] = []
-        for f in floors:
-            seats = responses.floor_seats(f)
-            titles = sorted(t for t in (responses.seat_title(s) for s in seats) if t)
-            result.append(
-                FloorInfo(
-                    floor_id=responses.floor_id(f),
-                    room_name=responses.floor_name(f),
-                    seat_count=len(seats),
-                    seat_titles=titles,
-                ),
+        if successful_queries == 0:
+            details = "; ".join(failures)
+            raise HduLibraryError(f"今天至后天的座位布局均查询失败: {details}")
+
+        return [
+            FloorInfo(
+                floor_id=floor_id,
+                room_name=room_name,
+                seat_count=len(titles),
+                seat_titles=sorted(titles),
             )
-        return result
+            for floor_id, (room_name, titles) in merged.items()
+        ]
 
     def resolve_room_query(self, plan: BookingPlan) -> str:
         """方案 -> 房间查询串。
@@ -112,7 +135,7 @@ class LibraryRooms:
         """定位方案对应的楼层座位数据（抢座编排用，按预约开始时间查询）。"""
         return self._load_seat_map(
             self.resolve_room_query(plan),
-            build_begin_time(plan.start_hour, plan.book_days),
+            build_begin_time(plan.start_hour),
             plan.duration_hours,
         )
 

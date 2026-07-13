@@ -9,6 +9,7 @@ $ScriptDir = Split-Path -Parent -Path $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent -Path $ScriptDir
 $Version = (Select-String -Path (Join-Path $Root "pyproject.toml") -Pattern '^version = "(.+)"$').Matches.Groups[1].Value
 $BrowserDir = Join-Path $Root "packaging\.cache\playwright-browsers"
+$FontDir = Join-Path $Root "assets\fonts"
 $DesktopDir = Join-Path $Root "build\desktop"
 $AppDir = Join-Path $DesktopDir "HDU-Library-Sniper"
 $DistDir = Join-Path $Root "dist"
@@ -86,6 +87,7 @@ $packArgs = @(
     "--company-name", "HDU Library Sniper Contributors",
     "--copyright", "Copyright (C) 2026 HDU Library Sniper Contributors",
     "--add-data", "${BrowserDir}:playwright-browsers",
+    "--add-data", "${FontDir}:assets/fonts",
     "--add-data", "scripts\AutoSchedule.ps1:scripts",
     "--hidden-import", "playwright.sync_api",
     "--yes"

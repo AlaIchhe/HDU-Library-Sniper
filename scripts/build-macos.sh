@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/pyproject.toml" | head -n 1)"
 BROWSER_DIR="$ROOT/packaging/.cache/playwright-browsers"
+FONT_DIR="$ROOT/assets/fonts"
 DESKTOP_DIR="$ROOT/build/desktop"
 DIST_DIR="$ROOT/dist"
 ICONSET="$ROOT/packaging/.cache/AppIcon.iconset"
@@ -41,6 +42,7 @@ args=(
   --copyright "Copyright (C) 2026 HDU Library Sniper Contributors"
   --bundle-id "io.github.alaichhe.hdu-library-sniper"
   --add-data "$BROWSER_DIR:playwright-browsers"
+  --add-data "$FONT_DIR:assets/fonts"
   --hidden-import playwright.sync_api
   --yes
 )
