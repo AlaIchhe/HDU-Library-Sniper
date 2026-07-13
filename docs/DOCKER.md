@@ -37,23 +37,19 @@ HDU_PASSWORD_FILE=/run/secrets/password
 ```bash
 docker compose build
 
-# 启动 Web UI
+# 启动 Web UI；同一 profile 会自动启动每日调度伴生容器
 docker compose --profile web up -d
 # 浏览器访问 http://localhost:8000
 
 # 立即执行一次
 docker compose --profile run run --rm hdu-sniper-run
 
-# 容器内 cron 定时执行
+# 只启动容器内 cron 定时执行（不启动 Web UI）
 docker compose --profile scheduled up -d
 docker compose logs -f hdu-sniper-scheduled
 ```
 
-定时规则在 `.env` 中设置：
-
-```dotenv
-SCHEDULE=0 20 * * *
-```
+scheduled profile 固定按 `Asia/Shanghai` 时区每天 20:00 执行，并统一预约后天，不接受自定义 cron 表达式。`web` profile 已包含该调度伴生服务，无需再执行第二条启动命令。
 
 生产编排环境更推荐使用宿主机 systemd timer、Kubernetes CronJob 或其他外部调度器启动一次性 `run-now` 容器。
 
@@ -75,8 +71,8 @@ HDU_WEB_PORT=8080
 可用于容器探针和反向代理的端点：
 
 - `GET /api/v1/health`：存活检查。
-- `GET /api/v1/status`：当前应用任务状态。
-- `/api/docs`：FastAPI OpenAPI 文档。
+- `GET /api/v1/status`：认证后的当前应用任务状态，未认证返回 401。
+- `/api/docs`、`/api/openapi.json`：生产入口显式关闭并返回 404。
 
 Web profile 将 `deploy/config` 以可写方式挂载，以便在界面中保存方案；`run` 和 `scheduled` profile 始终只读挂载配置。对公网暴露时，应在反向代理层配置 TLS 和访问控制。
 

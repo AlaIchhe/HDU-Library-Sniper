@@ -20,9 +20,9 @@ case "$1" in
 
     scheduled)
         echo "启动定时任务模式..."
-        # 默认每天 20:00 执行（如果未提供 SCHEDULE）
-        SCHEDULE="${SCHEDULE:-0 20 * * *}"
-        echo "定时规则: $SCHEDULE"
+        # 产品规则固定为北京时间每天 20:00。
+        schedule="0 20 * * *"
+        echo "定时规则: $schedule (Asia/Shanghai)"
 
         # cron 不继承容器启动环境；仅将必要变量写入 /run 临时文件。
         env_file=/run/hdu-sniper.env
@@ -38,7 +38,8 @@ case "$1" in
         {
             echo "SHELL=/bin/bash"
             echo "PATH=/usr/local/bin:/usr/bin:/bin"
-            echo "$SCHEDULE . $env_file; cd /app && uv run python -m hdu_sniper --daemon >> $HDU_SNIPER_HOME/state/logs/task.log 2>&1"
+            echo "TZ=Asia/Shanghai"
+            echo "$schedule . $env_file; cd /app && uv run python -m hdu_sniper --daemon >> $HDU_SNIPER_HOME/state/logs/task.log 2>&1"
         } | crontab -
 
         # 启动 cron（前台运行）

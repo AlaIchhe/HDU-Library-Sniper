@@ -61,7 +61,7 @@ if ($Execute) {
     Exit $LASTEXITCODE
 }
 
-$DailyAt = if ($env:SNIPER_DAILY_AT) { $env:SNIPER_DAILY_AT } else { "19:59:59" }
+$DailyAt = if ($env:SNIPER_DAILY_AT) { $env:SNIPER_DAILY_AT } else { "20:00:00" }
 $TaskName = if ($env:SNIPER_TASK_NAME) { $env:SNIPER_TASK_NAME } else { "HDU-Library-Sniper-Daily" }
 $WakeToRun = if ($env:SNIPER_WAKE_TO_RUN) {
     $env:SNIPER_WAKE_TO_RUN -notin @("0", "false", "False")

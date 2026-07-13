@@ -62,6 +62,10 @@ class HduLibraryError(Exception):
         self.is_timeout = is_timeout
 
 
+class AuthenticationExpiredError(HduLibraryError):
+    """远端明确表示当前图书馆会话未登录或已经失效。"""
+
+
 class CookieError(HduLibraryError):
     """Cookie 加载失败或无效。"""
 
@@ -131,6 +135,10 @@ class LibraryClient:
             raise HduLibraryError(f"JSON 解析失败：{exc}") from exc
         if not isinstance(parsed, dict):
             raise HduLibraryError("接口返回不是 JSON 对象")
+        for key in ("DATA", "data"):
+            authentication = parsed.get(key)
+            if isinstance(authentication, dict) and authentication.get("is_login") is False:
+                raise AuthenticationExpiredError("图书馆登录状态已失效")
         return parsed
 
     def set_cookie_header(self, cookie_string: str) -> None:
@@ -198,6 +206,8 @@ class LibraryClient:
             return self.uid
         try:
             data = self._request("GET", self.urls["user_base_info"], params={"LAB_JSON": None})
+        except AuthenticationExpiredError:
+            raise
         except HduLibraryError as exc:
             raise HduLibraryError(f"用户信息请求失败：{exc}") from exc
         try:
@@ -205,7 +215,7 @@ class LibraryClient:
         except KeyError as exc:
             raise HduLibraryError(f"用户信息解析失败：{exc}") from exc
         if not responses.base_info_is_login(info):
-            raise HduLibraryError("Cookie 无效或已过期，无法获取 uid。")
+            raise AuthenticationExpiredError("Cookie 无效或已过期，无法获取 uid。")
         uid = responses.base_info_uid(info)
         if not uid.isdigit():
             raise HduLibraryError(

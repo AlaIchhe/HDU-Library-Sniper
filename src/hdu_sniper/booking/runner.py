@@ -5,7 +5,6 @@ from __future__ import annotations
 import random
 import time
 from collections.abc import Callable
-from datetime import datetime
 from threading import Lock
 
 from hdu_sniper.booking.models import BookingPlan, BookingResult
@@ -17,10 +16,10 @@ from hdu_sniper.booking.retry import (
     default_retry_decider,
     is_time_out_of_range,
 )
-from hdu_sniper.booking.time import build_begin_time, now_cst
+from hdu_sniper.booking.time import build_begin_time
 from hdu_sniper.config import Settings, load_credentials
 from hdu_sniper.library import responses
-from hdu_sniper.library.client import HduLibraryError, LibraryClient
+from hdu_sniper.library.client import AuthenticationExpiredError, HduLibraryError, LibraryClient
 from hdu_sniper.library.login import LibraryLogin
 from hdu_sniper.library.rooms import LibraryRooms
 from hdu_sniper.notifier import Notifier
@@ -91,12 +90,14 @@ class BookingRunner:
         try:
             floors = self.rooms.get_floors_for_booking(plan)
             _, seat = self.rooms.find_seat(floors, plan.floor_id, plan.seat_num)
+        except AuthenticationExpiredError:
+            raise
         except HduLibraryError as exc:
             return BookingResult(plan, False, f"房间或座位查询失败: {exc}")
 
         seat_id = responses.seat_id(seat)
         uid = self.client.resolve_uid()
-        begin_time = build_begin_time(plan.start_hour, plan.book_days)
+        begin_time = build_begin_time(plan.start_hour)
         try:
             result = self.client.book_seat(
                 seat_id,
@@ -105,6 +106,8 @@ class BookingRunner:
                 plan.duration_hours,
                 dry_run=self.settings.dry_run,
             )
+        except AuthenticationExpiredError:
+            raise
         except HduLibraryError as exc:
             if exc.is_timeout:
                 confirmed = self.client.find_confirmed_booking(int(begin_time.timestamp()))
@@ -194,34 +197,6 @@ class BookingRunner:
         finally:
             self._finish()
 
-    def run_at(
-        self,
-        plans: list[BookingPlan],
-        execute_at: datetime,
-        on_countdown: Callable[[int], None] | None = None,
-        on_progress: Callable[[BookingResult], None] | None = None,
-    ) -> list[BookingResult]:
-        self._begin()
-        try:
-            now = now_cst()
-            if execute_at.tzinfo is None:
-                execute_at = execute_at.replace(tzinfo=now.tzinfo)
-            wait_seconds = (execute_at - now).total_seconds()
-            while wait_seconds > 0:
-                if self._is_cancelled():
-                    return []
-                if on_countdown:
-                    on_countdown(int(wait_seconds))
-                sleep_for = min(1.0, wait_seconds)
-                time.sleep(sleep_for)
-                wait_seconds -= sleep_for
-            return self._execute_plans(plans, on_progress)
-        except KeyboardInterrupt:
-            self.cancel()
-            raise
-        finally:
-            self._finish()
-
     def run_once(self) -> int:
         """恢复登录态并执行所有启用方案，供计划任务和容器调用。"""
         if not self.login.try_cache() and not self._relogin_with_credentials():
@@ -241,7 +216,15 @@ class BookingRunner:
             marker = "OK" if result.success else "X"
             print(f"[{marker}] [{result.plan.to_plan_code()}] {result.message}")
 
-        results = self.run_now(plans, on_progress=on_progress)
+        try:
+            results = self.run_now(plans, on_progress=on_progress)
+        except AuthenticationExpiredError:
+            self.notifier.send(
+                "抢座任务无法启动",
+                "图书馆登录状态已失效，请重新认证。",
+                success=False,
+            )
+            return ExitCode.AUTH_FAILED
         return (
             ExitCode.SUCCESS if any(result.success for result in results) else ExitCode.ALL_FAILED
         )
@@ -266,7 +249,7 @@ class BookingRunner:
                 f"方案: {plan.to_plan_code()}",
                 f"座位号: {plan.seat_num}",
                 f"预约人: {plan.booker_name or '(未设置)'}",
-                f"开始时间: {build_begin_time(plan.start_hour, plan.book_days).isoformat()}",
+                f"开始时间: {build_begin_time(plan.start_hour).isoformat()}",
                 f"时长: {plan.duration_hours} 小时",
                 f"服务器响应: {result.message}",
             ],
