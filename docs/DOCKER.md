@@ -72,6 +72,8 @@ HDU_WEB_PORT=8080
 
 - `GET /api/v1/health`：存活检查。
 - `GET /api/v1/status`：认证后的当前应用任务状态，未认证返回 401。
+- `GET /api/v1/schedules`：认证后列出本应用创建的调度任务。
+- `POST /api/v1/schedules/{task_name}/run`、`DELETE /api/v1/schedules/{task_name}`：立即运行或删除本应用创建的调度任务。
 - `/api/docs`、`/api/openapi.json`：生产入口显式关闭并返回 404。
 
 Web profile 将 `deploy/config` 以可写方式挂载，以便在界面中保存方案；`run` 和 `scheduled` profile 始终只读挂载配置。对公网暴露时，应在反向代理层配置 TLS 和访问控制。

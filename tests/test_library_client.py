@@ -225,6 +225,38 @@ def test_booking_history_confirmation_is_best_effort() -> None:
     assert client.find_confirmed_booking(100) is None
 
 
+def test_booking_list_and_remote_cancellation_use_verified_endpoints() -> None:
+    client = LibraryClient()
+    client.session.headers["Api-Token"] = "stale-booking-token"
+    client._request = Mock(
+        side_effect=[
+            {"content": {"defaultItems": [{"id": "book-1", "status": "0"}]}},
+            {"CODE": "ok", "DATA": {"result": "success"}},
+        ]
+    )
+
+    assert client.get_bookings() == [{"id": "book-1", "status": "0"}]
+    assert client.cancel_remote_booking(" book-1 ") == {
+        "CODE": "ok",
+        "DATA": {"result": "success"},
+    }
+    assert client._request.call_args_list[0].args == ("GET", client.urls["booking_list"])
+    assert client._request.call_args_list[1].args == ("POST", client.urls["cancel_booking"])
+    assert client._request.call_args_list[1].kwargs == {"params": {"bookingId": "book-1"}}
+    assert "Api-Token" not in client.session.headers
+
+    with pytest.raises(ValueError, match="预约 ID"):
+        client.cancel_remote_booking(" ")
+
+
+def test_booking_list_rejects_an_unexpected_response_shape() -> None:
+    client = LibraryClient()
+    client._request = Mock(return_value={"content": {}})
+
+    with pytest.raises(HduLibraryError, match="defaultItems"):
+        client.get_bookings()
+
+
 def test_book_seat_builds_preview_and_real_request(monkeypatch) -> None:
     client = LibraryClient()
     token_generator = Mock(return_value=("token", 456))

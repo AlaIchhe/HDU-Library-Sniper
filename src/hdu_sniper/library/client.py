@@ -13,11 +13,13 @@ from hdu_sniper.library.signing import generate_api_token
 
 URLS = {
     "book_seat": "https://hdu.huitu.zhishulib.com/Seat/Index/bookSeats",
+    "cancel_booking": "https://hdu.huitu.zhishulib.com/Seat/Index/cancelBooking",
     "query_seats": "https://hdu.huitu.zhishulib.com/Seat/Index/searchSeats",
     "query_rooms": "https://hdu.huitu.zhishulib.com/Space/Category/list",
     "user_base_info": "https://hdu.huitu.zhishulib.com/User/Center/baseInfo",
     # 契约验证:myBookingList?fromType=web 才返回预约列表(content.defaultItems)。
     # todayUserBookSeat 只返回字符串 'todayUserBookSeatAction',拿不到数据——不可用。
+    "booking_list": "https://hdu.huitu.zhishulib.com/Seat/Index/myBookingList?fromType=web",
     "today_schedule": "https://hdu.huitu.zhishulib.com/Seat/Index/myBookingList?fromType=web",
 }
 
@@ -273,6 +275,39 @@ class LibraryClient:
         """
         data = self._request("GET", self.urls["today_schedule"])
         return responses.bookings_from_response(data)
+
+    def get_bookings(self) -> list[dict[str, Any]]:
+        """获取当前用户的全部座位预约记录。
+
+        真实 Web 端调用为 ``GET /Seat/Index/myBookingList?fromType=web``；返回既包括
+        待签到/使用中的预约，也包括已结束和已取消的历史记录。与超时幂等确认使用的
+        :meth:`get_todays_bookings` 不同，这里在响应结构不符合契约时明确报错，避免界面
+        把接口结构漂移误显示为“暂无预约”。
+        """
+        data = self._request("GET", self.urls["booking_list"])
+        content = data.get("content")
+        items = content.get("defaultItems") if isinstance(content, dict) else None
+        if not isinstance(items, list):
+            raise HduLibraryError("预约列表解析失败：响应中缺少 content.defaultItems")
+        return items
+
+    def cancel_remote_booking(self, booking_id: str | int) -> dict[str, Any]:
+        """取消一条待签到预约。
+
+        Web 端实测调用为 ``POST /Seat/Index/cancelBooking?bookingId=<id>``，无请求体、
+        无 ``Api-Token``。成功响应满足 ``CODE == 'ok'`` 且 ``DATA.result == 'success'``。
+        调用方应只对列表中 ``status == '0'``（待签到）的条目暴露此操作。
+        """
+        normalized_id = str(booking_id).strip()
+        if not normalized_id:
+            raise ValueError("预约 ID 不能为空")
+        # bookSeats 会把一次性签名写入会话默认头；取消接口前端不带该头，避免发送过期签名。
+        self.session.headers.pop("Api-Token", None)
+        return self._request(
+            "POST",
+            self.urls["cancel_booking"],
+            params={"bookingId": normalized_id},
+        )
 
     def find_confirmed_booking(self, begin_ts: int) -> dict[str, Any] | None:
         """超时幂等确认：在用户预约记录中查找与 begin_ts 匹配的预约。

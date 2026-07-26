@@ -69,15 +69,113 @@ class TestSchedulerService(unittest.TestCase):
         mock_system.return_value = "Windows"
         mock_run.return_value = Mock(
             returncode=0,
-            stdout="""
-            Task Name: HDU-Library-Sniper-Daily
-            Next Run Time: 2026-07-12 23:59:55
-            Start Time: 23:59:55
-            """,
+            stdout='{"name":"HDU-Library-Sniper-Daily","next_run":"2026-07-12 23:59:55"}',
+            stderr="",
         )
 
         status = SchedulerService(self.paths, self.install_root).get_task_status()
         self.assertTrue(status.exists)
+
+    @patch("subprocess.run")
+    @patch("platform.system")
+    def test_list_windows_tasks_parses_managed_task_details(self, mock_system, mock_run):
+        from hdu_sniper.scheduler import SchedulerService
+
+        mock_system.return_value = "Windows"
+        mock_run.return_value = Mock(
+            returncode=0,
+            stdout=(
+                '{"name":"HDU-Library-Sniper-Daily","status":"Ready",'
+                '"next_run":"2026-07-26 20:00:00",'
+                '"last_run":"2026-07-25 20:00:01","last_result":"0"}'
+            ),
+            stderr="",
+        )
+
+        tasks = SchedulerService(self.paths, self.install_root).list_tasks()
+
+        self.assertEqual(len(tasks), 1)
+        task = tasks[0]
+        self.assertEqual(task.name, "HDU-Library-Sniper-Daily")
+        self.assertEqual(task.status, "Ready")
+        self.assertEqual(task.next_run, "2026-07-26 20:00:00")
+        self.assertEqual(task.last_run, "2026-07-25 20:00:01")
+        self.assertEqual(task.last_result, "0")
+        command = mock_run.call_args.args[0]
+        assert command[:4] == ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command"]
+        assert "Get-ScheduledTask -TaskName 'HDU-Library-Sniper-Daily'" in command[-1]
+        assert "Get-ScheduledTaskInfo" in command[-1]
+
+    @patch("subprocess.run")
+    def test_list_windows_tasks_surfaces_scheduler_access_errors(self, mock_run):
+        self.service.system = "Windows"
+        mock_run.return_value = Mock(
+            returncode=1,
+            stdout="",
+            stderr="ERROR: Access is denied.",
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Access is denied"):
+            self.service.list_tasks()
+
+    @patch("subprocess.run")
+    def test_list_windows_tasks_treats_scheduledtasks_not_found_as_empty(self, mock_run):
+        self.service.system = "Windows"
+        mock_run.return_value = Mock(
+            returncode=2,
+            stdout="",
+            stderr=(
+                "No MSFT_ScheduledTask objects found with property "
+                "'TaskName' equal to 'HDU-Library-Sniper-Daily'."
+            ),
+        )
+
+        self.assertEqual(self.service.list_tasks(), [])
+
+    @patch("subprocess.run")
+    def test_run_and_delete_only_allow_managed_windows_task(self, mock_run):
+        self.service.system = "Windows"
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        self.assertEqual(
+            self.service.run_task("HDU-Library-Sniper-Daily"),
+            (True, "已请求任务计划程序立即运行 HDU-Library-Sniper-Daily"),
+        )
+        command = mock_run.call_args.args[0]
+        assert command[:4] == ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command"]
+        assert "Start-ScheduledTask -TaskName 'HDU-Library-Sniper-Daily'" in command[-1]
+
+        mock_run.reset_mock()
+        self.assertEqual(
+            self.service.delete_task("HDU-Library-Sniper-Daily"),
+            (True, "已删除调度任务 HDU-Library-Sniper-Daily"),
+        )
+        command = mock_run.call_args.args[0]
+        assert command[:4] == ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command"]
+        assert "Unregister-ScheduledTask" in command[-1]
+        assert "-TaskName 'HDU-Library-Sniper-Daily'" in command[-1]
+
+        with self.assertRaises(ValueError):
+            self.service.run_task("Unrelated-System-Task")
+
+    @patch("subprocess.run")
+    def test_windows_configuration_falls_back_to_schtasks_after_access_denied(self, mock_run):
+        from hdu_sniper.scheduler import SchedulerService
+
+        service = SchedulerService(self.paths, Path(__file__).resolve().parents[1])
+        service.system = "Windows"
+        mock_run.side_effect = [
+            Mock(returncode=1, stdout="", stderr="Register-ScheduledTask : Access is denied."),
+            Mock(returncode=0, stdout="SUCCESS", stderr=""),
+        ]
+
+        success, message = service._configure_windows_task("20:00:00", wake_to_run=True)
+
+        self.assertTrue(success)
+        self.assertIn("schtasks", message)
+        fallback_command = mock_run.call_args_list[1].args[0]
+        self.assertEqual(fallback_command[0], "schtasks.exe")
+        self.assertIn("/TR", fallback_command)
 
     def test_find_pythonw_returns_optional_path(self):
         if self.service.system != "Windows":

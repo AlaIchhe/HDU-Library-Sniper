@@ -13,11 +13,12 @@ from hdu_sniper.booking.plans import BookingPlans
 from hdu_sniper.booking.runner import BookingRunner
 from hdu_sniper.config import Credentials, Settings, load_credentials, save_credentials
 from hdu_sniper.events import ApplicationEvent, EventKind, JobState
+from hdu_sniper.library import responses
 from hdu_sniper.library.client import AuthenticationExpiredError, LibraryClient
 from hdu_sniper.library.login import LibraryLogin
 from hdu_sniper.library.rooms import FloorInfo
 from hdu_sniper.notifier import Notifier
-from hdu_sniper.scheduler import SchedulerService, TaskStatus
+from hdu_sniper.scheduler import ScheduledTask, SchedulerService, TaskStatus
 
 
 EventHandler = Callable[[ApplicationEvent], None]
@@ -264,10 +265,38 @@ class SniperApp:
         self._set_state(JobState.CANCELLING, "正在取消任务")
         return self.booking.cancel()
 
+    def list_bookings(self) -> list[dict]:
+        """查询图书馆账户的座位预约记录。"""
+        return self._authenticated_call(self.client.get_bookings)
+
+    def cancel_remote_booking(self, booking_id: str | int) -> tuple[bool, str]:
+        """取消一条远端待签到预约，而非取消本地抢座任务。"""
+        if self.busy:
+            return False, "当前任务正在运行，请在任务结束后再取消预约"
+        response = self._authenticated_call(self.client.cancel_remote_booking, booking_id)
+        if responses.operation_succeeded(response):
+            return True, "预约已取消"
+        return False, f"取消预约失败：{responses.operation_message(response)}"
+
     def scheduler_status(self) -> TaskStatus:
         """返回固定每日任务的只读状态，不暴露调度配置。"""
         self._require_authenticated()
         return self.scheduler.get_task_status()
+
+    def list_scheduled_tasks(self) -> list[ScheduledTask]:
+        """列出由本应用创建并允许管理的系统调度任务。"""
+        self._require_authenticated()
+        return self.scheduler.list_tasks()
+
+    def run_scheduled_task(self, task_name: str) -> tuple[bool, str]:
+        """请求系统任务计划程序立即运行一个应用托管任务。"""
+        self._require_authenticated()
+        return self.scheduler.run_task(task_name)
+
+    def delete_scheduled_task(self, task_name: str) -> tuple[bool, str]:
+        """删除一个应用托管的系统调度任务。"""
+        self._require_authenticated()
+        return self.scheduler.delete_task(task_name)
 
     def repair_daily_scheduler(self) -> tuple[bool, str]:
         """检查前置条件并重新确保每日 20:00 系统任务。"""

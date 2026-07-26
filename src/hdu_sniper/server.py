@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 import flet as ft
 from fastapi import FastAPI, HTTPException
 from fastapi import status as http_status
@@ -18,6 +20,16 @@ app = FastAPI(
 )
 
 
+def _authenticated_application():
+    application = get_app()
+    if not application.authenticated:
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail="authentication required",
+        )
+    return application
+
+
 @app.get("/api/v1/health", tags=["system"])
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -25,12 +37,7 @@ def health() -> dict[str, str]:
 
 @app.get("/api/v1/status", tags=["system"])
 def status() -> dict:
-    application = get_app()
-    if not application.authenticated:
-        raise HTTPException(
-            status_code=http_status.HTTP_401_UNAUTHORIZED,
-            detail="authentication required",
-        )
+    application = _authenticated_application()
     plans = application.list_plans()
     return {
         "state": application.state,
@@ -38,6 +45,46 @@ def status() -> dict:
         "plans": len(plans),
         "enabled_plans": sum(plan.enabled for plan in plans),
     }
+
+
+@app.get("/api/v1/schedules", tags=["scheduler"])
+def list_schedules() -> dict:
+    """返回当前应用创建并允许管理的系统调度任务。"""
+    application = _authenticated_application()
+    try:
+        tasks = application.list_scheduled_tasks()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    return {"tasks": [asdict(task) for task in tasks]}
+
+
+@app.post("/api/v1/schedules/{task_name}/run", tags=["scheduler"])
+def run_schedule(task_name: str) -> dict[str, str | bool]:
+    """请求 Windows 任务计划程序立即运行一个本应用任务。"""
+    application = _authenticated_application()
+    try:
+        success, message = application.run_scheduled_task(task_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if not success:
+        raise HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=message)
+    return {"success": success, "message": message}
+
+
+@app.delete("/api/v1/schedules/{task_name}", tags=["scheduler"])
+def delete_schedule(task_name: str) -> dict[str, str | bool]:
+    """删除一个由本应用创建的系统调度任务。"""
+    application = _authenticated_application()
+    try:
+        success, message = application.delete_scheduled_task(task_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if not success:
+        raise HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=message)
+    return {"success": success, "message": message}
 
 
 @app.get("/api/docs", include_in_schema=False)
