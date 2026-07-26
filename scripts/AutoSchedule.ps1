@@ -113,16 +113,45 @@ if ($WakeToRun) {
 $TaskSettings = New-ScheduledTaskSettingsSet @SettingsParams
 $Description = "Run HDU-Library-Sniper daily at $DailyAt"
 
-Register-ScheduledTask `
-    -TaskName $TaskName `
-    -Description $Description `
-    -Action $Action `
-    -Trigger $Trigger `
-    -Principal $Principal `
-    -Settings $TaskSettings `
-    -Force | Out-Null
+try {
+    Register-ScheduledTask `
+        -TaskName $TaskName `
+        -Description $Description `
+        -Action $Action `
+        -Trigger $Trigger `
+        -Principal $Principal `
+        -Settings $TaskSettings `
+        -Force | Out-Null
+    $RegistrationMode = "ScheduledTasks"
+} catch {
+    $RegistrationError = $_.Exception.Message
+    $AccessDenied = $RegistrationError -match '(?i)access\s+(is\s+)?denied|permission\s+denied|0x80070005|拒绝访问|权限不足'
+    if (-not $AccessDenied) {
+        throw
+    }
+
+    # Create an unelevated, current-user task rather than retrying as SYSTEM or with
+    # the highest run level. /IT deliberately preserves the interactive logon model.
+    $SchtasksArguments = @(
+        "/Create", "/TN", $TaskName,
+        "/TR", ("powershell.exe " + $ActionArgument),
+        "/SC", "DAILY",
+        "/ST", $DailyAt.Substring(0, 5),
+        "/RU", $CurrentUserId,
+        "/RL", "LIMITED",
+        "/IT",
+        "/F"
+    )
+    $SchtasksOutput = & schtasks.exe @SchtasksArguments 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error ("Unable to create a current-user task with schtasks: " + ($SchtasksOutput -join "`n"))
+        Exit $LASTEXITCODE
+    }
+    $RegistrationMode = "schtasks current-user compatibility mode"
+}
 
 Write-Host ('Scheduled task {0} created for {1} daily.' -f $TaskName, $DailyAt)
 Write-Host ('Run as: {0}' -f $CurrentUserId)
+Write-Host ('Registration mode: {0}' -f $RegistrationMode)
 Write-Host ('App home: {0}' -f $env:HDU_SNIPER_HOME)
 Write-Host ('Task log: {0}' -f $TaskLog)
