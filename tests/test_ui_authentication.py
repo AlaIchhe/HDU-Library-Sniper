@@ -123,6 +123,8 @@ def test_schedule_view_renders_managed_task_actions() -> None:
 
     assert view.schedule_summary.value == "已创建 1 个调度"
     assert len(view.schedule_list.controls) == 1
+    assert view.business_views[2].controls[1].content.wrap is False
+    assert view.schedule_list.controls[0].content.wrap is False
 
 
 def test_booking_view_renders_only_pending_check_in_cancellations() -> None:
@@ -155,6 +157,8 @@ def test_booking_view_renders_only_pending_check_in_cancellations() -> None:
     second_row = view.booking_list.controls[1].content
     assert len(first_row.controls) == 2
     assert len(second_row.controls) == 1
+    assert first_row.wrap is False
+    assert second_row.wrap is False
 
 
 def test_font_asset_and_license_are_distributable() -> None:

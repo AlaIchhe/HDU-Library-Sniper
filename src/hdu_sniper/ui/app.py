@@ -169,7 +169,7 @@ class SniperFletView:
             tooltip="刷新调度列表",
             on_click=self._refresh_scheduled_tasks,
         )
-        self.schedule_list = ft.ListView(spacing=8, expand=True)
+        self.schedule_list = ft.Column(spacing=8)
 
         self.booking_summary = ft.Text("进入页面后读取预约记录", color=ft.Colors.BLUE_GREY_900)
         self.refresh_bookings_button = ft.IconButton(
@@ -177,7 +177,7 @@ class SniperFletView:
             tooltip="刷新预约记录",
             on_click=self._refresh_bookings,
         )
-        self.booking_list = ft.ListView(spacing=8, expand=True)
+        self.booking_list = ft.Column(spacing=8)
 
         self.auth_view = self._auth_view()
         self.business_views = [
@@ -290,7 +290,6 @@ class SniperFletView:
                             ),
                             self.repair_scheduler_button,
                         ],
-                        wrap=True,
                     ),
                 ),
                 self._surface(
@@ -303,13 +302,12 @@ class SniperFletView:
                             ft.Divider(height=1),
                             self.schedule_list,
                         ],
-                        expand=True,
-                    ),
-                    height=460,
+                    )
                 ),
             ],
             spacing=18,
             expand=True,
+            scroll=ft.ScrollMode.AUTO,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         )
 
@@ -330,13 +328,12 @@ class SniperFletView:
                             ft.Divider(height=1),
                             self.booking_list,
                         ],
-                        expand=True,
-                    ),
-                    height=560,
+                    )
                 ),
             ],
             spacing=18,
             expand=True,
+            scroll=ft.ScrollMode.AUTO,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         )
 
@@ -823,7 +820,6 @@ class SniperFletView:
                             ),
                             *actions,
                         ],
-                        wrap=True,
                     ),
                     padding=12,
                     border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.GREY_200)),
@@ -939,7 +935,6 @@ class SniperFletView:
                                 on_click=self._confirm_delete_scheduled_task,
                             ),
                         ],
-                        wrap=True,
                     ),
                     padding=12,
                     border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.GREY_200)),
