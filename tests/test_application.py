@@ -13,7 +13,7 @@ from hdu_sniper.config import Settings
 from hdu_sniper.events import EventKind, JobState
 from hdu_sniper.library.client import AuthenticationExpiredError
 from hdu_sniper.paths import AppPaths
-from hdu_sniper.scheduler import TaskStatus
+from hdu_sniper.scheduler import ScheduledTask, TaskStatus
 
 
 def build_test_application(tmp_path: Path) -> tuple[SniperApp, dict[str, Mock]]:
@@ -174,6 +174,32 @@ def test_application_delegates_plan_queries_and_mutations(tmp_path: Path) -> Non
     assert application.modify_plan_times(["a"], start_hour=9) == 1
 
 
+def test_application_lists_and_cancels_remote_bookings(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    dependencies["client"].get_bookings.return_value = [{"id": "book-1", "status": "0"}]
+    dependencies["client"].cancel_remote_booking.return_value = {
+        "CODE": "ok",
+        "DATA": {"result": "success"},
+    }
+
+    assert application.list_bookings() == [{"id": "book-1", "status": "0"}]
+    assert application.cancel_remote_booking("book-1") == (True, "预约已取消")
+    dependencies["client"].cancel_remote_booking.assert_called_once_with("book-1")
+
+    dependencies["client"].cancel_remote_booking.return_value = {
+        "CODE": "ParamError",
+        "MESSAGE": "预约已结束",
+    }
+    assert application.cancel_remote_booking("book-1") == (False, "取消预约失败：预约已结束")
+
+    application._set_state(JobState.RUNNING)
+    assert application.cancel_remote_booking("book-1") == (
+        False,
+        "当前任务正在运行，请在任务结束后再取消预约",
+    )
+    assert dependencies["client"].cancel_remote_booking.call_count == 2
+
+
 def test_cached_authentication_and_unsubscribe(tmp_path: Path) -> None:
     application, dependencies = build_test_application(tmp_path)
     plan = BookingPlan(1, 100, "A001", 8, 4)
@@ -295,6 +321,21 @@ def test_scheduler_health_is_read_only_and_repair_uses_fixed_configuration(
     assert application.scheduler_status() is status
     assert application.repair_daily_scheduler() == (True, "ok")
     dependencies["scheduler"].configure_task.assert_called_once_with()
+
+
+def test_application_delegates_managed_schedule_operations(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    task = ScheduledTask(name="HDU-Library-Sniper-Daily", status="Ready")
+    dependencies["scheduler"].list_tasks.return_value = [task]
+    dependencies["scheduler"].run_task.return_value = (True, "started")
+    dependencies["scheduler"].delete_task.return_value = (True, "deleted")
+
+    assert application.list_scheduled_tasks() == [task]
+    assert application.run_scheduled_task(task.name) == (True, "started")
+    assert application.delete_scheduled_task(task.name) == (True, "deleted")
+    dependencies["scheduler"].list_tasks.assert_called_once_with()
+    dependencies["scheduler"].run_task.assert_called_once_with(task.name)
+    dependencies["scheduler"].delete_task.assert_called_once_with(task.name)
 
 
 def test_scheduler_repair_requires_an_enabled_plan(tmp_path: Path) -> None:

@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from hdu_sniper.events import ApplicationEvent, EventKind, JobState
+from hdu_sniper.scheduler import ScheduledTask
 from hdu_sniper.ui.app import FONT_ASSET, FONT_FAMILY, SniperFletView, resolve_assets_dir
 
 
@@ -49,11 +50,11 @@ def test_authenticated_shell_hides_authentication_from_primary_navigation() -> N
     view = SniperFletView(page, application)
 
     assert view.view_host.content is view.business_views[0]
-    assert len(view.navigation_rail.destinations) == 2
+    assert len(view.navigation_rail.destinations) == 3
     assert view.navigation_rail.visible is True
     assert view.reauthenticate_button.visible is True
     application.list_plans.assert_called_once_with()
-    assert page.run_task.call_count == 2
+    assert page.run_task.call_count == 3
 
 
 def test_reauthentication_entry_can_return_to_valid_session() -> None:
@@ -104,6 +105,56 @@ def test_plan_creation_result_uses_confirmation_dialog() -> None:
     assert dialog.modal is True
     assert dialog.title.value == "方案和自动调度已就绪"
     assert "20:00" in dialog.content.value
+
+
+def test_schedule_view_renders_managed_task_actions() -> None:
+    page = _page()
+    view = SniperFletView(page, _application(authenticated=True))
+
+    view._render_scheduled_tasks(
+        [
+            ScheduledTask(
+                name="HDU-Library-Sniper-Daily",
+                status="Ready",
+                next_run="tomorrow",
+            )
+        ]
+    )
+
+    assert view.schedule_summary.value == "已创建 1 个调度"
+    assert len(view.schedule_list.controls) == 1
+
+
+def test_booking_view_renders_only_pending_check_in_cancellations() -> None:
+    page = _page()
+    view = SniperFletView(page, _application(authenticated=True))
+
+    view._render_bookings(
+        [
+            {
+                "id": "pending",
+                "status": "0",
+                "roomName": "四楼自习室",
+                "seatNum": "298",
+                "time": "1785200400",
+                "duration": "3600",
+            },
+            {
+                "id": "finished",
+                "status": "7",
+                "roomName": "四楼自习室",
+                "seatNum": "298",
+                "time": "1785114000",
+                "duration": "3600",
+            },
+        ]
+    )
+
+    assert view.booking_summary.value == "共 2 条预约记录"
+    first_row = view.booking_list.controls[0].content
+    second_row = view.booking_list.controls[1].content
+    assert len(first_row.controls) == 2
+    assert len(second_row.controls) == 1
 
 
 def test_font_asset_and_license_are_distributable() -> None:

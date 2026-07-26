@@ -149,3 +149,34 @@ def bookings_from_response(data: dict[str, Any]) -> list[dict[str, Any]]:
 def booking_begin_ts(item: dict[str, Any]) -> int:
     """order ``time``(秒级戳，字符串)→ int。"""
     return int(item.get("time") or 0)
+
+
+def booking_id(item: dict[str, Any]) -> str:
+    """order ``id``（取消预约 API 所需的预约记录 ID）。"""
+    return str(item.get("id") or "")
+
+
+def booking_status(item: dict[str, Any]) -> str:
+    """order ``status``（``0``=待签到，可取消）。"""
+    return str(item.get("status") or "")
+
+
+def operation_succeeded(response: dict[str, Any]) -> bool:
+    """慧图写操作的成功条件：``CODE=ok`` 且 ``DATA.result=success``。"""
+    data = response.get("DATA")
+    return (
+        str(response.get("CODE") or "").strip().lower() == "ok"
+        and isinstance(data, dict)
+        and str(data.get("result") or "").strip().lower() == "success"
+    )
+
+
+def operation_message(response: dict[str, Any]) -> str:
+    """提取慧图写操作的可展示错误信息。"""
+    message = response.get("MESSAGE")
+    if message:
+        return str(message)
+    data = response.get("DATA")
+    if isinstance(data, dict) and data.get("msg"):
+        return str(data["msg"])
+    return "服务端未返回具体原因"

@@ -5,14 +5,18 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import flet as ft
 
 from hdu_sniper.app import SniperApp
+from hdu_sniper.booking.time import CST
 from hdu_sniper.events import ApplicationEvent, EventKind, JobState
+from hdu_sniper.library import responses
 from hdu_sniper.library.client import ROOM_TYPE_MAP
 from hdu_sniper.runtime import get_app
+from hdu_sniper.scheduler import ScheduledTask
 
 
 FONT_FAMILY = "Noto Sans SC"
@@ -149,19 +153,6 @@ class SniperFletView:
             disabled=True,
         )
 
-        self.start_booking_button = ft.FilledButton(
-            "立即尝试预约后天",
-            icon=ft.Icons.PLAY_ARROW,
-            on_click=self._start_booking,
-        )
-        self.cancel_booking_button = ft.Button(
-            "取消",
-            icon=ft.Icons.STOP,
-            color=ft.Colors.RED_600,
-            on_click=self._cancel_booking,
-            disabled=True,
-        )
-        self.job_state = ft.Text("空闲", size=18, weight=ft.FontWeight.W_600)
         self.scheduler_health = ft.Text(
             "正在检查每日调度状态",
             size=13,
@@ -172,12 +163,27 @@ class SniperFletView:
             icon=ft.Icons.BUILD,
             on_click=self._repair_scheduler,
         )
-        self.booking_log = ft.ListView(spacing=4, auto_scroll=True, expand=True)
+        self.schedule_summary = ft.Text("正在读取已创建的调度...", color=ft.Colors.BLUE_GREY_900)
+        self.refresh_schedules_button = ft.IconButton(
+            ft.Icons.REFRESH,
+            tooltip="刷新调度列表",
+            on_click=self._refresh_scheduled_tasks,
+        )
+        self.schedule_list = ft.ListView(spacing=8, expand=True)
+
+        self.booking_summary = ft.Text("进入页面后读取预约记录", color=ft.Colors.BLUE_GREY_900)
+        self.refresh_bookings_button = ft.IconButton(
+            ft.Icons.REFRESH,
+            tooltip="刷新预约记录",
+            on_click=self._refresh_bookings,
+        )
+        self.booking_list = ft.ListView(spacing=8, expand=True)
 
         self.auth_view = self._auth_view()
         self.business_views = [
             self._plans_view(),
-            self._booking_view(),
+            self._bookings_view(),
+            self._schedules_view(),
         ]
         self.view_host = ft.Container(content=self.auth_view, padding=24, expand=True)
 
@@ -263,48 +269,71 @@ class SniperFletView:
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         )
 
-    def _booking_view(self) -> ft.Column:
+    def _schedules_view(self) -> ft.Column:
         return ft.Column(
             [
-                self._section_title("执行", "系统每天 20:00 自动预约后天座位"),
+                self._section_title(
+                    "调度",
+                    "查看和管理本应用创建的 Windows 任务计划，不会显示或操作其他任务",
+                ),
+                self._surface(
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.SCHEDULE, color=ft.Colors.TEAL_700),
+                            ft.Column(
+                                [
+                                    ft.Text("每日 20:00 自动调度", weight=ft.FontWeight.W_600),
+                                    self.scheduler_health,
+                                ],
+                                spacing=2,
+                                expand=True,
+                            ),
+                            self.repair_scheduler_button,
+                        ],
+                        wrap=True,
+                    ),
+                ),
                 self._surface(
                     ft.Column(
                         [
                             ft.Row(
-                                [ft.Icon(ft.Icons.EVENT_SEAT, size=30), self.job_state],
-                                spacing=10,
-                            ),
-                            ft.Row(
-                                [
-                                    self.start_booking_button,
-                                    self.cancel_booking_button,
-                                ],
-                                wrap=True,
+                                [self.schedule_summary, self.refresh_schedules_button],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             ),
                             ft.Divider(height=1),
-                            ft.Row(
-                                [
-                                    ft.Icon(ft.Icons.SCHEDULE, color=ft.Colors.TEAL_700),
-                                    ft.Column(
-                                        [
-                                            ft.Text(
-                                                "每日 20:00 自动调度",
-                                                weight=ft.FontWeight.W_600,
-                                            ),
-                                            self.scheduler_health,
-                                        ],
-                                        spacing=2,
-                                        expand=True,
-                                    ),
-                                    self.repair_scheduler_button,
-                                ],
-                                wrap=True,
-                            ),
+                            self.schedule_list,
                         ],
-                        spacing=16,
+                        expand=True,
                     ),
+                    height=460,
                 ),
-                self._surface(self.booking_log, height=360),
+            ],
+            spacing=18,
+            expand=True,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        )
+
+    def _bookings_view(self) -> ft.Column:
+        return ft.Column(
+            [
+                self._section_title(
+                    "我的预约",
+                    "查看座位预约记录；仅“待签到”的预约可取消",
+                ),
+                self._surface(
+                    ft.Column(
+                        [
+                            ft.Row(
+                                [self.booking_summary, self.refresh_bookings_button],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            ),
+                            ft.Divider(height=1),
+                            self.booking_list,
+                        ],
+                        expand=True,
+                    ),
+                    height=560,
+                ),
             ],
             spacing=18,
             expand=True,
@@ -319,7 +348,8 @@ class SniperFletView:
             min_extended_width=180,
             destinations=[
                 ft.NavigationRailDestination(ft.Icons.CHAIR, label="方案"),
-                ft.NavigationRailDestination(ft.Icons.PLAY_ARROW, label="执行"),
+                ft.NavigationRailDestination(ft.Icons.EVENT_SEAT, label="我的预约"),
+                ft.NavigationRailDestination(ft.Icons.SCHEDULE, label="调度"),
             ],
             on_change=self._navigate,
         )
@@ -327,7 +357,8 @@ class SniperFletView:
             selected_index=0,
             destinations=[
                 ft.NavigationBarDestination(ft.Icons.CHAIR, label="方案"),
-                ft.NavigationBarDestination(ft.Icons.PLAY_ARROW, label="执行"),
+                ft.NavigationBarDestination(ft.Icons.EVENT_SEAT, label="我的预约"),
+                ft.NavigationBarDestination(ft.Icons.SCHEDULE, label="调度"),
             ],
             on_change=self._navigate,
             visible=False,
@@ -378,6 +409,11 @@ class SniperFletView:
         self.navigation_rail.selected_index = selected_index
         self.bottom_navigation.selected_index = selected_index
         self.view_host.content = self.business_views[selected_index]
+        if selected_index == 1:
+            self.page.run_task(self._refresh_bookings)
+        elif selected_index == 2:
+            self.page.run_task(self._refresh_scheduler_status)
+            self.page.run_task(self._refresh_scheduled_tasks)
         self.page.update()
 
     def _open_reauthentication(self, _event) -> None:
@@ -412,6 +448,7 @@ class SniperFletView:
             self._refresh_plans()
             self.page.run_task(self._load_room_types)
             self.page.run_task(self._refresh_scheduler_status)
+            self.page.run_task(self._refresh_scheduled_tasks)
         if update:
             self.page.update()
 
@@ -445,18 +482,6 @@ class SniperFletView:
                 show_close_icon=True,
             ),
         )
-
-    def _append_line(self, target: ft.ListView, message: str, *, error: bool = False) -> None:
-        target.controls.append(
-            ft.Text(
-                message,
-                size=13,
-                color=ft.Colors.RED_600 if error else ft.Colors.BLUE_GREY_900,
-                selectable=True,
-            ),
-        )
-        if len(target.controls) > 300:
-            del target.controls[:50]
 
     async def _login(self, _event) -> None:
         student_id = (self.student_id.value or "").strip()
@@ -640,10 +665,11 @@ class SniperFletView:
             failure = scheduler.message if scheduler else "未执行调度配置"
             self._show_plan_creation_dialog(
                 "方案已创建，但自动调度未生效",
-                f"{message}\n\n调度创建失败：{failure}\n请前往执行页面检查并修复。",
+                f"{message}\n\n调度创建失败：{failure}\n请前往调度页面检查并修复。",
                 error=True,
             )
         await self._refresh_scheduler_status()
+        await self._refresh_scheduled_tasks()
 
     def _show_plan_creation_dialog(
         self,
@@ -696,20 +722,6 @@ class SniperFletView:
         self._refresh_plans()
         self._show_message(f"已更新 {modified} 个方案")
 
-    async def _start_booking(self, _event) -> None:
-        self.booking_log.controls.clear()
-        self.start_booking_button.disabled = True
-        self.cancel_booking_button.disabled = False
-        self.page.update()
-        try:
-            await asyncio.to_thread(self.application.run_booking)
-        except Exception as exc:
-            self._show_message(str(exc), error=True)
-        finally:
-            self.start_booking_button.disabled = False
-            self.cancel_booking_button.disabled = True
-            self.page.update()
-
     async def _refresh_scheduler_status(self) -> None:
         try:
             status = await asyncio.to_thread(self.application.scheduler_status)
@@ -728,6 +740,130 @@ class SniperFletView:
                 self.scheduler_health.color = ft.Colors.AMBER_700
         self.page.update()
 
+    async def _refresh_bookings(self, _event=None) -> None:
+        self.refresh_bookings_button.disabled = True
+        self.booking_summary.value = "正在读取预约记录..."
+        self.page.update()
+        try:
+            bookings = await asyncio.to_thread(self.application.list_bookings)
+        except Exception as exc:
+            self.booking_list.controls.clear()
+            self.booking_summary.value = f"读取预约记录失败：{exc}"
+            self.booking_summary.color = ft.Colors.RED_600
+        else:
+            self._render_bookings(bookings)
+        finally:
+            self.refresh_bookings_button.disabled = False
+            with contextlib.suppress(RuntimeError):
+                self.page.update()
+
+    def _render_bookings(self, bookings: list[dict]) -> None:
+        self.booking_list.controls.clear()
+        self.booking_summary.value = f"共 {len(bookings)} 条预约记录"
+        self.booking_summary.color = ft.Colors.BLUE_GREY_900
+        if not bookings:
+            self.booking_list.controls.append(ft.Text("暂无预约记录", color=ft.Colors.GREY_700))
+            return
+
+        status_labels = {
+            "0": "待签到",
+            "1": "使用中",
+            "2": "暂离中",
+            "3": "已结束",
+            "4": "已取消",
+            "5": "未签到结束",
+            "6": "暂离未归结束",
+            "7": "系统签退结束",
+            "8": "预约待确认",
+            "9": "已拒绝",
+        }
+        for item in bookings:
+            booking_id = responses.booking_id(item)
+            status = responses.booking_status(item)
+            room_name = str(item.get("roomName") or "未知房间")
+            seat_num = str(item.get("seatNum") or "-")
+            try:
+                start_time = datetime.fromtimestamp(
+                    responses.booking_begin_ts(item), tz=CST
+                ).strftime("%Y-%m-%d %H:%M")
+            except (TypeError, ValueError, OSError):
+                start_time = "未知时间"
+            try:
+                duration_hours = int(item.get("duration") or 0) / 3600
+                duration_text = f"{duration_hours:g} 小时" if duration_hours else "时长未知"
+            except (TypeError, ValueError):
+                duration_text = "时长未知"
+            status_label = status_labels.get(status) or f"状态 {status or '未知'}"
+            details = f"座位 {seat_num} · {start_time} · {duration_text} · {status_label}"
+            actions: list[ft.Control] = []
+            if status == "0" and booking_id:
+                actions.append(
+                    ft.Button(
+                        "取消预约",
+                        icon=ft.Icons.CANCEL_OUTLINED,
+                        color=ft.Colors.RED_600,
+                        data={
+                            "id": booking_id,
+                            "summary": f"{room_name} · 座位 {seat_num} · {start_time}",
+                        },
+                        on_click=self._confirm_cancel_remote_booking,
+                    )
+                )
+            self.booking_list.controls.append(
+                ft.Container(
+                    ft.Row(
+                        [
+                            ft.Column(
+                                [
+                                    ft.Text(room_name, weight=ft.FontWeight.W_600),
+                                    ft.Text(details, size=12, color=ft.Colors.GREY_700),
+                                ],
+                                spacing=4,
+                                expand=True,
+                            ),
+                            *actions,
+                        ],
+                        wrap=True,
+                    ),
+                    padding=12,
+                    border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.GREY_200)),
+                )
+            )
+
+    def _confirm_cancel_remote_booking(self, event) -> None:
+        booking = event.control.data
+        self.page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                icon=ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=ft.Colors.RED_600),
+                title=ft.Text("取消预约？"),
+                content=ft.Text(f"将取消：{booking['summary']}。此操作无法撤销。"),
+                actions=[
+                    ft.Button("再想想", on_click=lambda _event: self.page.pop_dialog()),
+                    ft.FilledButton(
+                        "确认取消",
+                        icon=ft.Icons.CANCEL_OUTLINED,
+                        color=ft.Colors.RED_600,
+                        data=booking["id"],
+                        on_click=self._cancel_remote_booking,
+                    ),
+                ],
+            )
+        )
+
+    async def _cancel_remote_booking(self, event) -> None:
+        booking_id = str(event.control.data)
+        self.page.pop_dialog()
+        try:
+            success, message = await asyncio.to_thread(
+                self.application.cancel_remote_booking, booking_id
+            )
+        except Exception as exc:
+            self._show_message(f"取消预约失败：{exc}", error=True)
+        else:
+            self._show_message(message, error=not success)
+        await self._refresh_bookings()
+
     async def _repair_scheduler(self, _event) -> None:
         self.repair_scheduler_button.disabled = True
         self.scheduler_health.value = "正在确保系统每日任务..."
@@ -740,13 +876,137 @@ class SniperFletView:
         finally:
             self.repair_scheduler_button.disabled = False
             await self._refresh_scheduler_status()
+            await self._refresh_scheduled_tasks()
 
-    def _cancel_booking(self, _event) -> None:
-        if self.application.cancel_booking():
-            self._append_line(self.booking_log, "正在取消任务")
-        else:
-            self._show_message("当前没有可取消的任务", error=True)
+    async def _refresh_scheduled_tasks(self, _event=None) -> None:
+        self.refresh_schedules_button.disabled = True
+        self.schedule_summary.value = "正在读取已创建的调度..."
         self.page.update()
+        try:
+            tasks = await asyncio.to_thread(self.application.list_scheduled_tasks)
+        except Exception as exc:
+            self.schedule_list.controls.clear()
+            self.schedule_summary.value = f"读取调度失败：{exc}"
+            self.schedule_summary.color = ft.Colors.RED_600
+        else:
+            self._render_scheduled_tasks(tasks)
+        finally:
+            self.refresh_schedules_button.disabled = False
+            with contextlib.suppress(RuntimeError):
+                self.page.update()
+
+    def _render_scheduled_tasks(self, tasks: list[ScheduledTask]) -> None:
+        self.schedule_list.controls.clear()
+        self.schedule_summary.value = f"已创建 {len(tasks)} 个调度"
+        self.schedule_summary.color = ft.Colors.BLUE_GREY_900
+        if not tasks:
+            self.schedule_list.controls.append(
+                ft.Text("暂无已创建的调度", color=ft.Colors.GREY_700)
+            )
+            return
+
+        for task in tasks:
+            details = [f"状态：{task.status or '未知'}"]
+            if task.next_run:
+                details.append(f"下次运行：{task.next_run}")
+            if task.last_run:
+                details.append(f"上次运行：{task.last_run}")
+            if task.last_result:
+                details.append(f"上次结果：{task.last_result}")
+            self.schedule_list.controls.append(
+                ft.Container(
+                    ft.Row(
+                        [
+                            ft.Column(
+                                [
+                                    ft.Text(task.name, weight=ft.FontWeight.W_600),
+                                    ft.Text(" · ".join(details), size=12, color=ft.Colors.GREY_700),
+                                ],
+                                spacing=4,
+                                expand=True,
+                            ),
+                            ft.Button(
+                                "立即执行",
+                                icon=ft.Icons.PLAY_ARROW,
+                                data=task.name,
+                                on_click=self._confirm_run_scheduled_task,
+                            ),
+                            ft.Button(
+                                "删除",
+                                icon=ft.Icons.DELETE,
+                                color=ft.Colors.RED_600,
+                                data=task.name,
+                                on_click=self._confirm_delete_scheduled_task,
+                            ),
+                        ],
+                        wrap=True,
+                    ),
+                    padding=12,
+                    border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.GREY_200)),
+                )
+            )
+
+    def _confirm_run_scheduled_task(self, event) -> None:
+        task_name = str(event.control.data)
+        self.page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                icon=ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, color=ft.Colors.TEAL_700),
+                title=ft.Text("立即执行调度？"),
+                content=ft.Text(
+                    f"{task_name} 将由 Windows 任务计划程序立即启动，可能会执行预约。",
+                ),
+                actions=[
+                    ft.Button("取消", on_click=lambda _event: self.page.pop_dialog()),
+                    ft.FilledButton(
+                        "立即执行",
+                        icon=ft.Icons.PLAY_ARROW,
+                        data=task_name,
+                        on_click=self._run_scheduled_task,
+                    ),
+                ],
+            )
+        )
+
+    async def _run_scheduled_task(self, event) -> None:
+        task_name = str(event.control.data)
+        self.page.pop_dialog()
+        success, message = await asyncio.to_thread(self.application.run_scheduled_task, task_name)
+        self._show_message(message, error=not success)
+        await self._refresh_scheduled_tasks()
+
+    def _confirm_delete_scheduled_task(self, event) -> None:
+        task_name = str(event.control.data)
+        self.page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                icon=ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=ft.Colors.RED_600),
+                title=ft.Text("删除调度？"),
+                content=ft.Text(
+                    f"删除 {task_name} 后将不再自动执行预约，后续可通过“检查并修复”重新创建。",
+                ),
+                actions=[
+                    ft.Button("取消", on_click=lambda _event: self.page.pop_dialog()),
+                    ft.FilledButton(
+                        "删除",
+                        icon=ft.Icons.DELETE,
+                        color=ft.Colors.RED_600,
+                        data=task_name,
+                        on_click=self._delete_scheduled_task,
+                    ),
+                ],
+            )
+        )
+
+    async def _delete_scheduled_task(self, event) -> None:
+        task_name = str(event.control.data)
+        self.page.pop_dialog()
+        success, message = await asyncio.to_thread(
+            self.application.delete_scheduled_task, task_name
+        )
+        self._show_message(message, error=not success)
+        await self._refresh_scheduled_tasks()
+        await self._refresh_scheduler_status()
 
     def _on_application_event(self, event: ApplicationEvent) -> None:
         state_names = {
@@ -759,28 +1019,7 @@ class SniperFletView:
             JobState.CANCELLED: "已取消",
         }
         self.global_status.value = state_names[event.state]
-        self.job_state.value = state_names[event.state]
-        self.job_state.color = (
-            ft.Colors.GREEN_700
-            if event.state == JobState.SUCCEEDED
-            else ft.Colors.RED_600
-            if event.state == JobState.FAILED
-            else ft.Colors.BLUE_GREY_900
-        )
-        if event.kind == EventKind.PROGRESS:
-            marker = "成功" if event.payload.get("success") else "失败"
-            self._append_line(
-                self.booking_log,
-                f"[{marker}] {event.payload.get('seat_num', '?')} 座 · {event.message}",
-                error=not bool(event.payload.get("success")),
-            )
-        elif event.kind == EventKind.RESULT:
-            self._append_line(
-                self.booking_log, event.message, error=not event.payload.get("success")
-            )
-        elif event.kind == EventKind.ERROR:
-            self._append_line(self.booking_log, event.message, error=True)
-        elif event.kind == EventKind.AUTH_REQUIRED:
+        if event.kind == EventKind.AUTH_REQUIRED:
             self.auth_state.value = "认证已失效"
             self.auth_state.color = ft.Colors.RED_600
             self.auth_log.value = event.message
