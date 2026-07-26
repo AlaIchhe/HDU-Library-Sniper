@@ -169,13 +169,49 @@ class TestSchedulerService(unittest.TestCase):
             Mock(returncode=0, stdout="SUCCESS", stderr=""),
         ]
 
-        success, message = service._configure_windows_task("20:00:00", wake_to_run=True)
+        with patch.dict(os.environ, {"USERNAME": "student", "USERDOMAIN": "HDU"}):
+            success, message = service._configure_windows_task("20:00:00", wake_to_run=True)
 
         self.assertTrue(success)
         self.assertIn("schtasks", message)
         fallback_command = mock_run.call_args_list[1].args[0]
         self.assertEqual(fallback_command[0], "schtasks.exe")
         self.assertIn("/TR", fallback_command)
+        self.assertEqual(fallback_command[fallback_command.index("/RU") + 1], "HDU\\student")
+        self.assertEqual(fallback_command[fallback_command.index("/RL") + 1], "LIMITED")
+        self.assertIn("/IT", fallback_command)
+
+    @patch("subprocess.run")
+    def test_windows_configuration_falls_back_for_common_permission_errors(self, mock_run):
+        from hdu_sniper.scheduler import SchedulerService
+
+        service = SchedulerService(self.paths, Path(__file__).resolve().parents[1])
+        service.system = "Windows"
+        mock_run.side_effect = [
+            Mock(returncode=1, stdout="", stderr="0x80070005: permission denied"),
+            Mock(returncode=0, stdout="SUCCESS", stderr=""),
+        ]
+
+        with patch.dict(os.environ, {"USERNAME": "student", "USERDOMAIN": ""}):
+            success, _ = service._configure_windows_task("20:00:00", wake_to_run=True)
+
+        self.assertTrue(success)
+        fallback_command = mock_run.call_args_list[1].args[0]
+        self.assertEqual(fallback_command[fallback_command.index("/RU") + 1], "student")
+
+    def test_windows_user_task_requires_current_username(self):
+        with patch.dict(os.environ, {"USERNAME": "", "USERDOMAIN": ""}):
+            self.assertIsNone(self.service._current_windows_user())
+
+    def test_auto_schedule_script_falls_back_to_unelevated_current_user_task(self):
+        script = (Path(__file__).resolve().parents[1] / "scripts" / "AutoSchedule.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('"/RU", $CurrentUserId', script)
+        self.assertIn('"/RL", "LIMITED"', script)
+        self.assertIn('"/IT"', script)
+        self.assertNotIn('"SYSTEM"', script)
 
     def test_find_pythonw_returns_optional_path(self):
         if self.service.system != "Windows":

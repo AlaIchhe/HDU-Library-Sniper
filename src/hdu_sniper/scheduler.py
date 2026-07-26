@@ -212,7 +212,7 @@ class SchedulerService:
             if result.returncode == 0:
                 return True, f"定时任务配置成功！\n每天 {execute_time} 自动执行"
             error = self._command_error(result)
-            if "access is denied" in error.lower() or "拒绝访问" in error:
+            if self._is_windows_task_access_denied(error):
                 return self._configure_windows_task_with_schtasks(execute_time)
             return False, f"配置失败:\n{error}"
         except subprocess.TimeoutExpired:
@@ -222,6 +222,10 @@ class SchedulerService:
 
     def _configure_windows_task_with_schtasks(self, execute_time: str) -> tuple[bool, str]:
         """在 ScheduledTasks 模块被拒绝时，用 schtasks 创建当前用户交互任务。"""
+        current_user = self._current_windows_user()
+        if not current_user:
+            return False, "无法确定当前 Windows 用户，不能创建非管理员调度任务"
+
         runner_path = self._write_windows_task_runner()
         command = [
             "powershell.exe",
@@ -246,6 +250,11 @@ class SchedulerService:
                     "DAILY",
                     "/ST",
                     execute_time[:5],
+                    "/RU",
+                    current_user,
+                    "/RL",
+                    "LIMITED",
+                    "/IT",
                     "/F",
                 ],
                 cwd=str(self.install_root),
@@ -264,7 +273,8 @@ class SchedulerService:
             return (
                 True,
                 f"定时任务配置成功！\n每天 {execute_time} 自动执行\n"
-                "当前环境使用 schtasks 兼容模式，睡眠唤醒不可用。",
+                f"当前环境使用 schtasks 当前用户兼容模式；已创建仅限 {current_user} "
+                "登录时运行的任务，睡眠唤醒不可用。",
             )
         return False, f"schtasks 创建任务失败:\n{self._command_error(result)}"
 
@@ -421,6 +431,31 @@ try {{
     @staticmethod
     def _powershell_quote(value: str) -> str:
         return "'" + value.replace("'", "''") + "'"
+
+    @staticmethod
+    def _current_windows_user() -> str | None:
+        """返回 schtasks 可用的当前交互用户标识，不回退到 SYSTEM。"""
+        username = os.environ.get("USERNAME", "").strip()
+        if not username:
+            return None
+        domain = os.environ.get("USERDOMAIN", "").strip()
+        return f"{domain}\\{username}" if domain else username
+
+    @staticmethod
+    def _is_windows_task_access_denied(message: str) -> bool:
+        """识别 Windows 任务计划程序的常见权限错误。"""
+        normalized = message.lower()
+        return any(
+            token in normalized
+            for token in (
+                "access is denied",
+                "access denied",
+                "permission denied",
+                "0x80070005",
+                "拒绝访问",
+                "权限不足",
+            )
+        )
 
     @staticmethod
     def _optional_string(value: object) -> str | None:
