@@ -5,7 +5,7 @@
 - Windows 和 macOS 使用 Flet 桌面宿主。
 - Docker 和服务器使用 Flet Web 宿主，不依赖 X11 或桌面环境。
 - 两种宿主复用同一套控件树、业务门面和持久化规则。
-- 三种交互平台统一加载随包分发的 Noto Sans SC Variable，避免依赖宿主系统中文字体回退。
+- Windows、Linux 与 Web 统一加载随包分发的 MiSans Variable；macOS 优先使用 SF Pro Text，避免依赖不稳定的中文字体回退。
 - 后台一次性任务不加载任何 UI。
 
 ## 模块关系
