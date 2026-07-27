@@ -1,415 +1,44 @@
-# HDU-Library-Sniper
+# HDU Library Sniper
 
-> 杭州电子科技大学图书馆座位自动抢座工具。
+杭州电子科技大学图书馆座位预约工具。创建预约方案后，程序会在预约开放后自动执行预约，并支持失败重试、登录状态缓存和通知推送。
 
-专注于稳定预约后天座位：创建候选方案后，系统每天 20:00 自动执行，具备指数退避重试、登录态缓存、多方案容错、超时幂等确认等特性。
+## 安装
 
----
+从 [GitHub Releases](https://github.com/AlaIchhe/HDU-Library-Sniper/releases) 下载对应系统的安装包，安装后直接启动。
 
-## ✨ 功能特性
+## 使用方法
 
-| 特性 | 说明 |
-| --- | --- |
-| 🎨 跨平台界面 | Flet/Flutter 桌面端与 Docker Web UI 共用同一套交互体验 |
-| 🔤 统一中文字体 | 内置 MiSans Variable，Windows、Linux 与 Web 使用一致字形；macOS 优先使用 SF Pro Text |
-| ⚡ 固定目标日 | 所有方案只能预约后天，日期偏移不对用户开放 |
-| 🗺️ 三日布局 | 创建方案时合并今天、明天、后天的房间和座位，不受当天状态限制 |
-| ⏰ 自动任务 | 有效方案创建后静默确保每天 20:00 自动执行，无需用户配置 |
-| 🔁 智能重试 | 指数退避 + 随机抖动，对"预约窗口未开放"独立轮询（不占用重试预算） |
-| 🛡️ 超时幂等确认 | 抢座请求响应超时时自动查询今日预约列表做服务端确认，避免成功却误报失败 |
-| 🔐 账号密码登录 | 学号 + 数字杭电密码 headless 自动登录，无需扫码 / 手动复制 Cookie |
-| 🍪 登录态缓存 | 登录一次后复用 cookie，过期自动用学号+密码 headless 续登 |
-| 📦 多方案容错 | 支持配置多个房间/座位方案，主方案失败自动切备选 |
-| 📨 通知推送 | 本地日志文件 + 微信 webhook（Server酱 / PushPlus 等） |
+1. 启动程序，使用学号和数字杭电密码登录。
+2. 进入“方案”，选择房间类型、楼层和目标座位。
+3. 设置预约时间和使用时长，保存并启用方案。
+4. 程序默认每天 20:00 自动执行预约，结果可通过通知或日志查看。
 
----
+创建方案后可以关闭程序。Windows 和 Linux 的定时任务会在后台触发，但电脑需要保持开机或休眠；完全关机时任务无法运行。
 
-## 🚀 快速开始
+## 通知
 
-### 桌面版（推荐）
+支持通过 webhook 推送预约结果，可配置微信 Server 酱或 PushPlus。未配置通知时，也可以在应用日志中查看执行结果。
 
-从 GitHub Releases 下载对应平台的安装包：
+## 常见问题
 
-- Windows：`HDU-Library-Sniper-Setup-<version>.exe`
-- macOS：`HDU-Library-Sniper-<version>-macos.dmg`
+### 创建方案后需要一直开着程序吗？
 
-安装后从开始菜单或 Launchpad 启动。桌面安装包已经包含运行时和登录浏览器，不需要安装 Python，也不需要执行任何脚本。
+不需要。创建并启用方案后，程序会通过系统定时任务自动执行。
 
-### 源码环境要求
+### 电脑关机后还能自动预约吗？
 
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) - 现代 Python 包管理器
-- 浏览器二进制：`playwright install chromium`（headless 登录用，约 150MB，仅首次）
+不能。电脑至少需要保持开机或休眠状态。Windows 休眠唤醒通常可以执行任务，Linux 需要系统支持定时唤醒。
 
-### 源码安装
+### 登录失效怎么办？
 
-**1. 安装 uv（如果未安装）**
+重新打开应用，点击“重新认证”并再次登录即可。
 
-Windows (PowerShell):
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
+### 预约结果在哪里查看？
 
-macOS/Linux:
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
+可以查看应用日志，或查看已配置的通知推送。
 
-**2. 克隆项目并安装依赖**
+## 注意事项
 
-```bash
-git clone https://github.com/AlaIchhe/HDU-Library-Sniper.git
-cd HDU-Library-Sniper
-
-# 安装依赖（自动创建虚拟环境）
-uv sync
-
-# 安装浏览器
-uv run playwright install chromium
-```
-
-### 源码启动
-
-**Windows 用户（推荐）**：
-- 双击 `scripts/launch.bat` — 静默启动，无命令行窗口
-
-**命令行启动**：
-```bash
-uv run python -m hdu_sniper   # 使用 uv 运行
-# 或
-make run                # 使用 Makefile
-
-# 本地启动 Web UI（服务器/Docker 使用同一入口）
-uv run python -m hdu_sniper --web
-```
-
-Docker 部署参见 [docs/DOCKER.md](docs/DOCKER.md)。默认 Web 地址为 `http://localhost:8000`。
-分层和多宿主边界参见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
-
----
-
-## 📖 使用指南
-
-### 1. 登录认证
-
-启动软件后，未认证状态只显示认证页面。在页面中输入：
-- **学号**：你的学号
-- **密码**：数字杭电密码
-
-点击"登录"按钮，程序会在后台启动 headless 浏览器完成登录，并将登录态保存到当前用户的标准应用数据目录。
-
-认证成功后，认证页面会退出主导航，只显示“方案”和“调度”。如需主动更新凭据，可点击页头的“重新认证”；远端登录态失效时，程序会自动返回认证页面。
-
-凭据保存在当前用户的标准应用数据目录，供后续自动续登使用；不会写入源码仓库。
-
-> 登录依赖 Playwright（headless 浏览器）：
-> ```bash
-> uv sync
-> uv run playwright install chromium  # 下载浏览器二进制（约 150MB，仅首次）
-> ```
->
-> 无桌面环境（SSH / Linux 服务器 / 系统计划任务）也能 headless 登录，只要已安装 chromium。
-
-### 2. 创建预约方案
-
-切换到"方案"工作区，填写新建方案表单：
-
-1. **选择房间类型**：自习室、阅览室、讨论室等
-2. **选择楼层**：程序会自动加载该房间类型的所有楼层
-3. **输入座位号**：根据提示输入目标座位号（显示可用座位参考）
-4. **设置时间**：
-   - 开始小时：如 `13` 表示后天 13:00
-   - 使用时长：如 `9` 表示 9 小时
-
-点击"创建方案"。房间和座位数据来自今天、明天、后天三天布局的合并结果；方案目标始终是后天。
-
-**其他功能**：
-- **删除方案**：多选删除不需要的方案
-- **批量修改时间**：一次性修改多个方案的时间参数
-- **浏览房间**：查看所有可用楼层和座位信息
-
-### 3. 自动运行
-
-首次创建有效方案后，应用会静默确保操作系统任务存在：
-
-- ✅ 每天 20:00 自动执行并预约后天
-- ✅ 可以关闭软件，系统会自动触发
-- ✅ Windows：需保持电脑开机或睡眠，默认允许唤醒
-- ✅ Linux：需保持电脑开机
-- ✅ 执行结果会推送通知（如已配置通知渠道）
-- ✅ 详细日志保存在当前用户的标准日志目录
-
-如需检查每日任务、重新创建任务，或临时触发一次后台任务，请前往“调度”工作区。界面不提供进程内手动预约或实时执行日志；结果通过通知和日志文件查看。
-
----
-
-## ⚙️ 定时任务技术细节
-
-### Windows 实现
-
-应用调用 `scripts/AutoSchedule.ps1` 自动注册到 Windows 任务计划程序：
-- 任务名称：`HDU-Library-Sniper-Daily`
-- 账户：创建任务的当前桌面用户
-- 触发器：每天 20:00
-- 操作：PowerShell 包装器调用当前 Python 与 `-m hdu_sniper --run-now`
-- 支持睡眠唤醒
-
-“调度”工作区展示该固定任务的健康状态和本应用创建的任务列表，并提供“检查并修复”。可从任务列表临时触发一次后台任务或删除任务；不会向用户开放执行时间配置。
-
-可在"任务计划程序"中查看和管理：
-```
-Win + R → taskschd.msc → 任务计划程序库 → HDU-Library-Sniper-Daily
-```
-
-### Linux 实现
-
-应用自动配置 crontab：
-- 每天 20:00 触发
-- 命令：当前 Python 解释器与 `-m hdu_sniper --daemon`
-- 日志输出到标准用户日志目录中的 `task.log`
-
-查看已配置任务：
-```bash
-crontab -l | grep HDU-Library-Sniper
-```
-
-### 后台执行模式
-
-定时任务触发的命令：
-```bash
-python -m hdu_sniper --daemon    # 或 pythonw.exe (Windows)
-```
-
-**执行流程**：
-1. 从系统标准用户目录读取设置、方案和凭据
-2. 尝试使用缓存登录，失败则用凭据续登
-3. 读取启用的方案
-4. 执行抢座（带重试、窗口轮询）
-5. 推送通知
-6. 记录日志
-7. 退出，返回退出码
-
-**退出码**：
-| 退出码 | 含义 |
-| --- | --- |
-| 0 | 至少一个方案成功 |
-| 1 | 全部方案失败 |
-| 2 | 登录态过期且凭据续登失败 |
-| 3 | 没有启用的方案 |
-
-**特点**：
-- ✅ 完全非交互（无任何输入输出）
-- ✅ 适合系统定时任务调用
-- ✅ 轻量级（不加载 UI 模块）
-- ✅ 日志文件记录详细信息
-
----
-
-## 📁 目录结构
-
-```
-HDU-Library-Sniper/
-├── pyproject.toml               # 项目配置（依赖、工具链）
-├── uv.lock                      # 依赖锁定文件
-├── Makefile                     # 快捷命令（install/lint/test/run/docker-*）
-├── Dockerfile                   # Docker 多阶段构建配置
-├── docker-compose.yml           # Docker 多模式编排（web/run/scheduled）
-├── docker-entrypoint.sh         # Docker 智能入口脚本
-├── .env.example                 # Docker 环境变量模板
-│
-├── src/hdu_sniper/              # 可安装应用包
-│   ├── __main__.py              # 桌面/Web/后台统一入口
-│   ├── app.py                   # UI/API 共用应用门面
-│   ├── runtime.py               # 唯一运行时组合根
-│   ├── config.py                # 业务配置与凭据加载
-│   ├── paths.py                 # 标准用户目录 / HDU_SNIPER_HOME
-│   ├── booking/                 # 预约模型、方案、重试与执行流程
-│   ├── library/                 # 图书馆 API、登录、房间与响应解析
-│   ├── ui/app.py                # Flet 桌面/Web 共用控件树
-│   ├── server.py                # FastAPI/ASGI 服务入口
-│   ├── scheduler.py             # 系统定时任务
-│   └── notifier.py              # 日志与 webhook 通知
-│
-├── scripts/
-│   ├── AutoSchedule.ps1         # Windows 任务计划自动注册脚本
-│   ├── launch.bat               # Windows 静默启动脚本
-│   └── launch.ps1               # Windows PowerShell 启动脚本
-│
-├── tests/                       # 测试套件
-│   ├── test_contracts.py        # 接口契约测试
-│   └── test_scheduler.py        # 定时任务测试
-│
-└── docs/                        # 文档
-    ├── DOCKER.md                # Docker 部署完整指南
-    └── contracts/               # API 契约示例
-```
-
-> ⚠️ **安全提示**：桌面端运行数据位于操作系统标准用户目录；Docker/服务器位于 `HDU_SNIPER_HOME`。凭据和会话缓存都不应提交到仓库。
-
----
-
-## ❓ 常见问题
-
-### Q: 创建方案后需要一直开着软件吗？
-
-A: 不需要。创建有效方案后可以关闭软件，系统会在每天 20:00 自动触发后台执行。
-
-### Q: 电脑关机了还能抢座吗？
-
-A: 不能。需要保持电脑开机或睡眠状态。
-- **Windows**：睡眠状态下可自动唤醒执行（默认启用）
-- **Linux**：需要 BIOS 支持 Wake on RTC
-- **完全关机**：任务不会执行，建议使用 [GitHub Actions 备选方案](docs/github-actions-setup.md)
-
-### Q: 如何查看抢座结果？
-
-A: 两种方式：
-1. 查看通知推送（在用户配置目录的 `settings.yaml` 中配置 webhook）
-2. 查看用户日志目录中的日志文件
-
-### Q: 定时任务执行失败怎么办？
-
-A:
-1. 检查标准用户日志目录
-2. 确认方案已启用（在"方案"工作区查看）
-3. 确认登录状态有效（点击页头“重新认证”）
-
-### Q: 支持哪些操作系统？
-
-A: 
-- ✅ Windows 10/11
-- ✅ Linux（Ubuntu、Debian、CentOS 等）
-- ✅ macOS
-
----
-
-## 🔧 高级配置
-
-### 通知推送
-
-参考 `config.example.yaml`，编辑用户配置目录中的 `settings.yaml`：
-
-```yaml
-notification:
-  wechat_webhook: "https://sctapi.ftqq.com/your_token.send"  # Server酱
-  # 或
-  wechat_webhook: "http://www.pushplus.plus/send?token=your_token"  # PushPlus
-```
-
-### 重试策略
-
-编辑同一个 `settings.yaml`：
-
-```yaml
-schema_version: 1
-booking:
-  max_trials: 5
-  retry_delay: 1.5
-  window_wait_seconds: 300
-  window_poll_interval: 2
-```
-
-### GitHub Actions（备选方案）
-
-在 GitHub 上 fork 本仓库后，参考 [docs/github-actions-setup.md](docs/github-actions-setup.md) 设置 Secrets 即可触发每日自动抢座（适合无法保持电脑开机的场景）。
-
----
-
-## 🛠️ 开发指南
-
-### 开发环境设置
-
-```bash
-# 安装所有开发依赖
-uv sync --all-groups
-
-# 或使用 Makefile
-make dev
-```
-
-### 常用命令
-
-```bash
-# 代码检查
-make lint              # 运行 ruff 检查
-uv run ruff check .
-
-# 代码格式化
-make format            # 自动格式化
-uv run ruff format .
-
-# 运行测试
-make test              # 运行测试套件
-uv run pytest
-
-# 运行应用
-make run               # 启动 Flet 桌面端
-uv run python -m hdu_sniper
-
-make web               # 启动本地 Web UI
-uv run python -m hdu_sniper --web
-
-# 构建桌面安装包（必须在目标操作系统上执行）
-make desktop-windows
-make desktop-macos
-
-# 清理缓存
-make clean
-```
-
-### 项目结构
-
-```
-HDU-Library-Sniper/
-├── pyproject.toml       # 项目配置
-├── uv.lock              # 依赖锁定
-├── Makefile             # 快捷命令
-├── Dockerfile           # Docker 构建
-├── docker-compose.yml   # Docker 编排
-├── config.example.yaml # 业务配置示例
-│
-├── src/hdu_sniper/      # 按业务能力组织的应用包
-│   ├── booking/         # 预约业务
-│   ├── library/         # 图书馆系统集成
-│   ├── ui/              # Flet 桌面/Web 共用界面
-│   ├── app.py           # 应用门面
-│   ├── runtime.py       # 依赖装配
-│   └── server.py        # FastAPI/ASGI 入口
-│
-├── scripts/             # 脚本
-├── deploy/config/       # Docker/服务器配置挂载点
-├── tests/               # 测试套件
-└── docs/                # 文档
-```
-
-### 技术栈
-
-- **包管理**: [uv](https://docs.astral.sh/uv/) - 快速、现代的 Python 包管理器
-- **代码质量**: [ruff](https://docs.astral.sh/ruff/) - 极速 linter + formatter
-- **测试**: [pytest](https://pytest.org/) + pytest-cov
-- **跨平台 UI**: [Flet](https://flet.dev/) / Flutter（Windows、macOS、Web 共用控件树）
-- **Web/API**: [FastAPI](https://fastapi.tiangolo.com/) + ASGI
-- **自动化**: [Playwright](https://playwright.dev/python/) - 浏览器自动化
-
-桌面发布、内置 Chromium、代码签名和安装器说明见 [桌面应用发布](docs/DESKTOP-RELEASE.md)。
-
-### 贡献指南
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add some amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 创建 Pull Request
-
-**代码规范**:
-- 运行 `make lint` 确保代码通过检查
-- 运行 `make format` 自动格式化代码
-- 运行 `make test` 确保测试通过
-
----
-
-## ⚠️ 免责声明
-
-- 本项目仅供学习交流使用，使用本工具产生的一切后果由使用者自行承担。
-- 请勿滥用：频繁请求可能对正常服务造成影响，请合理设置重试间隔。
-- 学号、密码与 Cookie 均为登录凭据，请勿在社交平台或不信任的环境中泄露。
+- 请合理设置重试间隔，遵守图书馆相关规定。
+- 学号、密码和 Cookie 属于敏感信息，请勿分享或提交到代码仓库。
+- 本项目仅供学习和个人使用。
