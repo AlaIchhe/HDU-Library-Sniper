@@ -9,7 +9,7 @@ description = "杭州电子科技大学图书馆座位自动抢座工具"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.116.0",
-    "flet[all]>=0.85.3,<0.86",
+    "flet[all]>=0.86.3,<0.87",
     "platformdirs>=4.3.8",
     "playwright>=1.61.0",
     "pyyaml>=6.0.3",

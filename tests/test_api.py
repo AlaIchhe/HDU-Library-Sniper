@@ -19,7 +19,7 @@ def test_health_endpoint_precedes_flet_mount() -> None:
 
 
 def test_web_host_serves_bundled_chinese_font() -> None:
-    response = TestClient(app).get("/fonts/NotoSansSC-VariableFont_wght.ttf")
+    response = TestClient(app).get("/fonts/MiSansVF.ttf")
 
     assert response.status_code == 200
     assert response.content[:4] == b"\x00\x01\x00\x00"

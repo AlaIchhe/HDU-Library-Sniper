@@ -19,8 +19,20 @@ from hdu_sniper.runtime import get_app
 from hdu_sniper.scheduler import ScheduledTask
 
 
-FONT_FAMILY = "Noto Sans SC"
-FONT_ASSET = "fonts/NotoSansSC-VariableFont_wght.ttf"
+FONT_FAMILY = "SF Pro Text"
+FONT_FALLBACK = "MiSans"
+ACTIVE_FONT_FAMILY = FONT_FAMILY if sys.platform == "darwin" else FONT_FALLBACK
+FONT_ASSET = "fonts/MiSansVF.ttf"
+
+# user:developer-apple-com — Apple Developer Documentation semantic palette.
+BACKGROUND = "#ffffff"
+SURFACE = "#f5f5f5"
+FOREGROUND = "#000000"
+MUTED = "#8c8c8c"
+BORDER = "#dbdbdb"
+ACCENT = "#2997ff"
+ACCENT_SECONDARY = "#0071e3"
+RADIUS = 8
 
 
 def resolve_assets_dir() -> str:
@@ -56,18 +68,67 @@ class SniperFletView:
     def _configure_page(self) -> None:
         self.page.title = "HDU Library Sniper"
         self.page.padding = 0
-        self.page.bgcolor = ft.Colors.GREY_50
+        self.page.bgcolor = BACKGROUND
         self.page.theme_mode = ft.ThemeMode.LIGHT
-        self.page.fonts = {FONT_FAMILY: FONT_ASSET}
+        self.page.window.min_width = 360
+        self.page.fonts = {FONT_FALLBACK: FONT_ASSET}
         self.page.theme = ft.Theme(
-            font_family=FONT_FAMILY,
-            color_scheme_seed=ft.Colors.TEAL,
+            font_family=ACTIVE_FONT_FAMILY,
+            use_material3=True,
+            scaffold_bgcolor=BACKGROUND,
+            canvas_color=BACKGROUND,
+            card_bgcolor=SURFACE,
+            divider_color=BORDER,
+            disabled_color=MUTED,
+            unselected_control_color=MUTED,
+            hint_color=MUTED,
+            focus_color=ACCENT,
+            hover_color=SURFACE,
+            color_scheme=ft.ColorScheme(
+                primary=ACCENT_SECONDARY,
+                on_primary=BACKGROUND,
+                primary_container=SURFACE,
+                on_primary_container=FOREGROUND,
+                secondary=ACCENT,
+                on_secondary=BACKGROUND,
+                secondary_container=SURFACE,
+                on_secondary_container=FOREGROUND,
+                surface=BACKGROUND,
+                on_surface=FOREGROUND,
+                on_surface_variant=MUTED,
+                outline=BORDER,
+                outline_variant=BORDER,
+                error=FOREGROUND,
+                on_error=BACKGROUND,
+            ),
+            filled_button_theme=ft.ButtonStyle(
+                bgcolor=ACCENT_SECONDARY,
+                color=BACKGROUND,
+                icon_color=BACKGROUND,
+                elevation=1,
+                padding=ft.Padding.symmetric(horizontal=18, vertical=12),
+                shape=ft.RoundedRectangleBorder(radius=RADIUS),
+                text_style=ft.TextStyle(color=BACKGROUND, weight=ft.FontWeight.W_600),
+            ),
+            outlined_button_theme=ft.ButtonStyle(
+                bgcolor=BACKGROUND,
+                color=ACCENT_SECONDARY,
+                elevation=0,
+                padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+                side=ft.BorderSide(1, BORDER),
+                shape=ft.RoundedRectangleBorder(radius=RADIUS),
+            ),
+            text_button_theme=ft.ButtonStyle(
+                color=ACCENT_SECONDARY,
+                padding=ft.Padding.symmetric(horizontal=12, vertical=12),
+                shape=ft.RoundedRectangleBorder(radius=RADIUS),
+            ),
             visual_density=ft.VisualDensity.COMFORTABLE,
         )
 
     def _build_controls(self) -> None:
         credentials = self.application.saved_credentials()
-        self.global_status = ft.Text("就绪", size=13, color=ft.Colors.BLUE_GREY_900)
+        self.global_status = ft.Text("就绪", size=13, color=MUTED)
 
         self.student_id = ft.TextField(
             label="学号",
@@ -86,6 +147,9 @@ class SniperFletView:
         self.login_button = ft.FilledButton(
             "登录",
             icon=ft.Icons.LOGIN,
+            color=BACKGROUND,
+            bgcolor=ACCENT_SECONDARY,
+            icon_color=BACKGROUND,
             on_click=self._login,
         )
         self.back_to_app_button = ft.Button(
@@ -100,7 +164,7 @@ class SniperFletView:
             on_click=self._open_reauthentication,
             visible=False,
         )
-        self.auth_state = ft.Text("尚未认证", color=ft.Colors.AMBER_700, weight=ft.FontWeight.W_600)
+        self.auth_state = ft.Text("尚未认证", color=MUTED, weight=ft.FontWeight.W_500)
         self.auth_log = ft.TextField(
             value="",
             multiline=True,
@@ -111,11 +175,11 @@ class SniperFletView:
         )
 
         self.plan_list = ft.ListView(spacing=6, expand=True)
-        self.plan_summary = ft.Text("暂无方案", color=ft.Colors.BLUE_GREY_900)
+        self.plan_summary = ft.Text("暂无方案", color=FOREGROUND)
         self.delete_button = ft.Button(
             "删除",
             icon=ft.Icons.DELETE,
-            color=ft.Colors.RED_600,
+            color=FOREGROUND,
             on_click=self._delete_selected_plans,
             disabled=True,
         )
@@ -144,6 +208,9 @@ class SniperFletView:
         self.create_plan_button = ft.FilledButton(
             "创建方案",
             icon=ft.Icons.ADD,
+            color=BACKGROUND,
+            bgcolor=ACCENT_SECONDARY,
+            icon_color=BACKGROUND,
             on_click=self._create_plan,
         )
         self.modify_button = ft.Button(
@@ -156,14 +223,14 @@ class SniperFletView:
         self.scheduler_health = ft.Text(
             "正在检查每日调度状态",
             size=13,
-            color=ft.Colors.BLUE_GREY_700,
+            color=MUTED,
         )
         self.repair_scheduler_button = ft.Button(
             "检查并修复",
             icon=ft.Icons.BUILD,
             on_click=self._repair_scheduler,
         )
-        self.schedule_summary = ft.Text("正在读取已创建的调度...", color=ft.Colors.BLUE_GREY_900)
+        self.schedule_summary = ft.Text("正在读取已创建的调度...", color=FOREGROUND)
         self.refresh_schedules_button = ft.IconButton(
             ft.Icons.REFRESH,
             tooltip="刷新调度列表",
@@ -171,7 +238,7 @@ class SniperFletView:
         )
         self.schedule_list = ft.Column(spacing=8)
 
-        self.booking_summary = ft.Text("进入页面后读取预约记录", color=ft.Colors.BLUE_GREY_900)
+        self.booking_summary = ft.Text("进入页面后读取预约记录", color=FOREGROUND)
         self.refresh_bookings_button = ft.IconButton(
             ft.Icons.REFRESH,
             tooltip="刷新预约记录",
@@ -179,30 +246,65 @@ class SniperFletView:
         )
         self.booking_list = ft.Column(spacing=8)
 
+        for control in (
+            self.student_id,
+            self.password,
+            self.auth_log,
+            self.room_type,
+            self.floor,
+            self.seat_num,
+            self.start_hour,
+            self.duration_hours,
+        ):
+            control.bgcolor = BACKGROUND
+            control.filled = True
+            control.border_color = BORDER
+            control.focused_border_color = ACCENT_SECONDARY
+            control.border_radius = RADIUS
+            control.content_padding = ft.Padding.symmetric(horizontal=16, vertical=14)
+            control.text_size = 15
+            control.label_style = ft.TextStyle(color=MUTED, size=13)
+        for control in (
+            self.student_id,
+            self.password,
+            self.auth_log,
+            self.seat_num,
+            self.start_hour,
+            self.duration_hours,
+        ):
+            control.cursor_color = ACCENT_SECONDARY
+
         self.auth_view = self._auth_view()
         self.business_views = [
             self._plans_view(),
             self._bookings_view(),
             self._schedules_view(),
         ]
-        self.view_host = ft.Container(content=self.auth_view, padding=24, expand=True)
+        self.content_frame = ft.Container(content=self.auth_view, width=1080)
+        self.view_host = ft.Container(
+            content=self.content_frame,
+            padding=ft.Padding.symmetric(horizontal=32, vertical=32),
+            bgcolor=BACKGROUND,
+            alignment=ft.Alignment.TOP_CENTER,
+            expand=True,
+        )
 
     def _section_title(self, title: str, subtitle: str) -> ft.Column:
         return ft.Column(
             [
-                ft.Text(title, size=24, weight=ft.FontWeight.W_700, color=ft.Colors.BLUE_GREY_900),
-                ft.Text(subtitle, size=13, color=ft.Colors.GREY_700),
+                ft.Text(title, size=28, weight=ft.FontWeight.W_600, color=FOREGROUND),
+                ft.Text(subtitle, size=14, color=MUTED),
             ],
-            spacing=2,
+            spacing=8,
         )
 
     def _surface(self, content: ft.Control, *, col=12, height: int | None = None) -> ft.Container:
         return ft.Container(
             content=content,
-            padding=18,
-            bgcolor=ft.Colors.WHITE,
-            border=ft.Border.all(1, ft.Colors.GREY_200),
-            border_radius=6,
+            padding=24,
+            bgcolor=SURFACE,
+            border=ft.Border.all(1, BORDER),
+            border_radius=RADIUS,
             col=col,
             height=height,
         )
@@ -236,6 +338,7 @@ class SniperFletView:
                     ft.Row(
                         [self.plan_summary, self.refresh_plans_button, self.delete_button],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        wrap=True,
                     ),
                     ft.Divider(height=1),
                     self.plan_list,
@@ -279,10 +382,10 @@ class SniperFletView:
                 self._surface(
                     ft.Row(
                         [
-                            ft.Icon(ft.Icons.SCHEDULE, color=ft.Colors.TEAL_700),
+                            ft.Icon(ft.Icons.SCHEDULE, color=ACCENT_SECONDARY),
                             ft.Column(
                                 [
-                                    ft.Text("每日 20:00 自动调度", weight=ft.FontWeight.W_600),
+                                    ft.Text("每日 20:00 自动调度", weight=ft.FontWeight.W_500),
                                     self.scheduler_health,
                                 ],
                                 spacing=2,
@@ -341,8 +444,11 @@ class SniperFletView:
         self.navigation_rail = ft.NavigationRail(
             selected_index=0,
             label_type=ft.NavigationRailLabelType.ALL,
-            min_width=76,
-            min_extended_width=180,
+            min_width=84,
+            min_extended_width=200,
+            bgcolor=SURFACE,
+            indicator_color=BACKGROUND,
+            indicator_shape=ft.RoundedRectangleBorder(radius=RADIUS),
             destinations=[
                 ft.NavigationRailDestination(ft.Icons.CHAIR, label="方案"),
                 ft.NavigationRailDestination(ft.Icons.EVENT_SEAT, label="我的预约"),
@@ -352,6 +458,9 @@ class SniperFletView:
         )
         self.bottom_navigation = ft.NavigationBar(
             selected_index=0,
+            bgcolor=SURFACE,
+            indicator_color=BACKGROUND,
+            elevation=0,
             destinations=[
                 ft.NavigationBarDestination(ft.Icons.CHAIR, label="方案"),
                 ft.NavigationBarDestination(ft.Icons.EVENT_SEAT, label="我的预约"),
@@ -364,18 +473,27 @@ class SniperFletView:
         header = ft.Container(
             ft.Row(
                 [
-                    ft.Text("HDU Library Sniper", size=18, weight=ft.FontWeight.W_700),
+                    ft.Column(
+                        [
+                            ft.Text("HDU Library Sniper", size=18, weight=ft.FontWeight.W_600),
+                            ft.Text("图书馆座位预约", size=12, color=MUTED),
+                        ],
+                        spacing=2,
+                    ),
                     ft.Row([self.global_status, self.reauthenticate_button], spacing=8),
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                wrap=True,
+                run_spacing=8,
             ),
-            padding=ft.Padding.symmetric(horizontal=22, vertical=14),
-            bgcolor=ft.Colors.WHITE,
-            border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.GREY_200)),
+            padding=ft.Padding.symmetric(horizontal=24, vertical=12),
+            bgcolor=BACKGROUND,
+            border=ft.Border(bottom=ft.BorderSide(1, BORDER)),
         )
         self.content_row = ft.Row(
             [self.navigation_rail, self.navigation_divider, self.view_host],
             expand=True,
+            spacing=0,
         )
         body = ft.Column(
             [header, self.content_row, self.bottom_navigation],
@@ -388,7 +506,7 @@ class SniperFletView:
     def _load_initial_state(self) -> None:
         if self.application.try_cached_authentication():
             self.auth_state.value = "已认证"
-            self.auth_state.color = ft.Colors.GREEN_700
+            self.auth_state.color = ACCENT_SECONDARY
             self.auth_log.value = "已恢复缓存登录态"
             self._show_business_shell(load_data=True, update=False)
         elif self.student_id.value:
@@ -405,7 +523,7 @@ class SniperFletView:
         selected_index = event.control.selected_index
         self.navigation_rail.selected_index = selected_index
         self.bottom_navigation.selected_index = selected_index
-        self.view_host.content = self.business_views[selected_index]
+        self.content_frame.content = self.business_views[selected_index]
         if selected_index == 1:
             self.page.run_task(self._refresh_bookings)
         elif selected_index == 2:
@@ -422,7 +540,7 @@ class SniperFletView:
             self._show_business_shell(load_data=False)
 
     def _show_authentication(self, *, update: bool = True) -> None:
-        self.view_host.content = self.auth_view
+        self.content_frame.content = self.auth_view
         self.navigation_rail.visible = False
         self.navigation_divider.visible = False
         self.bottom_navigation.visible = False
@@ -437,7 +555,7 @@ class SniperFletView:
             return
         self.navigation_rail.selected_index = 0
         self.bottom_navigation.selected_index = 0
-        self.view_host.content = self.business_views[0]
+        self.content_frame.content = self.business_views[0]
         self.reauthenticate_button.visible = True
         self.back_to_app_button.visible = False
         self._apply_responsive_layout(update=False)
@@ -461,12 +579,21 @@ class SniperFletView:
         page_width = width if width is not None else self.page.width
         compact = bool(page_width and page_width < 700)
         business_visible = (
-            self.application.authenticated and self.view_host.content is not self.auth_view
+            self.application.authenticated and self.content_frame.content is not self.auth_view
         )
         self.navigation_rail.visible = business_visible and not compact
         self.navigation_divider.visible = business_visible and not compact
         self.bottom_navigation.visible = business_visible and compact
-        self.view_host.padding = 16 if compact else 24
+        self.view_host.padding = (
+            ft.Padding.symmetric(horizontal=16, vertical=24)
+            if compact
+            else ft.Padding.symmetric(horizontal=32, vertical=32)
+        )
+        if compact and page_width:
+            self.content_frame.width = 328 if page_width <= 500 else page_width - 32
+        else:
+            self.content_frame.width = 1080
+        self.content_frame.expand = False
         self.plan_panel.height = 320 if compact else 520
         if update:
             self.page.update()
@@ -475,7 +602,7 @@ class SniperFletView:
         self.page.show_dialog(
             ft.SnackBar(
                 message,
-                bgcolor=ft.Colors.RED_600 if error else ft.Colors.BLUE_GREY_900,
+                bgcolor=FOREGROUND if error else ACCENT_SECONDARY,
                 show_close_icon=True,
             ),
         )
@@ -498,7 +625,7 @@ class SniperFletView:
         self.password.value = ""
         self.auth_log.value = message
         self.auth_state.value = "已认证" if success else "认证失败"
-        self.auth_state.color = ft.Colors.GREEN_700 if success else ft.Colors.RED_600
+        self.auth_state.color = ACCENT_SECONDARY if success else FOREGROUND
         self._show_message(message, error=not success)
         if success:
             self._show_business_shell(load_data=True)
@@ -587,12 +714,12 @@ class SniperFletView:
                                 [
                                     ft.Text(
                                         f"{room_name} · {plan.seat_num} 座",
-                                        weight=ft.FontWeight.W_600,
+                                        weight=ft.FontWeight.W_500,
                                     ),
                                     ft.Text(
                                         f"后天 {plan.start_hour:02d}:00 起 · {plan.duration_hours} 小时",
                                         size=12,
-                                        color=ft.Colors.GREY_700,
+                                        color=MUTED,
                                     ),
                                 ],
                                 spacing=2,
@@ -600,16 +727,16 @@ class SniperFletView:
                             ),
                             ft.Text(
                                 status,
-                                color=ft.Colors.GREEN_700 if plan.enabled else ft.Colors.GREY_700,
+                                color=ACCENT_SECONDARY if plan.enabled else MUTED,
                             ),
                         ],
                     ),
                     padding=10,
-                    border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.GREY_200)),
+                    border=ft.Border(bottom=ft.BorderSide(1, BORDER)),
                 ),
             )
         if not plans:
-            self.plan_list.controls.append(ft.Text("暂无预约方案", color=ft.Colors.GREY_700))
+            self.plan_list.controls.append(ft.Text("暂无预约方案", color=MUTED))
         self._sync_plan_actions(update=False)
         with contextlib.suppress(RuntimeError):
             self.page.update()
@@ -680,13 +807,15 @@ class SniperFletView:
                 modal=True,
                 icon=ft.Icon(
                     ft.Icons.ERROR_OUTLINE if error else ft.Icons.EVENT_AVAILABLE,
-                    color=ft.Colors.RED_600 if error else ft.Colors.GREEN_700,
+                    color=FOREGROUND if error else ACCENT_SECONDARY,
                 ),
                 title=ft.Text(title),
                 content=ft.Text(message, selectable=True),
                 actions=[
                     ft.FilledButton(
                         "知道了",
+                        color=BACKGROUND,
+                        bgcolor=ACCENT_SECONDARY,
                         on_click=lambda _event: self.page.pop_dialog(),
                     )
                 ],
@@ -724,17 +853,17 @@ class SniperFletView:
             status = await asyncio.to_thread(self.application.scheduler_status)
         except Exception as exc:
             self.scheduler_health.value = f"状态检查失败：{exc}"
-            self.scheduler_health.color = ft.Colors.RED_600
+            self.scheduler_health.color = FOREGROUND
         else:
             if status.exists:
                 details = ["系统任务已启用"]
                 if status.next_run:
                     details.append(f"下次运行：{status.next_run}")
                 self.scheduler_health.value = " · ".join(details)
-                self.scheduler_health.color = ft.Colors.GREEN_700
+                self.scheduler_health.color = ACCENT_SECONDARY
             else:
                 self.scheduler_health.value = "系统任务尚未生效，请检查并修复"
-                self.scheduler_health.color = ft.Colors.AMBER_700
+                self.scheduler_health.color = MUTED
         self.page.update()
 
     async def _refresh_bookings(self, _event=None) -> None:
@@ -746,7 +875,7 @@ class SniperFletView:
         except Exception as exc:
             self.booking_list.controls.clear()
             self.booking_summary.value = f"读取预约记录失败：{exc}"
-            self.booking_summary.color = ft.Colors.RED_600
+            self.booking_summary.color = FOREGROUND
         else:
             self._render_bookings(bookings)
         finally:
@@ -757,9 +886,9 @@ class SniperFletView:
     def _render_bookings(self, bookings: list[dict]) -> None:
         self.booking_list.controls.clear()
         self.booking_summary.value = f"共 {len(bookings)} 条预约记录"
-        self.booking_summary.color = ft.Colors.BLUE_GREY_900
+        self.booking_summary.color = FOREGROUND
         if not bookings:
-            self.booking_list.controls.append(ft.Text("暂无预约记录", color=ft.Colors.GREY_700))
+            self.booking_list.controls.append(ft.Text("暂无预约记录", color=MUTED))
             return
 
         status_labels = {
@@ -798,7 +927,7 @@ class SniperFletView:
                     ft.Button(
                         "取消预约",
                         icon=ft.Icons.CANCEL_OUTLINED,
-                        color=ft.Colors.RED_600,
+                        color=FOREGROUND,
                         data={
                             "id": booking_id,
                             "summary": f"{room_name} · 座位 {seat_num} · {start_time}",
@@ -812,8 +941,8 @@ class SniperFletView:
                         [
                             ft.Column(
                                 [
-                                    ft.Text(room_name, weight=ft.FontWeight.W_600),
-                                    ft.Text(details, size=12, color=ft.Colors.GREY_700),
+                                    ft.Text(room_name, weight=ft.FontWeight.W_500),
+                                    ft.Text(details, size=12, color=MUTED),
                                 ],
                                 spacing=4,
                                 expand=True,
@@ -822,7 +951,7 @@ class SniperFletView:
                         ],
                     ),
                     padding=12,
-                    border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.GREY_200)),
+                    border=ft.Border(bottom=ft.BorderSide(1, BORDER)),
                 )
             )
 
@@ -831,7 +960,7 @@ class SniperFletView:
         self.page.show_dialog(
             ft.AlertDialog(
                 modal=True,
-                icon=ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=ft.Colors.RED_600),
+                icon=ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=FOREGROUND),
                 title=ft.Text("取消预约？"),
                 content=ft.Text(f"将取消：{booking['summary']}。此操作无法撤销。"),
                 actions=[
@@ -839,7 +968,9 @@ class SniperFletView:
                     ft.FilledButton(
                         "确认取消",
                         icon=ft.Icons.CANCEL_OUTLINED,
-                        color=ft.Colors.RED_600,
+                        color=BACKGROUND,
+                        bgcolor=FOREGROUND,
+                        icon_color=BACKGROUND,
                         data=booking["id"],
                         on_click=self._cancel_remote_booking,
                     ),
@@ -883,7 +1014,7 @@ class SniperFletView:
         except Exception as exc:
             self.schedule_list.controls.clear()
             self.schedule_summary.value = f"读取调度失败：{exc}"
-            self.schedule_summary.color = ft.Colors.RED_600
+            self.schedule_summary.color = FOREGROUND
         else:
             self._render_scheduled_tasks(tasks)
         finally:
@@ -894,10 +1025,10 @@ class SniperFletView:
     def _render_scheduled_tasks(self, tasks: list[ScheduledTask]) -> None:
         self.schedule_list.controls.clear()
         self.schedule_summary.value = f"已创建 {len(tasks)} 个调度"
-        self.schedule_summary.color = ft.Colors.BLUE_GREY_900
+        self.schedule_summary.color = FOREGROUND
         if not tasks:
             self.schedule_list.controls.append(
-                ft.Text("暂无已创建的调度", color=ft.Colors.GREY_700)
+                ft.Text("暂无已创建的调度", color=MUTED)
             )
             return
 
@@ -915,8 +1046,8 @@ class SniperFletView:
                         [
                             ft.Column(
                                 [
-                                    ft.Text(task.name, weight=ft.FontWeight.W_600),
-                                    ft.Text(" · ".join(details), size=12, color=ft.Colors.GREY_700),
+                                    ft.Text(task.name, weight=ft.FontWeight.W_500),
+                                    ft.Text(" · ".join(details), size=12, color=MUTED),
                                 ],
                                 spacing=4,
                                 expand=True,
@@ -930,14 +1061,14 @@ class SniperFletView:
                             ft.Button(
                                 "删除",
                                 icon=ft.Icons.DELETE,
-                                color=ft.Colors.RED_600,
+                                color=FOREGROUND,
                                 data=task.name,
                                 on_click=self._confirm_delete_scheduled_task,
                             ),
                         ],
                     ),
                     padding=12,
-                    border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.GREY_200)),
+                    border=ft.Border(bottom=ft.BorderSide(1, BORDER)),
                 )
             )
 
@@ -946,7 +1077,7 @@ class SniperFletView:
         self.page.show_dialog(
             ft.AlertDialog(
                 modal=True,
-                icon=ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, color=ft.Colors.TEAL_700),
+                icon=ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, color=ACCENT_SECONDARY),
                 title=ft.Text("立即执行调度？"),
                 content=ft.Text(
                     f"{task_name} 将由 Windows 任务计划程序立即启动，可能会执行预约。",
@@ -956,6 +1087,9 @@ class SniperFletView:
                     ft.FilledButton(
                         "立即执行",
                         icon=ft.Icons.PLAY_ARROW,
+                        color=BACKGROUND,
+                        bgcolor=ACCENT_SECONDARY,
+                        icon_color=BACKGROUND,
                         data=task_name,
                         on_click=self._run_scheduled_task,
                     ),
@@ -975,7 +1109,7 @@ class SniperFletView:
         self.page.show_dialog(
             ft.AlertDialog(
                 modal=True,
-                icon=ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=ft.Colors.RED_600),
+                icon=ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=FOREGROUND),
                 title=ft.Text("删除调度？"),
                 content=ft.Text(
                     f"删除 {task_name} 后将不再自动执行预约，后续可通过“检查并修复”重新创建。",
@@ -985,7 +1119,9 @@ class SniperFletView:
                     ft.FilledButton(
                         "删除",
                         icon=ft.Icons.DELETE,
-                        color=ft.Colors.RED_600,
+                        color=BACKGROUND,
+                        bgcolor=FOREGROUND,
+                        icon_color=BACKGROUND,
                         data=task_name,
                         on_click=self._delete_scheduled_task,
                     ),
@@ -1016,7 +1152,7 @@ class SniperFletView:
         self.global_status.value = state_names[event.state]
         if event.kind == EventKind.AUTH_REQUIRED:
             self.auth_state.value = "认证已失效"
-            self.auth_state.color = ft.Colors.RED_600
+            self.auth_state.color = FOREGROUND
             self.auth_log.value = event.message
             self._show_authentication(update=False)
         with contextlib.suppress(RuntimeError):

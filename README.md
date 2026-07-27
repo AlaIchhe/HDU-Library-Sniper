@@ -11,7 +11,7 @@
 | 特性 | 说明 |
 | --- | --- |
 | 🎨 跨平台界面 | Flet/Flutter 桌面端与 Docker Web UI 共用同一套交互体验 |
-| 🔤 统一中文字体 | 内置 Noto Sans SC Variable，Windows、macOS 与 Web 使用一致字形 |
+| 🔤 统一中文字体 | 内置 MiSans Variable，Windows、Linux 与 Web 使用一致字形；macOS 优先使用 SF Pro Text |
 | ⚡ 固定目标日 | 所有方案只能预约后天，日期偏移不对用户开放 |
 | 🗺️ 三日布局 | 创建方案时合并今天、明天、后天的房间和座位，不受当天状态限制 |
 | ⏰ 自动任务 | 有效方案创建后静默确保每天 20:00 自动执行，无需用户配置 |
