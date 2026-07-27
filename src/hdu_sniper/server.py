@@ -14,7 +14,7 @@ from hdu_sniper.ui.app import flet_main, resolve_assets_dir
 
 app = FastAPI(
     title="HDU Library Sniper",
-    version="1.0.0",
+    version="1.1.0",
     docs_url=None,
     openapi_url=None,
 )
