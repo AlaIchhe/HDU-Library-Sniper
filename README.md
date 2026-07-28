@@ -1,13 +1,5 @@
 # HDU Library Sniper
 
-杭州电子科技大学图书馆座位预约工具。创建预约方案后，程序会在预约开放后自动执行预约，并支持失败重试、登录状态缓存和通知推送。
-
-
-
-关联：HDU、hdu、杭州电子科技大学、杭电、图书馆、杭电图书馆、签到、抢座、预约、脚本、自动签到、自动打卡、座位预约、预约脚本。
-
-
-
 ## 安装
 
 从 [GitHub Releases](https://github.com/AlaIchhe/HDU-Library-Sniper/releases) 下载对应系统的安装包，安装后直接启动。
