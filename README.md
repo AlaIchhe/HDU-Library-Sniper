@@ -1,4 +1,14 @@
+<div align="center">
+
 # HDU Library Sniper
+
+[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&pause=1000&color=1677FF&center=true&vCenter=true&width=600&lines=HDU+Library+Seat+Reservation;杭州电子科技大学图书馆座位预约工具;自动预约+失败重试+通知推送)](https://git.io/typing-svg)
+
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Playwright](https://img.shields.io/badge/Playwright-Automation-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
+[![License](https://img.shields.io/github/license/AlaIchhe/HDU-Library-Sniper)](LICENSE)
+
+</div>
 
 ## 安装
 
