@@ -3,6 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/pyproject.toml" | head -n 1)"
+if [[ "${RELEASE_VERSION:-}" =~ ^v?([0-9]+(\.[0-9]+){2}([-+][0-9A-Za-z.-]+)?)$ ]]; then
+  VERSION="${BASH_REMATCH[1]}"
+fi
 BROWSER_DIR="$ROOT/packaging/.cache/playwright-browsers"
 FONT_DIR="$ROOT/assets/fonts"
 DESKTOP_DIR="$ROOT/build/desktop"
