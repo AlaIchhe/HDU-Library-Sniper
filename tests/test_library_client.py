@@ -213,10 +213,26 @@ def test_room_and_seat_queries_translate_contract_errors(method, error_type) -> 
         method(client)
 
 
+def test_seat_query_surfaces_the_server_error_envelope() -> None:
+    client = LibraryClient()
+    client._request = Mock(
+        return_value={
+            "CODE": "ParamError",
+            "MESSAGE": "参数错误: 预约时段为过去时间",
+            "DATA": {},
+        }
+    )
+
+    with pytest.raises(SeatQueryError, match="预约时段为过去时间"):
+        client.get_seat_map("c", "x", datetime.now(UTC))
+
+
 def test_booking_history_confirmation_is_best_effort() -> None:
     client = LibraryClient()
     client._request = Mock(return_value={"content": {"defaultItems": [{"time": "100"}]}})
     assert client.get_todays_bookings() == [{"time": "100"}]
+    assert client._request.call_args.args == ("GET", client.urls["booking_list"])
+    assert "today_schedule" not in client.urls
     assert client.find_confirmed_booking(101) == {"time": "100"}
 
     client.get_todays_bookings = Mock(return_value=[None, {"time": "bad"}, {"time": "500"}])
@@ -230,23 +246,42 @@ def test_booking_list_and_remote_cancellation_use_verified_endpoints() -> None:
     client.session.headers["Api-Token"] = "stale-booking-token"
     client._request = Mock(
         side_effect=[
-            {"content": {"defaultItems": [{"id": "book-1", "status": "0"}]}},
+            {"content": {"defaultItems": [{"id": "1", "status": "0"}]}},
             {"CODE": "ok", "DATA": {"result": "success"}},
         ]
     )
 
-    assert client.get_bookings() == [{"id": "book-1", "status": "0"}]
-    assert client.cancel_remote_booking(" book-1 ") == {
+    assert client.get_bookings() == [{"id": "1", "status": "0"}]
+    assert client.cancel_remote_booking(" 1 ") == {
         "CODE": "ok",
         "DATA": {"result": "success"},
     }
     assert client._request.call_args_list[0].args == ("GET", client.urls["booking_list"])
     assert client._request.call_args_list[1].args == ("POST", client.urls["cancel_booking"])
-    assert client._request.call_args_list[1].kwargs == {"params": {"bookingId": "book-1"}}
+    assert client._request.call_args_list[1].kwargs == {"params": {"bookingId": "1"}}
     assert "Api-Token" not in client.session.headers
 
     with pytest.raises(ValueError, match="预约 ID"):
         client.cancel_remote_booking(" ")
+
+
+def test_booking_action_endpoints_use_query_id_without_booking_token() -> None:
+    client = LibraryClient()
+    client.session.headers["Api-Token"] = "stale"
+    client._request = Mock(return_value={"CODE": "ok", "DATA": {"result": "success"}})
+
+    assert client.check_in_booking(123)["CODE"] == "ok"
+    assert client.come_back_booking("123")["CODE"] == "ok"
+
+    assert client._request.call_args_list[0].args == ("POST", client.urls["check_in"])
+    assert client._request.call_args_list[1].args == ("POST", client.urls["come_back"])
+    for call in client._request.call_args_list:
+        assert call.kwargs == {"params": {"bookingId": "123"}}
+    assert "Api-Token" not in client.session.headers
+    assert "cancel_times_limit" not in client.urls
+
+    with pytest.raises(ValueError, match="必须是数字"):
+        client.check_in_booking("not-a-number")
 
 
 def test_booking_list_rejects_an_unexpected_response_shape() -> None:

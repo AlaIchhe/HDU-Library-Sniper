@@ -176,28 +176,72 @@ def test_application_delegates_plan_queries_and_mutations(tmp_path: Path) -> Non
 
 def test_application_lists_and_cancels_remote_bookings(tmp_path: Path) -> None:
     application, dependencies = build_test_application(tmp_path)
-    dependencies["client"].get_bookings.return_value = [{"id": "book-1", "status": "0"}]
+    dependencies["client"].get_bookings.side_effect = [
+        [{"id": "1", "status": "0"}],
+        [{"id": "1", "status": "0"}],
+        [{"id": "1", "status": "4"}],
+    ]
     dependencies["client"].cancel_remote_booking.return_value = {
         "CODE": "ok",
         "DATA": {"result": "success"},
     }
 
-    assert application.list_bookings() == [{"id": "book-1", "status": "0"}]
-    assert application.cancel_remote_booking("book-1") == (True, "预约已取消")
-    dependencies["client"].cancel_remote_booking.assert_called_once_with("book-1")
+    assert application.list_bookings() == [{"id": "1", "status": "0"}]
+    assert application.cancel_remote_booking("1") == (True, "预约已取消")
+    dependencies["client"].cancel_remote_booking.assert_called_once_with("1")
 
     dependencies["client"].cancel_remote_booking.return_value = {
         "CODE": "ParamError",
         "MESSAGE": "预约已结束",
     }
-    assert application.cancel_remote_booking("book-1") == (False, "取消预约失败：预约已结束")
+    dependencies["client"].get_bookings.side_effect = [[{"id": "1", "status": "0"}]]
+    assert application.cancel_remote_booking("1") == (False, "取消预约失败：预约已结束")
 
     application._set_state(JobState.RUNNING)
-    assert application.cancel_remote_booking("book-1") == (
+    assert application.cancel_remote_booking("1") == (
         False,
         "当前任务正在运行，请在任务结束后再取消预约",
     )
     assert dependencies["client"].cancel_remote_booking.call_count == 2
+
+
+def test_application_allows_pending_confirmation_cancellation(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    dependencies["client"].get_bookings.side_effect = [
+        [{"id": "8", "status": "8"}],
+        [],
+    ]
+    dependencies["client"].cancel_remote_booking.return_value = {
+        "CODE": "ok",
+        "DATA": {"result": "success"},
+    }
+
+    assert application.cancel_remote_booking("8") == (True, "预约已取消")
+    dependencies["client"].cancel_remote_booking.assert_called_once_with("8")
+
+
+def test_application_checks_in_and_returns_after_status_verification(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    success_response = {"CODE": "ok", "DATA": {"result": "success"}}
+    dependencies["client"].check_in_booking.return_value = success_response
+    dependencies["client"].get_bookings.side_effect = [
+        [{"id": "1", "status": "0"}],
+        [{"id": "1", "status": "1"}],
+    ]
+    assert application.check_in_booking("1") == (True, "签到成功，座位使用中")
+
+    dependencies["client"].come_back_booking.return_value = success_response
+    dependencies["client"].get_bookings.side_effect = [
+        [{"id": "2", "status": "2"}],
+        [{"id": "2", "status": "1"}],
+    ]
+    assert application.come_back_booking("2") == (True, "已返回座位，座位使用中")
+
+    dependencies["client"].get_bookings.side_effect = [[{"id": "3", "status": "6"}]]
+    assert application.come_back_booking("3") == (
+        False,
+        "该预约已因暂离未归结束，服务器不允许恢复",
+    )
 
 
 def test_cached_authentication_and_unsubscribe(tmp_path: Path) -> None:

@@ -101,3 +101,22 @@ def test_schedule_endpoints_require_authentication() -> None:
 
     assert response.status_code == 401
     assert response.json() == {"detail": "authentication required"}
+
+
+def test_booking_endpoints_delegate_account_actions() -> None:
+    application = Mock(authenticated=True)
+    application.list_bookings.return_value = [{"id": "1", "status": "0"}]
+    application.cancel_remote_booking.return_value = (True, "预约已取消")
+    application.check_in_booking.return_value = (True, "签到成功，座位使用中")
+    application.come_back_booking.return_value = (True, "已返回座位，座位使用中")
+
+    with patch("hdu_sniper.server.get_app", return_value=application):
+        client = TestClient(app)
+        assert client.get("/api/v1/bookings").json()["bookings"][0]["id"] == "1"
+        assert client.delete("/api/v1/bookings/1").status_code == 200
+        assert client.post("/api/v1/bookings/1/check-in").status_code == 200
+        assert client.post("/api/v1/bookings/1/come-back").status_code == 200
+
+    application.cancel_remote_booking.assert_called_once_with("1")
+    application.check_in_booking.assert_called_once_with("1")
+    application.come_back_booking.assert_called_once_with("1")

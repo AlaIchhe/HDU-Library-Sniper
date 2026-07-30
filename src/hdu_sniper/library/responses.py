@@ -30,6 +30,13 @@ MSG_DUPLICATE = "已有预约，请勿重复预约！"
 MSG_SEAT_UNAVAILABLE = "选择的座位无法预约，可能座位不可用或已经被其他人锁定或占用，请换一个再试"
 MSG_INVALID_REQUEST = "非法请求"  # 未实抓(需坏签名触发)
 
+BOOKING_STATUS_PENDING = "0"
+BOOKING_STATUS_IN_USE = "1"
+BOOKING_STATUS_AWAY = "2"
+BOOKING_STATUS_CANCELLED = "4"
+BOOKING_STATUS_AWAY_EXPIRED = "6"
+BOOKING_STATUS_PENDING_CONFIRMATION = "8"
+
 
 # ---- 房间类型: GET /Space/Category/list  (见 samples/room_types.json) --------------------
 def room_types_from_response(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -177,6 +184,8 @@ def operation_message(response: dict[str, Any]) -> str:
     if message:
         return str(message)
     data = response.get("DATA")
-    if isinstance(data, dict) and data.get("msg"):
-        return str(data["msg"])
+    if isinstance(data, dict):
+        for key in ("msg", "message"):
+            if data.get(key):
+                return str(data[key])
     return "服务端未返回具体原因"

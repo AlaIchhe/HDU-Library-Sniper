@@ -47,6 +47,47 @@ def status() -> dict:
     }
 
 
+@app.get("/api/v1/bookings", tags=["bookings"])
+def list_bookings() -> dict:
+    """返回当前图书馆账户的预约记录。"""
+    return {"bookings": _authenticated_application().list_bookings()}
+
+
+def _booking_action(operation, booking_id: str) -> dict[str, str | bool]:
+    application = _authenticated_application()
+    try:
+        success, message = operation(application, booking_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if not success:
+        raise HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=message)
+    return {"success": True, "message": message}
+
+
+@app.delete("/api/v1/bookings/{booking_id}", tags=["bookings"])
+def cancel_remote_booking(booking_id: str) -> dict[str, str | bool]:
+    """检查取消限制后取消一条待签到或待确认预约。"""
+    return _booking_action(
+        lambda application, value: application.cancel_remote_booking(value), booking_id
+    )
+
+
+@app.post("/api/v1/bookings/{booking_id}/check-in", tags=["bookings"])
+def check_in_booking(booking_id: str) -> dict[str, str | bool]:
+    """签到一条待签到预约。"""
+    return _booking_action(
+        lambda application, value: application.check_in_booking(value), booking_id
+    )
+
+
+@app.post("/api/v1/bookings/{booking_id}/come-back", tags=["bookings"])
+def come_back_booking(booking_id: str) -> dict[str, str | bool]:
+    """让暂离中的预约恢复为使用中。"""
+    return _booking_action(
+        lambda application, value: application.come_back_booking(value), booking_id
+    )
+
+
 @app.get("/api/v1/schedules", tags=["scheduler"])
 def list_schedules() -> dict:
     """返回当前应用创建并允许管理的系统调度任务。"""

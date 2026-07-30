@@ -126,6 +126,13 @@ def test_my_booking_list() -> None:
         )
 
 
+def test_seat_action_success() -> None:
+    """签到、取消和暂离返回共用的已验证成功信封。"""
+    response = _load("seat_action_success.json")
+    _check(responses.operation_succeeded(response), "seat_action: 成功信封未被识别")
+    _check(responses.operation_message(response) == "请求成功", "seat_action: MESSAGE 解析错误")
+
+
 def test_msg_constants_match_samples() -> None:
     """contract.MSG_* 必须与样例一致(单一源,不再两份对齐)。"""
     s = _load("book_seats.json")
@@ -150,6 +157,7 @@ TESTS = [
     test_base_info,
     test_book_seats,
     test_my_booking_list,
+    test_seat_action_success,
     test_msg_constants_match_samples,
 ]
 

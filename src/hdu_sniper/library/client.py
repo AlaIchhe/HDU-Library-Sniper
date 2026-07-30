@@ -14,13 +14,14 @@ from hdu_sniper.library.signing import generate_api_token
 URLS = {
     "book_seat": "https://hdu.huitu.zhishulib.com/Seat/Index/bookSeats",
     "cancel_booking": "https://hdu.huitu.zhishulib.com/Seat/Index/cancelBooking",
+    "check_in": "https://hdu.huitu.zhishulib.com/Seat/Index/checkIn",
+    "come_back": "https://hdu.huitu.zhishulib.com/Seat/Index/comeBack",
     "query_seats": "https://hdu.huitu.zhishulib.com/Seat/Index/searchSeats",
     "query_rooms": "https://hdu.huitu.zhishulib.com/Space/Category/list",
     "user_base_info": "https://hdu.huitu.zhishulib.com/User/Center/baseInfo",
     # 契约验证:myBookingList?fromType=web 才返回预约列表(content.defaultItems)。
     # todayUserBookSeat 只返回字符串 'todayUserBookSeatAction',拿不到数据——不可用。
     "booking_list": "https://hdu.huitu.zhishulib.com/Seat/Index/myBookingList?fromType=web",
-    "today_schedule": "https://hdu.huitu.zhishulib.com/Seat/Index/myBookingList?fromType=web",
 }
 
 DEFAULT_HEADERS = {
@@ -259,6 +260,8 @@ class LibraryClient:
             "space_category[content_id]": str(content_id),
         }
         response = self._request("POST", self.urls["query_seats"], payload)
+        if "allContent" not in response and str(response.get("CODE") or "").lower() != "ok":
+            raise SeatQueryError(f"座位分布查询失败：{responses.operation_message(response)}")
         try:
             return responses.floors_from_response(response)
         except (KeyError, IndexError, TypeError) as exc:
@@ -273,7 +276,7 @@ class LibraryClient:
         ``seatNum``/``time``/``id`` 等。用于 post-bookSeats 超时后的幂等确认。
         访问器容错(结构漂移返回 ``[]``)，故此处不包错。
         """
-        data = self._request("GET", self.urls["today_schedule"])
+        data = self._request("GET", self.urls["booking_list"])
         return responses.bookings_from_response(data)
 
     def get_bookings(self) -> list[dict[str, Any]]:
@@ -298,14 +301,36 @@ class LibraryClient:
         无 ``Api-Token``。成功响应满足 ``CODE == 'ok'`` 且 ``DATA.result == 'success'``。
         调用方应只对列表中 ``status == '0'``（待签到）的条目暴露此操作。
         """
+        return self._booking_action_request("POST", "cancel_booking", booking_id)
+
+    def check_in_booking(self, booking_id: str | int) -> dict[str, Any]:
+        """为待签到预约执行签到。
+
+        请求契约为 ``POST /Seat/Index/checkIn?bookingId=<id>``，无请求体；成功
+        响应为 ``CODE=ok`` 且 ``DATA.result=success``，预约状态随后由 ``0`` 变为
+        ``1``。接口不需要蓝牙、定位或 ``Api-Token`` 请求字段。
+        """
+        return self._booking_action_request("POST", "check_in", booking_id)
+
+    def come_back_booking(self, booking_id: str | int) -> dict[str, Any]:
+        """让暂离中的预约恢复为使用中。
+
+        请求契约为 ``POST /Seat/Index/comeBack?bookingId=<id>``，无请求体；成功
+        响应与签到相同，预约状态随后由 ``2`` 变为 ``1``。
+        """
+        return self._booking_action_request("POST", "come_back", booking_id)
+
+    def _booking_action_request(
+        self, method: str, url_key: str, booking_id: str | int
+    ) -> dict[str, Any]:
         normalized_id = str(booking_id).strip()
-        if not normalized_id:
-            raise ValueError("预约 ID 不能为空")
-        # bookSeats 会把一次性签名写入会话默认头；取消接口前端不带该头，避免发送过期签名。
+        if not normalized_id or not normalized_id.isdigit():
+            raise ValueError("预约 ID 必须是数字")
+        # 这些端点均不使用 bookSeats 的一次性签名。
         self.session.headers.pop("Api-Token", None)
         return self._request(
-            "POST",
-            self.urls["cancel_booking"],
+            method,
+            self.urls[url_key],
             params={"bookingId": normalized_id},
         )
 

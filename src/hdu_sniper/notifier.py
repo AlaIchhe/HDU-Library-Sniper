@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -21,10 +22,16 @@ class Notifier:
         self.log_file = Path(log_file)
         self.wechat_webhook = wechat_webhook
 
+    @staticmethod
+    def _console_safe(value: str) -> str:
+        """让 Windows 非 UTF-8 控制台无法表示的字符变成可输出占位符。"""
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        return value.encode(encoding, errors="replace").decode(encoding, errors="replace")
+
     def send(self, title: str, body: str, success: bool = True) -> None:
         color = self.GREEN if success else self.RED
-        print(f"\n{color}{self.BOLD}== {title} =={self.RESET}")
-        print(f"{color}{body}{self.RESET}\n")
+        print(self._console_safe(f"\n{color}{self.BOLD}== {title} =={self.RESET}"))
+        print(self._console_safe(f"{color}{body}{self.RESET}\n"))
 
         try:
             path = self.log_file
