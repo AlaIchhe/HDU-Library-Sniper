@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
+from hdu_sniper.booking.models import BookingPlan
+from hdu_sniper.config import Credentials
 from hdu_sniper.events import ApplicationEvent, EventKind, JobState
+from hdu_sniper.library.rooms import FloorInfo
 from hdu_sniper.scheduler import ScheduledTask
 from hdu_sniper.ui.app import (
     ACTIVE_FONT_FAMILY,
@@ -208,3 +215,156 @@ def test_frozen_assets_resolve_from_pyinstaller_bundle(tmp_path: Path, monkeypat
     monkeypatch.setattr("hdu_sniper.ui.app.sys._MEIPASS", str(tmp_path), raising=False)
 
     assert resolve_assets_dir() == str(tmp_path / "assets")
+
+
+def test_cached_credential_without_valid_session_keeps_authentication_form() -> None:
+    page = _page()
+    application = _application(authenticated=False)
+    application.saved_credentials.return_value = Credentials("2024001", "secret")
+
+    view = SniperFletView(page, application)
+
+    assert view.student_id.value == "2024001"
+    assert view.auth_log.value
+    assert view.content_frame.content is view.auth_view
+    assert view.navigation_rail.visible is False
+
+
+def test_navigation_refreshes_selected_business_view() -> None:
+    page = _page()
+    view = SniperFletView(page, _application(authenticated=True))
+
+    view._navigate(SimpleNamespace(control=SimpleNamespace(selected_index=1)))
+    assert view.content_frame.content is view.business_views[1]
+    assert page.run_task.call_args.args[0] == view._refresh_bookings
+
+    page.run_task.reset_mock()
+    view._navigate(SimpleNamespace(control=SimpleNamespace(selected_index=2)))
+    assert view.content_frame.content is view.business_views[2]
+    assert page.run_task.call_count == 2
+
+
+def test_navigation_redirects_expired_session_to_authentication() -> None:
+    page = _page()
+    application = _application(authenticated=False)
+    view = SniperFletView(page, application)
+
+    view._navigate(SimpleNamespace(control=SimpleNamespace(selected_index=1)))
+
+    assert view.content_frame.content is view.auth_view
+    page.run_task.assert_not_called()
+
+
+def test_responsive_layout_switches_between_desktop_and_mobile() -> None:
+    page = _page()
+    view = SniperFletView(page, _application(authenticated=True))
+
+    view._apply_responsive_layout(width=480)
+    assert view.navigation_rail.visible is False
+    assert view.bottom_navigation.visible is True
+    assert view.content_frame.width == 328
+    assert view.plan_panel.height == 320
+
+    view._apply_responsive_layout(width=900)
+    assert view.navigation_rail.visible is True
+    assert view.bottom_navigation.visible is False
+    assert view.content_frame.width == 1080
+    assert view.plan_panel.height == 520
+
+
+def test_login_validates_input_and_handles_success_and_failure() -> None:
+    page = _page()
+    application = _application(authenticated=False)
+    view = SniperFletView(page, application)
+
+    asyncio.run(view._login(None))
+    page.show_dialog.assert_called_once()
+    application.authenticate.assert_not_called()
+
+    page.show_dialog.reset_mock()
+    view.student_id.value = "2024001"
+    view.password.value = "secret"
+    application.authenticate.return_value = (True, "ok")
+    asyncio.run(view._login(None))
+    application.authenticate.assert_called_once_with("2024001", "secret")
+    assert view.password.value == ""
+    assert view.content_frame.content is view.auth_view
+
+    application.authenticated = False
+    view.password.value = "secret"
+    application.authenticate.return_value = (False, "denied")
+    asyncio.run(view._login(None))
+    assert view.auth_log.value == "denied"
+    assert view.login_button.disabled is False
+
+
+def test_room_and_floor_loading_updates_controls_and_errors() -> None:
+    page = _page()
+    application = _application(authenticated=True)
+    view = SniperFletView(page, application)
+    application.list_room_types.return_value = [
+        {"query": "study", "name": "Study Room"},
+        {"query": "", "name": "Ignored"},
+    ]
+
+    asyncio.run(view._load_room_types())
+    assert list(view.room_types) == ["study", ""]
+    assert len(view.room_type.options) == 1
+
+    view.room_type.value = "study"
+    application.list_floors.return_value = [
+        FloorInfo("1", "First Floor", 2, ["001", "002"])
+    ]
+    asyncio.run(view._load_floors(None))
+    assert view.floor.disabled is False
+    assert len(view.floor.options) == 1
+
+    view.floor.value = "1"
+    view._update_seat_hint(None)
+    assert "001" in view.seat_hint.value
+
+    application.list_floors.side_effect = RuntimeError("offline")
+    asyncio.run(view._load_floors(None))
+    assert "offline" in view.seat_hint.value
+
+    view.room_type.value = ""
+    asyncio.run(view._load_floors(None))
+    assert [call.args for call in application.list_floors.call_args_list] == [
+        ("study",),
+        ("study",),
+    ]
+
+
+def test_plan_selection_and_creation_validation() -> None:
+    page = _page()
+    application = _application(authenticated=True)
+    view = SniperFletView(page, application)
+    view._refresh_plans()
+    assert view.plan_list.controls
+
+    plan = BookingPlan(1, 100, "001", 8, 4, plan_id="plan-1")
+    application.list_plans.return_value = [plan]
+    view._refresh_plans()
+    checkbox = view.plan_list.controls[0].content.controls[0]
+    checkbox.value = True
+    checkbox.on_change(SimpleNamespace(control=checkbox))
+    assert view.selected_plan_ids == {"plan-1"}
+    assert view.delete_button.disabled is False
+
+    asyncio.run(view._create_plan(None))
+    application.create_plan.assert_not_called()
+
+
+@pytest.mark.parametrize("method_name", ["_refresh_bookings", "_refresh_scheduled_tasks"])
+def test_refresh_callbacks_restore_controls_after_service_failure(method_name: str) -> None:
+    page = _page()
+    application = _application(authenticated=True)
+    view = SniperFletView(page, application)
+    service = "list_bookings" if method_name == "_refresh_bookings" else "list_scheduled_tasks"
+    getattr(application, service).side_effect = RuntimeError("offline")
+
+    asyncio.run(getattr(view, method_name)())
+
+    control = view.refresh_bookings_button if method_name == "_refresh_bookings" else view.refresh_schedules_button
+    assert control.disabled is False
+    assert "offline" in (view.booking_summary.value if method_name == "_refresh_bookings" else view.schedule_summary.value)
