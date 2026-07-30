@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, Mock
 import pytest
 import yaml
 
+import hdu_sniper.notifier as notifier_module
 from hdu_sniper.booking.models import BookingPlan, PlanStatus
 from hdu_sniper.booking.plans import BookingPlans
 from hdu_sniper.booking.retry import (
@@ -204,6 +205,14 @@ def test_notifier_ignores_log_and_webhook_failures(tmp_path: Path, monkeypatch) 
         Mock(side_effect=requests.RequestException("offline")),
     )
     Notifier(tmp_path, "https://example.invalid/webhook").send("title", "body")
+
+
+def test_notifier_console_output_tolerates_unrepresentable_characters(monkeypatch) -> None:
+    class GbkStdout:
+        encoding = "gbk"
+
+    monkeypatch.setattr(notifier_module.sys, "stdout", GbkStdout())
+    assert "?" in Notifier._console_safe("调度失败�")
 
 
 def test_generate_api_token_is_deterministic() -> None:

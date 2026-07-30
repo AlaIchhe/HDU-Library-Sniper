@@ -133,14 +133,14 @@ def test_schedule_view_renders_managed_task_actions() -> None:
     assert view.schedule_list.controls[0].content.wrap is False
 
 
-def test_booking_view_renders_only_pending_check_in_cancellations() -> None:
+def test_booking_view_renders_actions_for_each_supported_status() -> None:
     page = _page()
     view = SniperFletView(page, _application(authenticated=True))
 
     view._render_bookings(
         [
             {
-                "id": "pending",
+                "id": "1",
                 "status": "0",
                 "roomName": "四楼自习室",
                 "seatNum": "298",
@@ -148,7 +148,23 @@ def test_booking_view_renders_only_pending_check_in_cancellations() -> None:
                 "duration": "3600",
             },
             {
-                "id": "finished",
+                "id": "8",
+                "status": "8",
+                "roomName": "四楼自习室",
+                "seatNum": "299",
+                "time": "1785200400",
+                "duration": "3600",
+            },
+            {
+                "id": "2",
+                "status": "2",
+                "roomName": "四楼自习室",
+                "seatNum": "300",
+                "time": "1785200400",
+                "duration": "3600",
+            },
+            {
+                "id": "7",
                 "status": "7",
                 "roomName": "四楼自习室",
                 "seatNum": "298",
@@ -158,13 +174,16 @@ def test_booking_view_renders_only_pending_check_in_cancellations() -> None:
         ]
     )
 
-    assert view.booking_summary.value == "共 2 条预约记录"
-    first_row = view.booking_list.controls[0].content
-    second_row = view.booking_list.controls[1].content
-    assert len(first_row.controls) == 2
-    assert len(second_row.controls) == 1
-    assert first_row.wrap is False
-    assert second_row.wrap is False
+    assert view.booking_summary.value == "共 4 条预约记录"
+    pending_row = view.booking_list.controls[0].content
+    confirmation_row = view.booking_list.controls[1].content
+    away_row = view.booking_list.controls[2].content
+    finished_row = view.booking_list.controls[3].content
+    assert len(pending_row.controls) == 3
+    assert len(confirmation_row.controls) == 2
+    assert len(away_row.controls) == 2
+    assert len(finished_row.controls) == 1
+    assert all(row.wrap is False for row in (pending_row, confirmation_row, away_row, finished_row))
 
 
 def test_misans_font_asset_and_license_are_distributable() -> None:

@@ -419,7 +419,7 @@ class SniperFletView:
             [
                 self._section_title(
                     "我的预约",
-                    "查看座位预约记录；仅“待签到”的预约可取消",
+                    "查看预约记录并执行取消、签到或暂离返回",
                 ),
                 self._surface(
                     ft.Column(
@@ -922,7 +922,7 @@ class SniperFletView:
             status_label = status_labels.get(status) or f"状态 {status or '未知'}"
             details = f"座位 {seat_num} · {start_time} · {duration_text} · {status_label}"
             actions: list[ft.Control] = []
-            if status == "0" and booking_id:
+            if status in {"0", "8"} and booking_id:
                 actions.append(
                     ft.Button(
                         "取消预约",
@@ -933,6 +933,27 @@ class SniperFletView:
                             "summary": f"{room_name} · 座位 {seat_num} · {start_time}",
                         },
                         on_click=self._confirm_cancel_remote_booking,
+                    )
+                )
+                if status == "0":
+                    actions.append(
+                        ft.Button(
+                            "签到",
+                            icon=ft.Icons.LOGIN,
+                            data={
+                                "id": booking_id,
+                                "summary": f"{room_name} · 座位 {seat_num} · {start_time}",
+                            },
+                            on_click=self._confirm_check_in_booking,
+                        )
+                    )
+            elif status == "2" and booking_id:
+                actions.append(
+                    ft.Button(
+                        "返回座位",
+                        icon=ft.Icons.KEYBOARD_RETURN,
+                        data=booking_id,
+                        on_click=self._come_back_booking,
                     )
                 )
             self.booking_list.controls.append(
@@ -991,6 +1012,55 @@ class SniperFletView:
             self._show_message(message, error=not success)
         await self._refresh_bookings()
 
+    def _confirm_check_in_booking(self, event) -> None:
+        booking = event.control.data
+        self.page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                icon=ft.Icon(ft.Icons.LOGIN, color=ACCENT_SECONDARY),
+                title=ft.Text("确认签到？"),
+                content=ft.Text(f"将为以下预约签到：{booking['summary']}。"),
+                actions=[
+                    ft.Button("暂不签到", on_click=lambda _event: self.page.pop_dialog()),
+                    ft.FilledButton(
+                        "确认签到",
+                        icon=ft.Icons.LOGIN,
+                        color=BACKGROUND,
+                        bgcolor=ACCENT_SECONDARY,
+                        icon_color=BACKGROUND,
+                        data=booking["id"],
+                        on_click=self._check_in_booking,
+                    ),
+                ],
+            )
+        )
+
+    async def _check_in_booking(self, event) -> None:
+        self.page.pop_dialog()
+        await self._run_remote_booking_action(
+            self.application.check_in_booking,
+            str(event.control.data),
+            "签到失败",
+        )
+
+    async def _come_back_booking(self, event) -> None:
+        await self._run_remote_booking_action(
+            self.application.come_back_booking,
+            str(event.control.data),
+            "返回座位失败",
+        )
+
+    async def _run_remote_booking_action(
+        self, operation, booking_id: str, error_prefix: str
+    ) -> None:
+        try:
+            success, message = await asyncio.to_thread(operation, booking_id)
+        except Exception as exc:
+            self._show_message(f"{error_prefix}：{exc}", error=True)
+        else:
+            self._show_message(message, error=not success)
+        await self._refresh_bookings()
+
     async def _repair_scheduler(self, _event) -> None:
         self.repair_scheduler_button.disabled = True
         self.scheduler_health.value = "正在确保系统每日任务..."
@@ -1027,9 +1097,7 @@ class SniperFletView:
         self.schedule_summary.value = f"已创建 {len(tasks)} 个调度"
         self.schedule_summary.color = FOREGROUND
         if not tasks:
-            self.schedule_list.controls.append(
-                ft.Text("暂无已创建的调度", color=MUTED)
-            )
+            self.schedule_list.controls.append(ft.Text("暂无已创建的调度", color=MUTED))
             return
 
         for task in tasks:

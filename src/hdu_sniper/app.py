@@ -273,10 +273,110 @@ class SniperApp:
         """取消一条远端待签到预约，而非取消本地抢座任务。"""
         if self.busy:
             return False, "当前任务正在运行，请在任务结束后再取消预约"
+        item = self._find_booking(booking_id)
+        status = responses.booking_status(item)
+        if status not in {
+            responses.BOOKING_STATUS_PENDING,
+            responses.BOOKING_STATUS_PENDING_CONFIRMATION,
+        }:
+            return False, f"当前预约状态为 {status or '未知'}，不能取消"
         response = self._authenticated_call(self.client.cancel_remote_booking, booking_id)
-        if responses.operation_succeeded(response):
-            return True, "预约已取消"
-        return False, f"取消预约失败：{responses.operation_message(response)}"
+        return self._verified_booking_action(
+            booking_id,
+            response,
+            expected_status=responses.BOOKING_STATUS_CANCELLED,
+            success_message="预约已取消",
+            failure_prefix="取消预约失败",
+            missing_is_success=True,
+        )
+
+    def check_in_booking(self, booking_id: str | int) -> tuple[bool, str]:
+        """签到当前账户中处于待签到状态的预约。"""
+        return self._run_booking_action(
+            booking_id,
+            allowed_statuses={responses.BOOKING_STATUS_PENDING},
+            operation=self.client.check_in_booking,
+            expected_status=responses.BOOKING_STATUS_IN_USE,
+            action_name="签到",
+            success_message="签到成功，座位使用中",
+        )
+
+    def come_back_booking(self, booking_id: str | int) -> tuple[bool, str]:
+        """让当前账户中处于暂离状态的预约恢复为使用中。"""
+        return self._run_booking_action(
+            booking_id,
+            allowed_statuses={responses.BOOKING_STATUS_AWAY},
+            operation=self.client.come_back_booking,
+            expected_status=responses.BOOKING_STATUS_IN_USE,
+            action_name="返回座位",
+            success_message="已返回座位，座位使用中",
+        )
+
+    def _run_booking_action(
+        self,
+        booking_id: str | int,
+        *,
+        allowed_statuses: set[str],
+        operation,
+        expected_status: str,
+        action_name: str,
+        success_message: str,
+    ) -> tuple[bool, str]:
+        if self.busy:
+            return False, f"当前任务正在运行，请在任务结束后再{action_name}"
+        item = self._find_booking(booking_id)
+        status = responses.booking_status(item)
+        if status not in allowed_statuses:
+            if status == responses.BOOKING_STATUS_AWAY_EXPIRED:
+                return False, "该预约已因暂离未归结束，服务器不允许恢复"
+            return False, f"当前预约状态为 {status or '未知'}，不能{action_name}"
+        response = self._authenticated_call(operation, booking_id)
+        return self._verified_booking_action(
+            booking_id,
+            response,
+            expected_status=expected_status,
+            success_message=success_message,
+            failure_prefix=f"{action_name}失败",
+        )
+
+    def _find_booking(self, booking_id: str | int) -> dict:
+        normalized_id = str(booking_id).strip()
+        if not normalized_id or not normalized_id.isdigit():
+            raise ValueError("预约 ID 必须是数字")
+        bookings = self.list_bookings()
+        item = next(
+            (item for item in bookings if responses.booking_id(item) == normalized_id),
+            None,
+        )
+        if item is None:
+            raise ValueError(f"当前账户中找不到预约 ID={normalized_id}")
+        return item
+
+    def _verified_booking_action(
+        self,
+        booking_id: str | int,
+        response: dict,
+        *,
+        expected_status: str,
+        success_message: str,
+        failure_prefix: str,
+        missing_is_success: bool = False,
+    ) -> tuple[bool, str]:
+        if not responses.operation_succeeded(response):
+            return False, f"{failure_prefix}：{responses.operation_message(response)}"
+        try:
+            item = self._find_booking(booking_id)
+        except ValueError:
+            if missing_is_success:
+                return True, success_message
+            raise
+        actual_status = responses.booking_status(item)
+        if actual_status != expected_status:
+            return (
+                False,
+                f"{failure_prefix}：接口返回成功，但预约状态仍为 {actual_status or '未知'}",
+            )
+        return True, success_message
 
     def scheduler_status(self) -> TaskStatus:
         """返回固定每日任务的只读状态，不暴露调度配置。"""

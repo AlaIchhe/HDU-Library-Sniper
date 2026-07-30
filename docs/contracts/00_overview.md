@@ -81,3 +81,22 @@ Session 默认带 `LAB_JSON=1`(`core/client.py:DEFAULT_SESSION_PARAMS`)。对 `b
 - `../../core/contract.py` — 运行期单一契约入口:魔法路径访问器 + `MSG_*`(纯叶模块,被 `client`/`room_browser`/`retry` 导入)。
 - `../../tests/test_contracts.py` — 结构断言:对每条 `contract.*` 访问器在样例上校验,服务器改结构即非零退出。
 - `../../fixtures/captures/` — 原始抓包(本地,gitignore,含真实 uid)。
+## 预约记录写操作
+
+以下接口都使用当前慧图 Session Cookie，`bookingId` 是
+`myBookingList.content.defaultItems[].id`，必须为数字。它不是座位 ID，也不是座位号。
+这些端点不发送 `bookSeats` 使用的一次性 `Api-Token`。
+
+| 功能 | 方法与路径 | 请求体 | 允许的预约状态 | 成功后的状态 |
+|---|---|---|---|---|
+| 取消预约 | `POST /Seat/Index/cancelBooking?bookingId=<id>` | 无 | `0`/`8` | `4` 或记录移除 |
+| 签到 | `POST /Seat/Index/checkIn?bookingId=<id>` | 无 | `0` | `1` |
+| 暂离返回 | `POST /Seat/Index/comeBack?bookingId=<id>` | 无 | `2` | `1` |
+
+写操作的已验证成功信封见 `samples/seat_action_success.json`：`CODE == "ok"`
+且 `DATA.result == "success"`。失败原因优先取 `MESSAGE`，其次取
+`DATA.msg`/`DATA.message`。由于 HTTP 200 不等于业务成功，调用方必须同时检查信封，
+再查询预约列表复核最终状态。
+
+取消操作直接以 `cancelBooking` 的业务信封和操作后预约状态为准，不调用仅返回
+`DATA.tips`、不能提供取消次数或允许状态的 `cancelTimesLimit` 页面提示接口。
