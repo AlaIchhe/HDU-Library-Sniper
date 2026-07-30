@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
 
+env:
+  RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
 jobs:
   build-windows:
     runs-on: windows-latest

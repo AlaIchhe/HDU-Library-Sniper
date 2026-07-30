@@ -8,6 +8,9 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent -Path $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent -Path $ScriptDir
 $Version = (Select-String -Path (Join-Path $Root "pyproject.toml") -Pattern '^version = "(.+)"$').Matches.Groups[1].Value
+if ($env:RELEASE_VERSION -and $env:RELEASE_VERSION -match '^v?([0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?)$') {
+    $Version = $Matches[1]
+}
 $BrowserDir = Join-Path $Root "packaging\.cache\playwright-browsers"
 $FontDir = Join-Path $Root "assets\fonts"
 $DesktopDir = Join-Path $Root "build\desktop"
