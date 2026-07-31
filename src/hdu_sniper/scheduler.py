@@ -162,6 +162,7 @@ class SchedulerService:
                 timeout=60,
                 encoding="utf-8",
                 errors="replace",
+                creationflags=WINDOWS_NO_WINDOW,
             )
 
             exit_code = result.returncode
@@ -233,6 +234,8 @@ class SchedulerService:
             "powershell.exe",
             "-NoProfile",
             "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
             "-ExecutionPolicy",
             "Bypass",
             "-File",
