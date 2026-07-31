@@ -1008,6 +1008,16 @@ class SniperFletView:
                 self.page.update()
 
     def _render_bookings(self, bookings: list[dict]) -> None:
+        hidden_statuses = {
+            responses.BOOKING_STATUS_FINISHED,
+            responses.BOOKING_STATUS_CANCELLED,
+            responses.BOOKING_STATUS_SYSTEM_SIGNED_OUT,
+        }
+        bookings = [
+            item
+            for item in bookings
+            if responses.booking_status(item) not in hidden_statuses
+        ]
         self.booking_list.controls.clear()
         self.booking_summary.value = f"共 {len(bookings)} 条预约记录"
         self.booking_summary.color = FOREGROUND
