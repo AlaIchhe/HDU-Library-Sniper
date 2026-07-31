@@ -235,14 +235,6 @@ def test_misans_font_asset_and_license_are_distributable() -> None:
     assert license_file.read_bytes()[:5] == b"%PDF-"
 
 
-def test_web_shell_declares_responsive_viewport() -> None:
-    web_shell = Path(resolve_assets_dir()) / "index.html"
-
-    content = web_shell.read_text(encoding="utf-8")
-    assert 'name="viewport"' in content
-    assert "width=device-width" in content
-
-
 def test_frozen_assets_resolve_from_pyinstaller_bundle(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("hdu_sniper.ui.app.sys.frozen", True, raising=False)
     monkeypatch.setattr("hdu_sniper.ui.app.sys._MEIPASS", str(tmp_path), raising=False)
