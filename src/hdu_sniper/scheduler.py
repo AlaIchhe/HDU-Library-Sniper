@@ -16,6 +16,7 @@ from hdu_sniper.paths import APP_HOME_ENV, AppPaths
 
 TASK_MARKER = "HDU-Library-Sniper"
 DAILY_RUN_TIME = "20:00:00"
+WINDOWS_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 @dataclass
@@ -207,6 +208,7 @@ class SchedulerService:
                 env=env,
                 encoding="utf-8",
                 errors="replace",
+                creationflags=WINDOWS_NO_WINDOW,
             )
 
             if result.returncode == 0:
@@ -263,6 +265,7 @@ class SchedulerService:
                 timeout=30,
                 encoding="utf-8",
                 errors="replace",
+                creationflags=WINDOWS_NO_WINDOW,
             )
         except subprocess.TimeoutExpired:
             return False, "schtasks 创建任务超时"
@@ -426,6 +429,7 @@ try {{
             text=True,
             encoding="utf-8",
             errors="replace",
+            creationflags=WINDOWS_NO_WINDOW,
         )
 
     @staticmethod
@@ -511,6 +515,7 @@ try {{
             text=True,
             encoding="utf-8",
             errors="replace",
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if result.returncode == 0:
             first_line = result.stdout.strip().split("\n")[0]

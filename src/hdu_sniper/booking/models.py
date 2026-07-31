@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
@@ -25,6 +25,7 @@ class BookingPlan:
     room_query: str = ""
     plan_id: str | None = None
     created_at: str | None = None
+    fallback_seats: list[str] = field(default_factory=list)
 
     def validate(self) -> list[str]:
         """校验方案参数，返回错误列表（空列表表示通过）。"""
@@ -35,6 +36,10 @@ class BookingPlan:
             errors.append(f"无效的楼层 ID：{self.floor_id}")
         if not str(self.seat_num).strip():
             errors.append("座位号不能为空")
+        if not isinstance(self.fallback_seats, list):
+            errors.append("备选座位必须是列表")
+        elif any(not str(seat).strip() for seat in self.fallback_seats):
+            errors.append("备选座位号不能为空")
         if not (0 <= self.start_hour <= 23):
             errors.append(f"开始小时超出范围：{self.start_hour}")
         if self.duration_hours <= 0:
@@ -54,6 +59,16 @@ class BookingPlan:
         return f"{self.room_type}:{self.floor_id}:{self.seat_num}:{self.start_hour}:{self.duration_hours}"
 
     @property
+    def seat_candidates(self) -> list[str]:
+        """按主座位到备选座位的顺序返回去重后的座位号。"""
+        candidates: list[str] = []
+        for seat in [self.seat_num, *self.fallback_seats]:
+            normalized = str(seat).strip()
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+        return candidates
+
+    @property
     def enabled(self) -> bool:
         """兼容属性：判断方案是否启用。"""
         return self.status == PlanStatus.ENABLED
@@ -67,3 +82,6 @@ class BookingResult:
     success: bool = False
     message: str = ""
     raw_response: dict[str, Any] | None = None
+    verified: bool = False
+    elapsed_ms: float | None = None
+    retry_reason: str = ""

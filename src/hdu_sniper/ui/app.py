@@ -10,6 +10,7 @@ from pathlib import Path
 
 import flet as ft
 
+from hdu_sniper import __version__
 from hdu_sniper.app import SniperApp
 from hdu_sniper.booking.time import CST
 from hdu_sniper.events import ApplicationEvent, EventKind, JobState
@@ -17,6 +18,7 @@ from hdu_sniper.library import responses
 from hdu_sniper.library.client import ROOM_TYPE_MAP
 from hdu_sniper.runtime import get_app
 from hdu_sniper.scheduler import ScheduledTask
+from hdu_sniper.updater import UpdateInfo, check_for_update
 
 
 FONT_FAMILY = "SF Pro Text"
@@ -55,6 +57,8 @@ class SniperFletView:
         self.selected_plan_ids: set[str] = set()
         self.room_types: dict[str, dict] = {}
         self.floors: dict[str, object] = {}
+        self.available_update: UpdateInfo | None = None
+        self._update_check_started = False
 
         self._configure_page()
         self._build_controls()
@@ -202,6 +206,11 @@ class SniperFletView:
             col={"sm": 12, "md": 6},
         )
         self.seat_num = ft.TextField(label="座位号", col={"sm": 12, "md": 3})
+        self.fallback_seats = ft.TextField(
+            label="备选座位（逗号分隔）",
+            hint_text="例如 002,003",
+            col={"sm": 12, "md": 9},
+        )
         self.start_hour = ft.TextField(label="后天开始小时", value="8", col={"sm": 6, "md": 4})
         self.duration_hours = ft.TextField(label="使用时长", value="4", col={"sm": 6, "md": 4})
         self.seat_hint = ft.Text("选择房间和楼层后显示可用座位", size=12)
@@ -245,6 +254,19 @@ class SniperFletView:
             on_click=self._refresh_bookings,
         )
         self.booking_list = ft.Column(spacing=8)
+        self.auto_check_in_button = ft.FilledButton(
+            "自动签到",
+            icon=ft.Icons.LOGIN,
+            color=BACKGROUND,
+            bgcolor=ACCENT_SECONDARY,
+            icon_color=BACKGROUND,
+            on_click=self._auto_check_in,
+        )
+        self.test_check_in_button = ft.Button(
+            "签到测试",
+            icon=ft.Icons.BUILD,
+            on_click=self._test_check_in,
+        )
 
         for control in (
             self.student_id,
@@ -253,6 +275,7 @@ class SniperFletView:
             self.room_type,
             self.floor,
             self.seat_num,
+            self.fallback_seats,
             self.start_hour,
             self.duration_hours,
         ):
@@ -269,6 +292,7 @@ class SniperFletView:
             self.password,
             self.auth_log,
             self.seat_num,
+            self.fallback_seats,
             self.start_hour,
             self.duration_hours,
         ):
@@ -353,7 +377,9 @@ class SniperFletView:
                 [
                     ft.Text("新建或批量调整", size=17, weight=ft.FontWeight.W_600),
                     ft.ResponsiveRow([self.room_type, self.floor]),
-                    ft.ResponsiveRow([self.seat_num, self.start_hour, self.duration_hours]),
+                    ft.ResponsiveRow([self.seat_num, self.fallback_seats]),
+                    ft.ResponsiveRow([self.start_hour, self.duration_hours]),
+                    ft.Text("主座位失败后按填写顺序自动尝试备选座位", size=12, color=MUTED),
                     self.seat_hint,
                     ft.Row([self.create_plan_button, self.modify_button], wrap=True),
                 ],
@@ -419,14 +445,25 @@ class SniperFletView:
             [
                 self._section_title(
                     "我的预约",
-                    "查看预约记录并执行取消、签到或暂离返回",
+                    "查看预约记录并执行取消、签到、暂离或续座",
                 ),
                 self._surface(
                     ft.Column(
                         [
                             ft.Row(
-                                [self.booking_summary, self.refresh_bookings_button],
+                                [
+                                    self.booking_summary,
+                                    ft.Row(
+                                        [
+                                            self.test_check_in_button,
+                                            self.auto_check_in_button,
+                                            self.refresh_bookings_button,
+                                        ],
+                                        wrap=True,
+                                    ),
+                                ],
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                wrap=True,
                             ),
                             ft.Divider(height=1),
                             self.booking_list,
@@ -441,6 +478,13 @@ class SniperFletView:
         )
 
     def _render_shell(self) -> None:
+        self.update_button = ft.IconButton(
+            ft.Icons.SYSTEM_UPDATE_ALT,
+            tooltip="发现新版本",
+            icon_color=ACCENT_SECONDARY,
+            visible=False,
+            on_click=self._show_update_dialog,
+        )
         self.navigation_rail = ft.NavigationRail(
             selected_index=0,
             label_type=ft.NavigationRailLabelType.ALL,
@@ -480,7 +524,10 @@ class SniperFletView:
                         ],
                         spacing=2,
                     ),
-                    ft.Row([self.global_status, self.reauthenticate_button], spacing=8),
+                    ft.Row(
+                        [self.update_button, self.global_status, self.reauthenticate_button],
+                        spacing=8,
+                    ),
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 wrap=True,
@@ -564,8 +611,78 @@ class SniperFletView:
             self.page.run_task(self._load_room_types)
             self.page.run_task(self._refresh_scheduler_status)
             self.page.run_task(self._refresh_scheduled_tasks)
+        self._schedule_update_check()
         if update:
             self.page.update()
+
+    def _schedule_update_check(self) -> None:
+        if self._update_check_started:
+            return
+        self._update_check_started = True
+        self.page.run_task(self._check_for_updates)
+
+    async def _check_for_updates(self) -> None:
+        try:
+            update = await asyncio.to_thread(check_for_update)
+        except Exception:
+            # 更新检查是可选功能，离线时不能影响登录、预约和调度。
+            return
+        if update is None:
+            return
+
+        self.available_update = update
+        self.update_button.visible = True
+        self.update_button.tooltip = f"发现新版本 v{update.version}"
+        with contextlib.suppress(RuntimeError):
+            self.page.update()
+
+    def _show_update_dialog(self, _event) -> None:
+        update = self.available_update
+        if update is None:
+            return
+
+        notes = update.notes.strip() if update.notes else ""
+        if len(notes) > 1200:
+            notes = f"{notes[:1200].rstrip()}..."
+        content = ft.Column(
+            [
+                ft.Text(f"当前版本：{__version__}"),
+                ft.Text(f"最新版本：{update.version}"),
+                (
+                    ft.Text(notes, color=MUTED)
+                    if notes
+                    else ft.Text("该版本没有附加说明。", color=MUTED)
+                ),
+            ],
+            tight=True,
+            spacing=8,
+        )
+        self.page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                icon=ft.Icon(ft.Icons.SYSTEM_UPDATE_ALT, color=ACCENT_SECONDARY),
+                title=ft.Text("发现新版本"),
+                content=content,
+                actions=[
+                    ft.Button("稍后再说", on_click=lambda _event: self.page.pop_dialog()),
+                    ft.FilledButton(
+                        "下载更新",
+                        icon=ft.Icons.DOWNLOAD,
+                        color=BACKGROUND,
+                        bgcolor=ACCENT_SECONDARY,
+                        icon_color=BACKGROUND,
+                        on_click=self._open_update_download,
+                    ),
+                ],
+            )
+        )
+
+    def _open_update_download(self, _event) -> None:
+        update = self.available_update
+        if update is None:
+            return
+        self.page.pop_dialog()
+        self.page.launch_url(update.download_url or update.release_url)
 
     def _resize(self, event) -> None:
         self._apply_responsive_layout(width=event.width, update=True)
@@ -717,7 +834,12 @@ class SniperFletView:
                                         weight=ft.FontWeight.W_500,
                                     ),
                                     ft.Text(
-                                        f"后天 {plan.start_hour:02d}:00 起 · {plan.duration_hours} 小时",
+                                        f"后天 {plan.start_hour:02d}:00 起 · {plan.duration_hours} 小时"
+                                        + (
+                                            f" · 备选：{', '.join(plan.fallback_seats)}"
+                                            if plan.fallback_seats
+                                            else ""
+                                        ),
                                         size=12,
                                         color=MUTED,
                                     ),
@@ -761,6 +883,7 @@ class SniperFletView:
                 room_query=room_query,
                 floor_id=int(self.floor.value),
                 seat_num=(self.seat_num.value or "").strip(),
+                fallback_seats=(self.fallback_seats.value or "").strip(),
                 start_hour=int(self.start_hour.value or "0"),
                 duration_hours=int(self.duration_hours.value or "0"),
             )
@@ -771,6 +894,7 @@ class SniperFletView:
             self._show_message("；".join(errors), error=True)
             return
         self.seat_num.value = ""
+        self.fallback_seats.value = ""
         self._refresh_plans()
         message = f"方案 {plan.plan_id} 已创建"
         if fell_back:
@@ -906,6 +1030,7 @@ class SniperFletView:
         for item in bookings:
             booking_id = responses.booking_id(item)
             status = responses.booking_status(item)
+            state = responses.booking_state(item)
             room_name = str(item.get("roomName") or "未知房间")
             seat_num = str(item.get("seatNum") or "-")
             try:
@@ -921,6 +1046,10 @@ class SniperFletView:
                 duration_text = "时长未知"
             status_label = status_labels.get(status) or f"状态 {status or '未知'}"
             details = f"座位 {seat_num} · {start_time} · {duration_text} · {status_label}"
+            if state == responses.BOOKING_STATE_CHECK_IN:
+                details = details.replace(status_label, "可签到", 1)
+            elif state == responses.BOOKING_STATE_IN_USE:
+                details = details.replace(status_label, "签到成功，使用中", 1)
             actions: list[ft.Control] = []
             if status in {"0", "8"} and booking_id:
                 actions.append(
@@ -935,7 +1064,7 @@ class SniperFletView:
                         on_click=self._confirm_cancel_remote_booking,
                     )
                 )
-                if status == "0":
+                if state == responses.BOOKING_STATE_CHECK_IN:
                     actions.append(
                         ft.Button(
                             "签到",
@@ -947,13 +1076,36 @@ class SniperFletView:
                             on_click=self._confirm_check_in_booking,
                         )
                     )
-            elif status == "2" and booking_id:
+            elif state == responses.BOOKING_STATE_IN_USE and booking_id:
+                actions.extend(
+                    [
+                        ft.Button(
+                            "签退",
+                            icon=ft.Icons.LOGOUT,
+                            data={
+                                "id": booking_id,
+                                "summary": f"{room_name} 路 搴т綅 {seat_num} 路 {start_time}",
+                            },
+                            on_click=self._confirm_sign_out_booking,
+                        ),
+                        ft.Button(
+                            "暂离",
+                            icon=ft.Icons.PAUSE_CIRCLE_OUTLINE,
+                            data={
+                                "id": booking_id,
+                                "summary": f"{room_name} 路 搴т綅 {seat_num} 路 {start_time}",
+                            },
+                            on_click=self._confirm_leave_booking,
+                        ),
+                    ]
+                )
+            elif state == responses.BOOKING_STATE_AWAY and booking_id:
                 actions.append(
                     ft.Button(
-                        "返回座位",
+                        "续座",
                         icon=ft.Icons.KEYBOARD_RETURN,
                         data=booking_id,
-                        on_click=self._come_back_booking,
+                        on_click=self._renew_booking,
                     )
                 )
             self.booking_list.controls.append(
@@ -1048,6 +1200,102 @@ class SniperFletView:
             self.application.come_back_booking,
             str(event.control.data),
             "返回座位失败",
+        )
+
+    async def _renew_booking(self, event) -> None:
+        await self._run_remote_booking_action(
+            self.application.renew_booking,
+            str(event.control.data),
+            "续座失败",
+        )
+
+    async def _test_check_in(self, _event) -> None:
+        self.test_check_in_button.disabled = True
+        self.page.update()
+        try:
+            results = await asyncio.to_thread(self.application.check_in_test)
+        except Exception as exc:
+            self._show_message(f"签到测试失败：{exc}", error=True)
+        else:
+            passed = sum(bool(item.get("success")) for item in results)
+            self._show_message(f"签到测试完成：{passed}/{len(results)} 条预约通过")
+        finally:
+            self.test_check_in_button.disabled = False
+
+    async def _auto_check_in(self, _event) -> None:
+        self.auto_check_in_button.disabled = True
+        self.page.update()
+        try:
+            results = await asyncio.to_thread(self.application.auto_check_in)
+        except Exception as exc:
+            self._show_message(f"自动签到失败：{exc}", error=True)
+        else:
+            successes = sum(bool(item.get("success")) for item in results)
+            self._show_message(f"自动签到完成：{successes}/{len(results)} 条成功")
+            await self._refresh_bookings()
+        finally:
+            self.auto_check_in_button.disabled = False
+
+    def _confirm_sign_out_booking(self, event) -> None:
+        booking = event.control.data
+        self.page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                icon=ft.Icon(ft.Icons.LOGOUT, color=FOREGROUND),
+                title=ft.Text("确认签退？"),
+                content=ft.Text(f"将结束：{booking['summary']}。"),
+                actions=[
+                    ft.Button("暂不签退", on_click=lambda _event: self.page.pop_dialog()),
+                    ft.FilledButton(
+                        "确认签退",
+                        icon=ft.Icons.LOGOUT,
+                        color=BACKGROUND,
+                        bgcolor=FOREGROUND,
+                        icon_color=BACKGROUND,
+                        data=booking["id"],
+                        on_click=self._sign_out_booking,
+                    ),
+                ],
+            )
+        )
+
+    def _confirm_leave_booking(self, event) -> None:
+        booking = event.control.data
+        self.page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                icon=ft.Icon(ft.Icons.PAUSE_CIRCLE_OUTLINE, color=ACCENT_SECONDARY),
+                title=ft.Text("确认暂离？"),
+                content=ft.Text(f"将暂离：{booking['summary']}。"),
+                actions=[
+                    ft.Button("取消", on_click=lambda _event: self.page.pop_dialog()),
+                    ft.FilledButton(
+                        "确认暂离",
+                        icon=ft.Icons.PAUSE_CIRCLE_OUTLINE,
+                        color=BACKGROUND,
+                        bgcolor=ACCENT_SECONDARY,
+                        icon_color=BACKGROUND,
+                        data=booking["id"],
+                        on_click=self._leave_booking,
+                    ),
+                ],
+            )
+        )
+
+    async def _sign_out_booking(self, event) -> None:
+        self.page.pop_dialog()
+        await self._run_remote_booking_action(
+            self.application.sign_out_booking,
+            str(event.control.data),
+            "签退失败",
+        )
+
+    async def _leave_booking(self, event) -> None:
+        self.page.pop_dialog()
+        await self._run_remote_booking_action(
+            self.application.leave_booking,
+            str(event.control.data),
+            "暂离失败",
         )
 
     async def _run_remote_booking_action(

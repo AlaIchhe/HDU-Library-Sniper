@@ -105,7 +105,14 @@ def test_schedule_endpoints_require_authentication() -> None:
 
 def test_booking_endpoints_delegate_account_actions() -> None:
     application = Mock(authenticated=True)
+    application.leave_booking.return_value = (True, "已暂离座位")
+    application.sign_out_booking.return_value = (True, "已签退，预约结束")
     application.list_bookings.return_value = [{"id": "1", "status": "0"}]
+    application.get_booking_status.return_value = {"CODE": "ok", "DATA": {"status": "0"}}
+    application.get_latest_comeback_time.return_value = {
+        "CODE": "ok",
+        "DATA": {"latestComeBackTime": "123"},
+    }
     application.cancel_remote_booking.return_value = (True, "预约已取消")
     application.check_in_booking.return_value = (True, "签到成功，座位使用中")
     application.come_back_booking.return_value = (True, "已返回座位，座位使用中")
@@ -113,10 +120,21 @@ def test_booking_endpoints_delegate_account_actions() -> None:
     with patch("hdu_sniper.server.get_app", return_value=application):
         client = TestClient(app)
         assert client.get("/api/v1/bookings").json()["bookings"][0]["id"] == "1"
+        assert client.get("/api/v1/bookings/1/status").json()["response"]["CODE"] == "ok"
+        assert (
+            client.get("/api/v1/bookings/1/latest-comeback-time").json()["response"]["CODE"]
+            == "ok"
+        )
         assert client.delete("/api/v1/bookings/1").status_code == 200
         assert client.post("/api/v1/bookings/1/check-in").status_code == 200
         assert client.post("/api/v1/bookings/1/come-back").status_code == 200
+        assert client.post("/api/v1/bookings/1/leave").status_code == 200
+        assert client.post("/api/v1/bookings/1/sign-out").status_code == 200
 
     application.cancel_remote_booking.assert_called_once_with("1")
+    application.get_booking_status.assert_called_once_with("1")
+    application.get_latest_comeback_time.assert_called_once_with("1")
     application.check_in_booking.assert_called_once_with("1")
     application.come_back_booking.assert_called_once_with("1")
+    application.leave_booking.assert_called_once_with("1")
+    application.sign_out_booking.assert_called_once_with("1")

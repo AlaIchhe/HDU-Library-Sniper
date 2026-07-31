@@ -112,15 +112,27 @@ class BookingPlans:
         seat_num: str,
         start_hour: int,
         duration_hours: int,
+        fallback_seats: str | list[str] | None = None,
     ) -> tuple[BookingPlan, list[str], bool]:
         room_type = LibraryRooms.resolve_room_type(room_type_name)
         fell_back = room_type is None
+        if isinstance(fallback_seats, str):
+            parsed_fallback_seats = [
+                value.strip()
+                for value in fallback_seats.replace("，", ",").split(",")
+                if value.strip()
+            ]
+        elif fallback_seats is None:
+            parsed_fallback_seats = []
+        else:
+            parsed_fallback_seats = [str(value).strip() for value in fallback_seats]
         plan = BookingPlan(
             room_type=room_type or 1,
             floor_id=int(floor_id),
             seat_num=seat_num,
             start_hour=start_hour,
             duration_hours=duration_hours,
+            fallback_seats=parsed_fallback_seats,
             booker_name=self.client.name or self.client.uid,
             room_query=room_query,
         )

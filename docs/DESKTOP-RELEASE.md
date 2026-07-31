@@ -1,5 +1,17 @@
 # 桌面应用发布
 
+## 更新检查
+
+桌面应用进入主界面后，会在后台检查 GitHub Releases 的最新版本。发现新版本时，窗口顶部会出现更新图标；点击后会打开当前平台对应的安装包下载地址。
+
+更新检查地址默认为：
+
+`https://api.github.com/repos/AlaIchhe/HDU-Library-Sniper/releases/latest`
+
+如需改用镜像或自建更新服务，可通过 `HDU_UPDATE_API_URL` 环境变量覆盖。更新检查是尽力而为的：网络不可用时不会影响登录、预约和调度功能。
+
+每次发布前需要同步更新 `pyproject.toml` 和 `src/hdu_sniper/__init__.py` 中的版本号，然后推送 `v*` 标签触发发布工作流。
+
 桌面版本包含 Python 运行时、项目依赖和 Chromium。最终用户不需要安装 Python、运行命令或下载浏览器。
 
 ## Windows

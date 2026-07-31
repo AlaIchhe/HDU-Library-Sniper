@@ -8,6 +8,12 @@
 - Windows、Linux 与 Web 统一加载随包分发的 MiSans Variable；macOS 优先使用 SF Pro Text，避免依赖不稳定的中文字体回退。
 - 后台一次性任务不加载任何 UI。
 
+`BookingRunner.run_now(..., execute_at=...)` 使用北京时间统一解析 ISO/秒级/毫秒级目标时间，
+在目标前 5 秒预热 UID、楼层和座位映射，并以最后 2 毫秒短等待控制发送偏差。预约成功响应
+不会直接视为成功：`LibraryClient.find_confirmed_booking` 会从预约列表同时匹配 `seatNum`、
+`time` 和 `duration`。每次请求的发送时刻、响应耗时、重试决策、备选座位切换和最终复核都
+追加写入 `AppPaths.booking_log`。
+
 ## 模块关系
 
 ```text
