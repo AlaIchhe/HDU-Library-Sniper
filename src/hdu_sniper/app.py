@@ -211,7 +211,7 @@ class SniperApp:
     def modify_plan_times(self, plan_ids: list[str], **values) -> int:
         return self._authenticated_call(self.plans.update_times, plan_ids, **values)
 
-    def run_booking(self) -> list[BookingResult]:
+    def run_booking(self, execute_at=None) -> list[BookingResult]:
         self._require_authenticated()
         if self.busy:
             raise RuntimeError("已有任务正在运行")
@@ -230,11 +230,20 @@ class SniperApp:
                     "plan_id": result.plan.plan_id,
                     "plan_code": result.plan.to_plan_code(),
                     "seat_num": result.plan.seat_num,
+                    "verified": result.verified,
+                    "elapsed_ms": result.elapsed_ms,
                 },
             )
 
         try:
-            results = self.booking.run_now(plans, on_progress=on_progress)
+            if execute_at is None:
+                results = self.booking.run_now(plans, on_progress=on_progress)
+            else:
+                results = self.booking.run_now(
+                    plans,
+                    on_progress=on_progress,
+                    execute_at=execute_at,
+                )
         except AuthenticationExpiredError as exc:
             self._expire_authentication()
             raise AuthenticationRequiredError("登录状态已失效，请重新认证") from exc
@@ -269,6 +278,14 @@ class SniperApp:
         """查询图书馆账户的座位预约记录。"""
         return self._authenticated_call(self.client.get_bookings)
 
+    def get_booking_status(self, booking_id: str | int) -> dict:
+        """查询单条预约的服务端状态，不改变预约。"""
+        return self._authenticated_call(self.client.get_booking_status, booking_id)
+
+    def get_latest_comeback_time(self, booking_id: str | int) -> dict:
+        """查询暂离预约允许返回座位的最晚时间，不改变预约。"""
+        return self._authenticated_call(self.client.get_latest_comeback_time, booking_id)
+
     def cancel_remote_booking(self, booking_id: str | int) -> tuple[bool, str]:
         """取消一条远端待签到预约，而非取消本地抢座任务。"""
         if self.busy:
@@ -295,6 +312,8 @@ class SniperApp:
         return self._run_booking_action(
             booking_id,
             allowed_statuses={responses.BOOKING_STATUS_PENDING},
+            allowed_item=responses.booking_is_check_in_available,
+            unavailable_message="当前预约尚未进入可签到时间窗口",
             operation=self.client.check_in_booking,
             expected_status=responses.BOOKING_STATUS_IN_USE,
             action_name="签到",
@@ -312,15 +331,91 @@ class SniperApp:
             success_message="已返回座位，座位使用中",
         )
 
+    def renew_booking(self, booking_id: str | int) -> tuple[bool, str]:
+        """续座：从暂离状态恢复当前预约，完成后再次核实为使用中。"""
+        return self._run_booking_action(
+            booking_id,
+            allowed_statuses={responses.BOOKING_STATUS_AWAY},
+            operation=self.client.come_back_booking,
+            expected_status=responses.BOOKING_STATUS_IN_USE,
+            action_name="续座",
+            success_message="续座成功，座位使用中",
+        )
+
+    def test_check_in(self, booking_id: str | int) -> tuple[bool, str]:
+        """只测试指定预约是否满足签到条件，不发送签到请求。"""
+        if self.busy:
+            return False, "当前任务正在运行，请稍后再测试签到"
+        item = self._find_booking(booking_id)
+        status = responses.booking_status(item)
+        if status != responses.BOOKING_STATUS_PENDING:
+            return False, f"当前预约状态为 {status or '未知'}，不能签到"
+        if not responses.booking_is_check_in_available(item):
+            return False, "当前预约尚未进入可签到时间窗口"
+        return True, "签到测试通过：当前已进入可签到时间窗口"
+
+    def auto_check_in(self) -> list[dict[str, str | bool]]:
+        """扫描当前预约并自动签到所有已经进入窗口的预约。"""
+        if self.busy:
+            return [{"success": False, "message": "当前任务正在运行，请稍后再自动签到"}]
+        results: list[dict[str, str | bool]] = []
+        for item in self._authenticated_call(self.client.get_bookings):
+            booking_id = responses.booking_id(item)
+            if not booking_id or not responses.booking_is_check_in_available(item):
+                continue
+            success, message = self.check_in_booking(booking_id)
+            results.append({"id": booking_id, "success": success, "message": message})
+        if not results:
+            return [{"success": False, "message": "没有处于可签到窗口的预约"}]
+        return results
+
+    def check_in_test(self) -> list[dict[str, str | bool]]:
+        """测试全部预约的签到条件，供界面一次性诊断。"""
+        results: list[dict[str, str | bool]] = []
+        for item in self._authenticated_call(self.client.get_bookings):
+            booking_id = responses.booking_id(item)
+            if not booking_id:
+                continue
+            success, message = self.test_check_in(booking_id)
+            results.append({"id": booking_id, "success": success, "message": message})
+        return results
+
+    def leave_booking(self, booking_id: str | int) -> tuple[bool, str]:
+        """让使用中的预约进入暂离状态。"""
+        return self._run_booking_action(
+            booking_id,
+            allowed_statuses={responses.BOOKING_STATUS_IN_USE},
+            operation=self.client.leave_booking,
+            expected_status=responses.BOOKING_STATUS_AWAY,
+            action_name="暂离",
+            success_message="已暂离座位",
+        )
+
+    def sign_out_booking(self, booking_id: str | int) -> tuple[bool, str]:
+        """结束使用中的预约。"""
+        return self._run_booking_action(
+            booking_id,
+            allowed_statuses={responses.BOOKING_STATUS_IN_USE},
+            operation=self.client.sign_out_booking,
+            expected_status={
+                responses.BOOKING_STATUS_FINISHED,
+                responses.BOOKING_STATUS_SYSTEM_SIGNED_OUT,
+            },
+            action_name="签退",
+            success_message="已签退，预约结束",
+        )
+
     def _run_booking_action(
         self,
         booking_id: str | int,
         *,
         allowed_statuses: set[str],
         operation,
-        expected_status: str,
+        expected_status: str | set[str],
         action_name: str,
         success_message: str,
+        allowed_item=None,
+        unavailable_message: str = "",
     ) -> tuple[bool, str]:
         if self.busy:
             return False, f"当前任务正在运行，请在任务结束后再{action_name}"
@@ -330,6 +425,8 @@ class SniperApp:
             if status == responses.BOOKING_STATUS_AWAY_EXPIRED:
                 return False, "该预约已因暂离未归结束，服务器不允许恢复"
             return False, f"当前预约状态为 {status or '未知'}，不能{action_name}"
+        if allowed_item is not None and not allowed_item(item):
+            return False, unavailable_message or "当前预约不允许执行此操作"
         response = self._authenticated_call(operation, booking_id)
         return self._verified_booking_action(
             booking_id,
@@ -357,7 +454,7 @@ class SniperApp:
         booking_id: str | int,
         response: dict,
         *,
-        expected_status: str,
+        expected_status: str | set[str],
         success_message: str,
         failure_prefix: str,
         missing_is_success: bool = False,
@@ -371,7 +468,8 @@ class SniperApp:
                 return True, success_message
             raise
         actual_status = responses.booking_status(item)
-        if actual_status != expected_status:
+        expected_statuses = {expected_status} if isinstance(expected_status, str) else expected_status
+        if actual_status not in expected_statuses:
             return (
                 False,
                 f"{failure_prefix}：接口返回成功，但预约状态仍为 {actual_status or '未知'}",

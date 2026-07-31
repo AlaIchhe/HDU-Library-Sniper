@@ -80,7 +80,7 @@ if (-not (Test-Path -Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 }
 
-$ActionArgument = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $MyInvocation.MyCommand.Path + '"' +
+$ActionArgument = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $MyInvocation.MyCommand.Path + '"' +
     ' -Execute -TaskLog "' + $TaskLog + '"' +
     ' -WorkDir "' + $WorkDir + '"' +
     ' -PythonExe "' + $PythonExe + '"'

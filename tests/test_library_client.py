@@ -272,9 +272,13 @@ def test_booking_action_endpoints_use_query_id_without_booking_token() -> None:
 
     assert client.check_in_booking(123)["CODE"] == "ok"
     assert client.come_back_booking("123")["CODE"] == "ok"
+    assert client.leave_booking("123")["CODE"] == "ok"
+    assert client.sign_out_booking("123")["CODE"] == "ok"
 
     assert client._request.call_args_list[0].args == ("POST", client.urls["check_in"])
     assert client._request.call_args_list[1].args == ("POST", client.urls["come_back"])
+    assert client._request.call_args_list[2].args == ("POST", client.urls["leave"])
+    assert client._request.call_args_list[3].args == ("POST", client.urls["sign_out"])
     for call in client._request.call_args_list:
         assert call.kwargs == {"params": {"bookingId": "123"}}
     assert "Api-Token" not in client.session.headers
@@ -282,6 +286,27 @@ def test_booking_action_endpoints_use_query_id_without_booking_token() -> None:
 
     with pytest.raises(ValueError, match="必须是数字"):
         client.check_in_booking("not-a-number")
+
+
+def test_readonly_booking_queries_use_get_without_booking_token() -> None:
+    client = LibraryClient()
+    client.session.headers["Api-Token"] = "stale"
+    client._request = Mock(return_value={"CODE": "ok", "DATA": {"status": "1"}})
+
+    assert client.get_booking_status(123)["CODE"] == "ok"
+    assert client.get_latest_comeback_time("123")["CODE"] == "ok"
+
+    assert client._request.call_args_list[0].args == ("GET", client.urls["booking_status"])
+    assert client._request.call_args_list[1].args == (
+        "GET",
+        client.urls["step_out_latest_comeback_time"],
+    )
+    for call in client._request.call_args_list:
+        assert call.kwargs == {"params": {"bookingId": "123"}}
+    assert "Api-Token" not in client.session.headers
+
+    with pytest.raises(ValueError):
+        client.get_booking_status("not-a-number")
 
 
 def test_booking_list_rejects_an_unexpected_response_shape() -> None:

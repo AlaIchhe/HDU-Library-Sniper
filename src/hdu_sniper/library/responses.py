@@ -33,9 +33,16 @@ MSG_INVALID_REQUEST = "非法请求"  # 未实抓(需坏签名触发)
 BOOKING_STATUS_PENDING = "0"
 BOOKING_STATUS_IN_USE = "1"
 BOOKING_STATUS_AWAY = "2"
+BOOKING_STATUS_FINISHED = "3"
 BOOKING_STATUS_CANCELLED = "4"
 BOOKING_STATUS_AWAY_EXPIRED = "6"
+BOOKING_STATUS_SYSTEM_SIGNED_OUT = "7"
 BOOKING_STATUS_PENDING_CONFIRMATION = "8"
+
+BOOKING_STATE_PENDING = "pending"
+BOOKING_STATE_CHECK_IN = "check_in"
+BOOKING_STATE_IN_USE = "in_use"
+BOOKING_STATE_AWAY = "away"
 
 
 # ---- 房间类型: GET /Space/Category/list  (见 samples/room_types.json) --------------------
@@ -163,9 +170,76 @@ def booking_id(item: dict[str, Any]) -> str:
     return str(item.get("id") or "")
 
 
+def booking_seat_num(item: dict[str, Any]) -> str:
+    """order ``seatNum``（预约列表中的座位号，而不是座位 ID）。"""
+    return str(item.get("seatNum") or "").strip()
+
+
+def booking_duration_seconds(item: dict[str, Any]) -> int:
+    """order ``duration``（秒）。"""
+    return int(item.get("duration") or 0)
+
+
+def booking_matches(
+    item: dict[str, Any],
+    *,
+    seat_num: str,
+    begin_ts: int,
+    duration_seconds: int,
+    tolerance_seconds: int = 1,
+) -> bool:
+    """严格核对一次预约的座位、开始时间和时长。"""
+    try:
+        return (
+            booking_seat_num(item) == str(seat_num).strip()
+            and abs(booking_begin_ts(item) - int(begin_ts)) <= tolerance_seconds
+            and booking_duration_seconds(item) == int(duration_seconds)
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def booking_status(item: dict[str, Any]) -> str:
     """order ``status``（``0``=待签到，可取消）。"""
     return str(item.get("status") or "")
+
+
+def _optional_int(item: dict[str, Any], key: str) -> int | None:
+    value = item.get(key)
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def booking_is_check_in_available(item: dict[str, Any]) -> bool:
+    """Return whether a pending booking is inside the server sign-in window."""
+    if booking_status(item) != BOOKING_STATUS_PENDING:
+        return False
+
+    begin_ts = _optional_int(item, "time")
+    now_ts = _optional_int(item, "nowTime")
+    sign_ago = _optional_int(item, "limitSignAgo")
+    sign_back = _optional_int(item, "limitSignBack")
+    if None in (begin_ts, now_ts, sign_ago, sign_back):
+        return False
+    if sign_ago < 0 or sign_back < 0:
+        return False
+    return begin_ts - sign_ago <= now_ts <= begin_ts + sign_back
+
+
+def booking_state(item: dict[str, Any]) -> str:
+    """Map a server booking item to the actionable UI state."""
+    status = booking_status(item)
+    if status == BOOKING_STATUS_PENDING:
+        return BOOKING_STATE_CHECK_IN if booking_is_check_in_available(item) else BOOKING_STATE_PENDING
+    if status == BOOKING_STATUS_IN_USE:
+        return BOOKING_STATE_IN_USE
+    if status == BOOKING_STATUS_AWAY:
+        return BOOKING_STATE_AWAY
+    return status
 
 
 def operation_succeeded(response: dict[str, Any]) -> bool:

@@ -126,6 +126,37 @@ def test_my_booking_list() -> None:
         )
 
 
+def test_booking_state_uses_the_sign_in_window() -> None:
+    pending = {
+        "status": "0",
+        "time": "2000",
+        "nowTime": "0",
+        "limitSignAgo": "1800",
+        "limitSignBack": "1800",
+    }
+    available = {**pending, "nowTime": "1000"}
+    _check(
+        responses.booking_state(pending) == responses.BOOKING_STATE_PENDING,
+        "booking: future status=0 must remain pending",
+    )
+    _check(
+        responses.booking_is_check_in_available(available),
+        "booking: status=0 inside sign-in window must be available",
+    )
+    _check(
+        responses.booking_state(available) == responses.BOOKING_STATE_CHECK_IN,
+        "booking: available status=0 state mismatch",
+    )
+    _check(
+        responses.booking_state({"status": "1"}) == responses.BOOKING_STATE_IN_USE,
+        "booking: status=1 state mismatch",
+    )
+    _check(
+        not responses.booking_is_check_in_available({"status": "0"}),
+        "booking: missing timing metadata must fail closed",
+    )
+
+
 def test_seat_action_success() -> None:
     """签到、取消和暂离返回共用的已验证成功信封。"""
     response = _load("seat_action_success.json")
@@ -157,6 +188,7 @@ TESTS = [
     test_base_info,
     test_book_seats,
     test_my_booking_list,
+    test_booking_state_uses_the_sign_in_window,
     test_seat_action_success,
     test_msg_constants_match_samples,
 ]

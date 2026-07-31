@@ -225,7 +225,7 @@ def test_application_checks_in_and_returns_after_status_verification(tmp_path: P
     success_response = {"CODE": "ok", "DATA": {"result": "success"}}
     dependencies["client"].check_in_booking.return_value = success_response
     dependencies["client"].get_bookings.side_effect = [
-        [{"id": "1", "status": "0"}],
+        [{"id": "1", "status": "0", "time": "1000", "nowTime": "1000", "limitSignAgo": "1800", "limitSignBack": "1800"}],
         [{"id": "1", "status": "1"}],
     ]
     assert application.check_in_booking("1") == (True, "签到成功，座位使用中")
@@ -237,11 +237,42 @@ def test_application_checks_in_and_returns_after_status_verification(tmp_path: P
     ]
     assert application.come_back_booking("2") == (True, "已返回座位，座位使用中")
 
+    dependencies["client"].leave_booking.return_value = success_response
+    dependencies["client"].get_bookings.side_effect = [
+        [{"id": "4", "status": "1"}],
+        [{"id": "4", "status": "2"}],
+    ]
+    assert application.leave_booking("4") == (True, "已暂离座位")
+
+    dependencies["client"].sign_out_booking.return_value = success_response
+    dependencies["client"].get_bookings.side_effect = [
+        [{"id": "5", "status": "1"}],
+        [{"id": "5", "status": "3"}],
+    ]
+    assert application.sign_out_booking("5") == (True, "已签退，预约结束")
+
     dependencies["client"].get_bookings.side_effect = [[{"id": "3", "status": "6"}]]
     assert application.come_back_booking("3") == (
         False,
         "该预约已因暂离未归结束，服务器不允许恢复",
     )
+
+
+def test_application_rejects_check_in_outside_the_server_window(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    dependencies["client"].get_bookings.return_value = [
+        {
+            "id": "1",
+            "status": "0",
+            "time": "2000",
+            "nowTime": "0",
+            "limitSignAgo": "1800",
+            "limitSignBack": "1800",
+        }
+    ]
+
+    assert application.check_in_booking("1") == (False, "当前预约尚未进入可签到时间窗口")
+    dependencies["client"].check_in_booking.assert_not_called()
 
 
 def test_cached_authentication_and_unsubscribe(tmp_path: Path) -> None:

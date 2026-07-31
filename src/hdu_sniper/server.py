@@ -8,13 +8,14 @@ import flet as ft
 from fastapi import FastAPI, HTTPException
 from fastapi import status as http_status
 
+from hdu_sniper import __version__
 from hdu_sniper.runtime import get_app
 from hdu_sniper.ui.app import flet_main, resolve_assets_dir
 
 
 app = FastAPI(
     title="HDU Library Sniper",
-    version="1.1.0",
+    version=__version__,
     docs_url=None,
     openapi_url=None,
 )
@@ -53,6 +54,55 @@ def list_bookings() -> dict:
     return {"bookings": _authenticated_application().list_bookings()}
 
 
+def _booking_query(operation, booking_id: str) -> dict:
+    application = _authenticated_application()
+    try:
+        return {"response": operation(application, booking_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/bookings/{booking_id}/status", tags=["bookings"])
+def get_booking_status(booking_id: str) -> dict:
+    """读取一条预约的服务端状态，不执行预约状态变更。"""
+    return _booking_query(
+        lambda application, value: application.get_booking_status(value), booking_id
+    )
+
+
+@app.get("/api/v1/bookings/{booking_id}/latest-comeback-time", tags=["bookings"])
+def get_latest_comeback_time(booking_id: str) -> dict:
+    """读取暂离预约允许返回座位的最晚时间，不执行预约状态变更。"""
+    return _booking_query(
+        lambda application, value: application.get_latest_comeback_time(value), booking_id
+    )
+
+
+@app.post("/api/v1/booking/run", tags=["booking"])
+def run_booking(execute_at: str | None = None) -> dict:
+    """执行抢座；execute_at 可传 ISO 时间或毫秒级 Unix 时间戳。"""
+    application = _authenticated_application()
+    try:
+        results = application.run_booking(execute_at=execute_at)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return {
+        "success": any(item.success for item in results),
+        "attempts": len(results),
+        "results": [
+            {
+                "plan_id": item.plan.plan_id,
+                "seat_num": item.plan.seat_num,
+                "success": item.success,
+                "verified": item.verified,
+                "message": item.message,
+                "elapsed_ms": item.elapsed_ms,
+            }
+            for item in results
+        ],
+    }
+
+
 def _booking_action(operation, booking_id: str) -> dict[str, str | bool]:
     application = _authenticated_application()
     try:
@@ -85,6 +135,47 @@ def come_back_booking(booking_id: str) -> dict[str, str | bool]:
     """让暂离中的预约恢复为使用中。"""
     return _booking_action(
         lambda application, value: application.come_back_booking(value), booking_id
+    )
+
+
+@app.post("/api/v1/bookings/{booking_id}/renew", tags=["bookings"])
+def renew_booking(booking_id: str) -> dict[str, str | bool]:
+    """将暂离中的预约续回为使用中。"""
+    return _booking_action(
+        lambda application, value: application.renew_booking(value), booking_id
+    )
+
+
+@app.post("/api/v1/bookings/{booking_id}/check-in-test", tags=["bookings"])
+def test_check_in(booking_id: str) -> dict[str, str | bool]:
+    """测试一条预约是否进入签到窗口，不会执行签到。"""
+    application = _authenticated_application()
+    try:
+        success, message = application.test_check_in(booking_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return {"success": success, "message": message}
+
+
+@app.post("/api/v1/bookings/auto-check-in", tags=["bookings"])
+def auto_check_in() -> dict:
+    """自动签到所有已经进入签到窗口的预约。"""
+    return {"results": _authenticated_application().auto_check_in()}
+
+
+@app.post("/api/v1/bookings/{booking_id}/leave", tags=["bookings"])
+def leave_booking(booking_id: str) -> dict[str, str | bool]:
+    """让使用中的预约暂离。"""
+    return _booking_action(
+        lambda application, value: application.leave_booking(value), booking_id
+    )
+
+
+@app.post("/api/v1/bookings/{booking_id}/sign-out", tags=["bookings"])
+def sign_out_booking(booking_id: str) -> dict[str, str | bool]:
+    """签退一条使用中的预约。"""
+    return _booking_action(
+        lambda application, value: application.sign_out_booking(value), booking_id
     )
 
 

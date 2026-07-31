@@ -15,7 +15,13 @@ URLS = {
     "book_seat": "https://hdu.huitu.zhishulib.com/Seat/Index/bookSeats",
     "cancel_booking": "https://hdu.huitu.zhishulib.com/Seat/Index/cancelBooking",
     "check_in": "https://hdu.huitu.zhishulib.com/Seat/Index/checkIn",
+    "leave": "https://hdu.huitu.zhishulib.com/Seat/Index/leave",
     "come_back": "https://hdu.huitu.zhishulib.com/Seat/Index/comeBack",
+    "sign_out": "https://hdu.huitu.zhishulib.com/Seat/Index/signOut",
+    "booking_status": "https://hdu.huitu.zhishulib.com/Seat/Index/bookingStatus",
+    "step_out_latest_comeback_time": (
+        "https://hdu.huitu.zhishulib.com/Seat/Index/stepOutLatestComeBackTime"
+    ),
     "query_seats": "https://hdu.huitu.zhishulib.com/Seat/Index/searchSeats",
     "query_rooms": "https://hdu.huitu.zhishulib.com/Space/Category/list",
     "user_base_info": "https://hdu.huitu.zhishulib.com/User/Center/baseInfo",
@@ -320,6 +326,36 @@ class LibraryClient:
         """
         return self._booking_action_request("POST", "come_back", booking_id)
 
+    def leave_booking(self, booking_id: str | int) -> dict[str, Any]:
+        """Temporarily leave an in-use booking."""
+        return self._booking_action_request("POST", "leave", booking_id)
+
+    def sign_out_booking(self, booking_id: str | int) -> dict[str, Any]:
+        """Sign out of an in-use booking."""
+        return self._booking_action_request("POST", "sign_out", booking_id)
+
+    def get_booking_status(self, booking_id: str | int) -> dict[str, Any]:
+        """Read the server-side status for one booking without changing it."""
+        return self._booking_query_request("booking_status", booking_id)
+
+    def get_latest_comeback_time(self, booking_id: str | int) -> dict[str, Any]:
+        """Read the latest allowed return time for a temporarily-away booking."""
+        return self._booking_query_request("step_out_latest_comeback_time", booking_id)
+
+    def _booking_query_request(
+        self, url_key: str, booking_id: str | int
+    ) -> dict[str, Any]:
+        normalized_id = str(booking_id).strip()
+        if not normalized_id or not normalized_id.isdigit():
+            raise ValueError("预约 ID 必须是数字")
+        # Read-only booking endpoints use the session cookie, not bookSeats' one-time token.
+        self.session.headers.pop("Api-Token", None)
+        return self._request(
+            "GET",
+            self.urls[url_key],
+            params={"bookingId": normalized_id},
+        )
+
     def _booking_action_request(
         self, method: str, url_key: str, booking_id: str | int
     ) -> dict[str, Any]:
@@ -334,16 +370,18 @@ class LibraryClient:
             params={"bookingId": normalized_id},
         )
 
-    def find_confirmed_booking(self, begin_ts: int) -> dict[str, Any] | None:
-        """超时幂等确认：在用户预约记录中查找与 begin_ts 匹配的预约。
+    def find_confirmed_booking(
+        self,
+        begin_ts: int,
+        seat_num: str | None = None,
+        duration_hours: int | None = None,
+    ) -> dict[str, Any] | None:
+        """在用户预约记录中确认一次预约是否真正落库。
 
         用于 post-bookSeats 超时后确认服务端是否已写入预约。
 
-        匹配规则：order item 的 ``time``(开始时间戳)与 begin_ts 相差 ≤1 秒。
-        不按 seat_id 匹配——预约记录字段是 ``seatNum``(座位号,非 seat_id),
-        无法直接比对;而 bookSeats 若真超时,用户此前在该 begin_ts 不应有预约
-        (否则会立即返回 duplicate 而非超时),故 time 单字段即可唯一识别本次
-        预约。
+        如果提供 seat_num 和 duration_hours，则同时核对预约列表中的座位号、
+        开始时间和时长；正常成功响应也必须经过这条路径复核。
 
         任何查询异常保守返回 None，让调用方按原逻辑重试。
         契约见 docs/contracts/samples/myBookingList.json。
@@ -357,6 +395,15 @@ class LibraryClient:
             if not isinstance(item, dict):
                 continue
             try:
+                if seat_num is not None and duration_hours is not None:
+                    if responses.booking_matches(
+                        item,
+                        seat_num=seat_num,
+                        begin_ts=begin_ts,
+                        duration_seconds=int(duration_hours * 3600),
+                    ):
+                        return item
+                    continue
                 item_begin_ts = responses.booking_begin_ts(item)
             except (TypeError, ValueError):
                 continue
