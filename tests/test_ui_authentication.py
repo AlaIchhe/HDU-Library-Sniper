@@ -197,22 +197,36 @@ def test_booking_view_renders_actions_for_each_supported_status() -> None:
                 "time": "1785114000",
                 "duration": "3600",
             },
+            {
+                "id": "5",
+                "status": "3",
+                "roomName": "四楼自习室",
+                "seatNum": "301",
+                "time": "1785114000",
+                "duration": "3600",
+            },
+            {
+                "id": "6",
+                "status": "4",
+                "roomName": "四楼自习室",
+                "seatNum": "302",
+                "time": "1785114000",
+                "duration": "3600",
+            },
         ]
     )
 
-    assert view.booking_summary.value == "共 6 条预约记录"
+    assert view.booking_summary.value == "共 5 条预约记录"
     pending_row = view.booking_list.controls[0].content
     available_row = view.booking_list.controls[1].content
     confirmation_row = view.booking_list.controls[2].content
     in_use_row = view.booking_list.controls[3].content
     away_row = view.booking_list.controls[4].content
-    finished_row = view.booking_list.controls[5].content
     assert len(pending_row.controls) == 2
     assert len(available_row.controls) == 3
     assert len(confirmation_row.controls) == 2
     assert len(in_use_row.controls) == 3
     assert len(away_row.controls) == 2
-    assert len(finished_row.controls) == 1
     assert all(
         row.wrap is False
         for row in (
@@ -221,7 +235,6 @@ def test_booking_view_renders_actions_for_each_supported_status() -> None:
             confirmation_row,
             in_use_row,
             away_row,
-            finished_row,
         )
     )
 
