@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hdu-library-sniper"
-version = "1.2.0"
+version = "1.2.1"
 description = "杭州电子科技大学图书馆座位自动抢座工具"
 requires-python = ">=3.11"
 dependencies = [
