@@ -2,7 +2,7 @@
 
 # HDU Library Sniper
 
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&pause=1000&color=1677FF&center=true&vCenter=true&width=600&lines=HDU+Library+Seat+Reservation;杭州电子科技大学图书馆座位预约工具;自动预约+失败重试+通知推送)](https://git.io/typing-svg)
+[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&pause=1000&color=1677FF&center=true&vCenter=true&width=600&lines=HDU+Library+Seat+Reservation;杭州电子科技大学图书馆座位预约工具;自动预约+失败重试+远程签到)](https://git.io/typing-svg)
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Playwright](https://img.shields.io/badge/Playwright-Automation-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
@@ -21,18 +21,7 @@
 3. 设置预约时间和使用时长，保存并启用方案。
 4. 程序默认每天 20:00 自动执行预约，结果可通过通知或日志查看。
 
-方案支持按顺序填写备选座位；主座位因占用失败后会自动切换。通过 API 或后台命令传入
-`execute_at` 时，支持带时区 ISO 时间、秒级和毫秒级 Unix 时间戳，程序会在目标时刻前 5 秒
-预热房间/座位数据，并记录请求耗时、重试原因和最终预约复核结果。
-
-“我的预约”页面提供签到测试、自动签到、暂离、续座和签退；所有写操作都会再次读取预约列表
-核实服务器状态。
-
-创建方案后可以关闭程序。Windows 和 Linux 的定时任务会在后台触发，但电脑需要保持开机或休眠；完全关机时任务无法运行。
-
-## 通知
-
-支持通过 webhook 推送预约结果，可配置微信 Server 酱或 PushPlus。未配置通知时，也可以在应用日志中查看执行结果。
+创建方案后可以关闭程序。Windows 的定时任务会在后台触发，但电脑需要保持开机或休眠；完全关机时任务无法运行。
 
 ## 常见问题
 
@@ -48,18 +37,8 @@
 
 重新打开应用，点击“重新认证”并再次登录即可。
 
-### 预约结果在哪里查看？
-
-可以查看应用日志，或查看已配置的通知推送。
-
-## 关键词
-
-HDU Library Sniper、HDU、杭州电子科技大学、杭电、杭电图书馆、图书馆座位预约、座位预约、图书馆抢座、自动抢座、自习室预约、阅览室预约、library seat booking、library seat reservation、seat booking automation、Python、Playwright、Flet、Windows、macOS、Linux、Docker。
-
-关联：杭州电子科技大学、杭电、图书馆、自动签到、自动打卡、座位预约、预约脚本。
-
 ## 注意事项
-
+* **建议下载便携版，因为其他版本我没有测试过**
 * 请合理设置重试间隔，遵守图书馆相关规定。
 * 学号、密码和 Cookie 属于敏感信息，请勿分享或提交到代码仓库。
 * 本项目仅供学习和个人使用。
