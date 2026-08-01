@@ -62,6 +62,24 @@ def test_desktop_routes_background_booking(argument: str, monkeypatch) -> None:
     assert captured.value.code == 3
 
 
+def test_desktop_override_flag_bypasses_schedule_policy(monkeypatch) -> None:
+    from hdu_sniper import desktop
+
+    application = Mock()
+    application.booking.run_once.return_value = 0
+    monkeypatch.setattr("sys.argv", ["hdu-sniper", "--daemon", "--override"])
+    monkeypatch.setattr(desktop, "get_app", Mock(return_value=application))
+
+    with pytest.raises(SystemExit) as captured:
+        desktop.main()
+
+    assert captured.value.code == 0
+    application.booking.run_once.assert_called_once_with(
+        execute_at=None,
+        bypass_policy=True,
+    )
+
+
 def test_desktop_starts_flet_by_default(monkeypatch) -> None:
     from hdu_sniper import desktop
 

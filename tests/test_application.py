@@ -13,6 +13,7 @@ from hdu_sniper.config import Settings
 from hdu_sniper.events import EventKind, JobState
 from hdu_sniper.library.client import AuthenticationExpiredError
 from hdu_sniper.paths import AppPaths
+from hdu_sniper.schedule_policy import SchedulePolicyError
 from hdu_sniper.scheduler import ScheduledTask, TaskStatus
 
 
@@ -225,7 +226,16 @@ def test_application_checks_in_and_returns_after_status_verification(tmp_path: P
     success_response = {"CODE": "ok", "DATA": {"result": "success"}}
     dependencies["client"].check_in_booking.return_value = success_response
     dependencies["client"].get_bookings.side_effect = [
-        [{"id": "1", "status": "0", "time": "1000", "nowTime": "1000", "limitSignAgo": "1800", "limitSignBack": "1800"}],
+        [
+            {
+                "id": "1",
+                "status": "0",
+                "time": "1000",
+                "nowTime": "1000",
+                "limitSignAgo": "1800",
+                "limitSignBack": "1800",
+            }
+        ],
         [{"id": "1", "status": "1"}],
     ]
     assert application.check_in_booking("1") == (True, "签到成功，座位使用中")
@@ -422,3 +432,50 @@ def test_scheduler_repair_requires_an_enabled_plan(tmp_path: Path) -> None:
     assert success is False
     assert "至少一个预约方案" in message
     dependencies["scheduler"].configure_task.assert_not_called()
+
+
+def test_schedule_policy_round_trip_through_facade(tmp_path: Path) -> None:
+    application, _ = build_test_application(tmp_path)
+
+    updated = application.save_schedule_policy(weekdays=[1, 3, 5])
+
+    assert updated.weekdays == frozenset({1, 3, 5})
+    assert application.schedule_policy().weekdays == frozenset({1, 3, 5})
+    assert application.schedule_policy().summary_label() == "周一、周三、周五"
+
+
+def test_schedule_policy_pause_and_resume_through_facade(tmp_path: Path) -> None:
+    application, _ = build_test_application(tmp_path)
+
+    paused = application.save_schedule_policy(enabled=False)
+    assert paused.enabled is False
+    assert application.schedule_policy().enabled is False
+
+    resumed = application.save_schedule_policy(enabled=True)
+    assert resumed.enabled is True
+
+
+def test_schedule_policy_requires_at_least_one_day(tmp_path: Path) -> None:
+    application, _ = build_test_application(tmp_path)
+
+    with pytest.raises(SchedulePolicyError):
+        application.save_schedule_policy(weekdays=[])
+
+
+def test_run_booking_override_bypasses_policy(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    dependencies["booking"].run_once.return_value = 0
+
+    assert application.run_booking_override() == 0
+
+    dependencies["booking"].run_once.assert_called_once_with(bypass_policy=True)
+
+
+def test_enabled_plan_count_uses_enabled_plans(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    dependencies["plans"].list_enabled.return_value = [
+        BookingPlan(1, 100, "A001", 8, 4),
+        BookingPlan(1, 100, "A002", 8, 4),
+    ]
+
+    assert application.enabled_plan_count() == 2

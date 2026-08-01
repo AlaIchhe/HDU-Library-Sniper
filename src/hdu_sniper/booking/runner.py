@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from json import dumps
 from threading import Lock
 
@@ -18,13 +18,20 @@ from hdu_sniper.booking.retry import (
     default_retry_decider,
     is_time_out_of_range,
 )
-from hdu_sniper.booking.time import build_begin_time, parse_execute_at
+from hdu_sniper.booking.time import (
+    BOOKING_DAY_OFFSET,
+    CST,
+    build_begin_time,
+    now_cst,
+    parse_execute_at,
+)
 from hdu_sniper.config import Settings, load_credentials
 from hdu_sniper.library import responses
 from hdu_sniper.library.client import AuthenticationExpiredError, HduLibraryError, LibraryClient
 from hdu_sniper.library.login import LibraryLogin
 from hdu_sniper.library.rooms import LibraryRooms
 from hdu_sniper.notifier import Notifier
+from hdu_sniper.schedule_policy import SchedulePolicy
 
 
 class ExitCode:
@@ -71,6 +78,7 @@ class BookingRunner:
         *,
         rooms: LibraryRooms | None = None,
         login: LibraryLogin | None = None,
+        policy: SchedulePolicy | None = None,
     ) -> None:
         self.settings = settings
         self.client = client
@@ -78,6 +86,7 @@ class BookingRunner:
         self.notifier = notifier
         self.rooms = rooms or LibraryRooms(client)
         self.login = login or LibraryLogin(client, settings)
+        self.policy = policy or SchedulePolicy.load(settings.paths.schedule_policy_file)
         self._job_lock = Lock()
         self._active = False
         self._cancelled = False
@@ -255,8 +264,10 @@ class BookingRunner:
             if self._is_cancelled():
                 break
             for seat_num in plan.seat_candidates:
-                candidate = plan if seat_num == plan.seat_num else plan.__class__(
-                    **{**plan.to_dict(), "seat_num": seat_num}
+                candidate = (
+                    plan
+                    if seat_num == plan.seat_num
+                    else plan.__class__(**{**plan.to_dict(), "seat_num": seat_num})
                 )
                 attempt = 0
                 window_deadline: float | None = None
@@ -374,8 +385,10 @@ class BookingRunner:
                 )
                 continue
             for seat_num in plan.seat_candidates:
-                candidate = plan if seat_num == plan.seat_num else plan.__class__(
-                    **{**plan.to_dict(), "seat_num": seat_num}
+                candidate = (
+                    plan
+                    if seat_num == plan.seat_num
+                    else plan.__class__(**{**plan.to_dict(), "seat_num": seat_num})
                 )
                 try:
                     _, seat = self.rooms.find_seat(floors, candidate.floor_id, seat_num)
@@ -441,8 +454,20 @@ class BookingRunner:
             self._prewarmed_uid = ""
             self._finish()
 
-    def run_once(self, execute_at=None) -> int:
-        """恢复登录态并执行所有启用方案，供计划任务和容器调用。"""
+    def run_once(self, execute_at=None, *, bypass_policy: bool = False) -> int:
+        """恢复登录态并执行所有启用方案，供计划任务和容器调用。
+
+        Args:
+            execute_at: 手动指定执行时刻；None 表示立即执行。
+            bypass_policy: 人工覆盖时为 True，绕过暂停与星期规则。
+        """
+        if bypass_policy:
+            self._audit.record("manual_override", source="desktop")
+        else:
+            skip_reason = self._evaluate_schedule_policy(execute_at)
+            if skip_reason is not None:
+                return ExitCode.SUCCESS
+
         if not self.login.try_cache() and not self._relogin_with_credentials():
             self.notifier.send(
                 "抢座任务无法启动",
@@ -479,6 +504,29 @@ class BookingRunner:
         return (
             ExitCode.SUCCESS if any(result.success for result in results) else ExitCode.ALL_FAILED
         )
+
+    def _evaluate_schedule_policy(self, execute_at) -> str | None:
+        """按预约日期规则判断本次是否运行；返回跳过原因或 None。"""
+        if execute_at is None:
+            basis = now_cst()
+        else:
+            basis = datetime.fromtimestamp(parse_execute_at(execute_at), tz=CST)
+        booking_date = basis.date() + timedelta(days=BOOKING_DAY_OFFSET)
+        should_run, reason = self.policy.evaluate(booking_date)
+        self._audit.record(
+            "schedule_rule_evaluated",
+            booking_date=booking_date.isoformat(),
+            decision="run" if should_run else "skip",
+            reason=reason,
+        )
+        if should_run:
+            return None
+        self._audit.record(
+            "schedule_not_run",
+            reason=reason,
+            booking_date=booking_date.isoformat(),
+        )
+        return reason
 
     def _relogin_with_credentials(self) -> bool:
         credentials = load_credentials(self.settings.paths.credentials_file)

@@ -5,18 +5,19 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import flet as ft
 
 from hdu_sniper import __version__
 from hdu_sniper.app import SniperApp
-from hdu_sniper.booking.time import CST
+from hdu_sniper.booking.time import BOOKING_DAY_OFFSET, CST
 from hdu_sniper.events import ApplicationEvent, EventKind, JobState
 from hdu_sniper.library import responses
 from hdu_sniper.library.client import ROOM_TYPE_MAP
 from hdu_sniper.runtime import get_app
+from hdu_sniper.schedule_policy import ALL_WEEKDAYS, WEEKDAY_NAMES, SchedulePolicy
 from hdu_sniper.scheduler import ScheduledTask
 from hdu_sniper.updater import UpdateInfo, check_for_update
 
@@ -229,11 +230,6 @@ class SniperFletView:
             disabled=True,
         )
 
-        self.scheduler_health = ft.Text(
-            "正在检查每日调度状态",
-            size=13,
-            color=MUTED,
-        )
         self.repair_scheduler_button = ft.Button(
             "检查并修复",
             icon=ft.Icons.BUILD,
@@ -246,6 +242,25 @@ class SniperFletView:
             on_click=self._refresh_scheduled_tasks,
         )
         self.schedule_list = ft.Column(spacing=8)
+        self.schedule_policy_icon = ft.Icon(ft.Icons.EVENT_AVAILABLE, color=ACCENT_SECONDARY)
+        self.schedule_policy_title = ft.Text("自动预约已启用", size=16, weight=ft.FontWeight.W_600)
+        self.schedule_rule_value = ft.Text("—", size=15, weight=ft.FontWeight.W_600)
+        self.schedule_next_run = ft.Text("正在读取预约日期...", size=15, weight=ft.FontWeight.W_600)
+        self.schedule_policy_note = ft.Text("", size=12, color=MUTED)
+        self.edit_policy_button = ft.Button(
+            "编辑运行日期",
+            icon=ft.Icons.EDIT_CALENDAR,
+            on_click=self._open_policy_dialog,
+        )
+        self.pause_policy_button = ft.Button(
+            "暂停自动预约",
+            icon=ft.Icons.PAUSE_CIRCLE_OUTLINE,
+            on_click=self._toggle_pause_policy,
+        )
+        self._policy_dialog: ft.AlertDialog | None = None
+        self._policy_dialog_summary: ft.Text | None = None
+        self._policy_dialog_hint: ft.Text | None = None
+        self._policy_day_checks: dict[int, ft.Checkbox] = {}
 
         self.booking_summary = ft.Text("进入页面后读取预约记录", color=FOREGROUND)
         self.refresh_bookings_button = ft.IconButton(
@@ -403,27 +418,45 @@ class SniperFletView:
             [
                 self._section_title(
                     "调度",
-                    "查看和管理本应用创建的 Windows 任务计划，不会显示或操作其他任务",
+                    "按预约日期控制自动抢座；系统会在预约日前两天 20:00 执行",
                 ),
                 self._surface(
                     ft.Row(
                         [
-                            ft.Icon(ft.Icons.SCHEDULE, color=ACCENT_SECONDARY),
+                            self.schedule_policy_icon,
                             ft.Column(
                                 [
-                                    ft.Text("每日 20:00 自动调度", weight=ft.FontWeight.W_500),
-                                    self.scheduler_health,
+                                    self.schedule_policy_title,
+                                    ft.Row(
+                                        [
+                                            ft.Text("当前规则", size=14, color=MUTED),
+                                            self.schedule_rule_value,
+                                        ],
+                                        spacing=8,
+                                    ),
+                                    self.schedule_next_run,
+                                    self.schedule_policy_note,
                                 ],
-                                spacing=2,
+                                spacing=6,
                                 expand=True,
                             ),
-                            self.repair_scheduler_button,
+                            ft.Column(
+                                [
+                                    self.edit_policy_button,
+                                    self.pause_policy_button,
+                                    self.repair_scheduler_button,
+                                ],
+                                spacing=8,
+                            ),
                         ],
+                        spacing=16,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
                     ),
                 ),
                 self._surface(
                     ft.Column(
                         [
+                            ft.Text("系统任务详情", size=16, weight=ft.FontWeight.W_600),
                             ft.Row(
                                 [self.schedule_summary, self.refresh_schedules_button],
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -431,6 +464,7 @@ class SniperFletView:
                             ft.Divider(height=1),
                             self.schedule_list,
                         ],
+                        spacing=8,
                     )
                 ),
             ],
@@ -574,7 +608,7 @@ class SniperFletView:
         if selected_index == 1:
             self.page.run_task(self._refresh_bookings)
         elif selected_index == 2:
-            self.page.run_task(self._refresh_scheduler_status)
+            self.page.run_task(self._refresh_schedule_policy)
             self.page.run_task(self._refresh_scheduled_tasks)
         self.page.update()
 
@@ -609,7 +643,7 @@ class SniperFletView:
         if load_data:
             self._refresh_plans()
             self.page.run_task(self._load_room_types)
-            self.page.run_task(self._refresh_scheduler_status)
+            self.page.run_task(self._refresh_schedule_policy)
             self.page.run_task(self._refresh_scheduled_tasks)
         self._schedule_update_check()
         if update:
@@ -916,7 +950,7 @@ class SniperFletView:
                 f"{message}\n\n调度创建失败：{failure}\n请前往调度页面检查并修复。",
                 error=True,
             )
-        await self._refresh_scheduler_status()
+        await self._refresh_schedule_policy()
         await self._refresh_scheduled_tasks()
 
     def _show_plan_creation_dialog(
@@ -972,23 +1006,81 @@ class SniperFletView:
         self._refresh_plans()
         self._show_message(f"已更新 {modified} 个方案")
 
-    async def _refresh_scheduler_status(self) -> None:
+    async def _refresh_schedule_policy(self) -> None:
         try:
+            policy = await asyncio.to_thread(self.application.schedule_policy)
             status = await asyncio.to_thread(self.application.scheduler_status)
         except Exception as exc:
-            self.scheduler_health.value = f"状态检查失败：{exc}"
-            self.scheduler_health.color = FOREGROUND
-        else:
-            if status.exists:
-                details = ["系统任务已启用"]
-                if status.next_run:
-                    details.append(f"下次运行：{status.next_run}")
-                self.scheduler_health.value = " · ".join(details)
-                self.scheduler_health.color = ACCENT_SECONDARY
+            self.schedule_policy_title.value = "无法读取自动预约状态"
+            self.schedule_next_run.value = f"读取失败：{exc}"
+            with contextlib.suppress(RuntimeError):
+                self.page.update()
+            return
+        self._render_schedule_policy(policy, bool(status.exists))
+        with contextlib.suppress(RuntimeError):
+            self.page.update()
+
+    def _render_schedule_policy(self, policy, task_exists: bool) -> None:
+        if bool(getattr(policy, "corrupt", False)):
+            self.schedule_policy_icon.name = ft.Icons.WARNING_AMBER_ROUNDED
+            self.schedule_policy_icon.color = FOREGROUND
+            self.schedule_policy_title.value = "自动预约已暂停"
+            self.schedule_rule_value.value = "待修复"
+            self.schedule_next_run.value = "日期配置已损坏，已暂停预约；请重新保存运行日期"
+            self.schedule_policy_note.value = (
+                f"系统任务：{'就绪' if task_exists else '需要修复'} · 上次运行：见任务详情"
+            )
+            self.pause_policy_button.text = "暂停自动预约"
+            self.pause_policy_button.icon = ft.Icons.PAUSE_CIRCLE_OUTLINE
+            return
+
+        self.schedule_rule_value.value = policy.summary_label()
+        if policy.enabled:
+            self.schedule_policy_icon.name = ft.Icons.EVENT_AVAILABLE
+            self.schedule_policy_icon.color = ACCENT_SECONDARY
+            self.schedule_policy_title.value = (
+                "自动预约已启用" if task_exists else "系统任务需要修复"
+            )
+            self.pause_policy_button.text = "暂停自动预约"
+            self.pause_policy_button.icon = ft.Icons.PAUSE_CIRCLE_OUTLINE
+            today = datetime.now(CST).date()
+            next_date = policy.next_booking_date(today)
+            task_text = f"系统任务：{'就绪' if task_exists else '需要修复'}"
+            if next_date is None:
+                self.schedule_next_run.value = "90 天内没有符合规则的可预约日期"
+                self.schedule_policy_note.value = task_text
             else:
-                self.scheduler_health.value = "系统任务尚未生效，请检查并修复"
-                self.scheduler_health.color = MUTED
-        self.page.update()
+                execute_date = next_date - timedelta(days=BOOKING_DAY_OFFSET)
+                execute_label = (
+                    "今天"
+                    if execute_date == today
+                    else f"{execute_date.month} 月 {execute_date.day} 日"
+                )
+                self.schedule_next_run.value = (
+                    f"下一次预约 {next_date.month} 月 {next_date.day} 日"
+                    f" · {execute_label} 20:00 执行"
+                )
+                booking_iso = (today + timedelta(days=BOOKING_DAY_OFFSET)).isoweekday()
+                note_parts = [task_text]
+                if booking_iso not in policy.weekdays:
+                    note_parts.append("今天不在当前运行规则中")
+                self.schedule_policy_note.value = " · ".join(note_parts)
+        else:
+            self.schedule_policy_icon.name = ft.Icons.PAUSE_CIRCLE_FILLED
+            self.schedule_policy_icon.color = MUTED
+            self.schedule_policy_title.value = "自动预约已暂停"
+            self.schedule_next_run.value = "已暂停 · 不会发起预约"
+            self.schedule_policy_note.value = (
+                f"系统任务：{'就绪' if task_exists else '需要修复'} · 当前规则保留"
+            )
+            self.pause_policy_button.text = "恢复自动预约"
+            self.pause_policy_button.icon = ft.Icons.PLAY_CIRCLE_OUTLINE
+
+    @staticmethod
+    def _policy_summary_label(checked: list[int]) -> str:
+        if not checked:
+            return "未选择"
+        return SchedulePolicy(enabled=True, weekdays=frozenset(checked)).summary_label()
 
     async def _refresh_bookings(self, _event=None) -> None:
         self.refresh_bookings_button.disabled = True
@@ -1014,9 +1106,7 @@ class SniperFletView:
             responses.BOOKING_STATUS_SYSTEM_SIGNED_OUT,
         }
         bookings = [
-            item
-            for item in bookings
-            if responses.booking_status(item) not in hidden_statuses
+            item for item in bookings if responses.booking_status(item) not in hidden_statuses
         ]
         self.booking_list.controls.clear()
         self.booking_summary.value = f"共 {len(bookings)} 条预约记录"
@@ -1321,7 +1411,6 @@ class SniperFletView:
 
     async def _repair_scheduler(self, _event) -> None:
         self.repair_scheduler_button.disabled = True
-        self.scheduler_health.value = "正在确保系统每日任务..."
         self.page.update()
         try:
             success, message = await asyncio.to_thread(self.application.repair_daily_scheduler)
@@ -1330,7 +1419,7 @@ class SniperFletView:
             self._show_message(f"调度修复失败：{exc}", error=True)
         finally:
             self.repair_scheduler_button.disabled = False
-            await self._refresh_scheduler_status()
+            await self._refresh_schedule_policy()
             await self._refresh_scheduled_tasks()
 
     async def _refresh_scheduled_tasks(self, _event=None) -> None:
@@ -1382,14 +1471,18 @@ class SniperFletView:
                                 "立即执行",
                                 icon=ft.Icons.PLAY_ARROW,
                                 data=task.name,
-                                on_click=self._confirm_run_scheduled_task,
+                                on_click=self._confirm_run_override,
                             ),
-                            ft.Button(
-                                "删除",
-                                icon=ft.Icons.DELETE,
-                                color=FOREGROUND,
-                                data=task.name,
-                                on_click=self._confirm_delete_scheduled_task,
+                            ft.PopupMenuButton(
+                                icon=ft.Icons.MORE_VERT,
+                                items=[
+                                    ft.PopupMenuItem(
+                                        content=ft.Text("删除系统任务"),
+                                        icon=ft.Icons.DELETE,
+                                        data=task.name,
+                                        on_click=self._confirm_delete_scheduled_task,
+                                    ),
+                                ],
                             ),
                         ],
                     ),
@@ -1398,36 +1491,188 @@ class SniperFletView:
                 )
             )
 
-    def _confirm_run_scheduled_task(self, event) -> None:
-        task_name = str(event.control.data)
+    async def _open_policy_dialog(self, _event) -> None:
+        try:
+            policy = await asyncio.to_thread(self.application.schedule_policy)
+        except Exception as exc:
+            self._show_message(f"读取日期规则失败：{exc}", error=True)
+            return
+        corrupt = bool(getattr(policy, "corrupt", False))
+        selected = set(ALL_WEEKDAYS) if corrupt else set(getattr(policy, "weekdays", ()))
+        self._policy_day_checks = {}
+        for day in ALL_WEEKDAYS:
+            self._policy_day_checks[day] = ft.Checkbox(
+                label=WEEKDAY_NAMES[day],
+                value=day in selected,
+                on_change=self._on_policy_day_toggle,
+            )
+        summary = ft.Text(
+            self._policy_summary_label(sorted(selected)),
+            size=15,
+            weight=ft.FontWeight.W_600,
+        )
+        hint = ft.Text(
+            "至少选择一天；如需停止运行，请暂停自动预约。",
+            size=12,
+            color=FOREGROUND,
+            visible=False,
+        )
+        self._policy_dialog_summary = summary
+        self._policy_dialog_hint = hint
+        self._policy_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("编辑运行日期"),
+            content=ft.Column(
+                [
+                    ft.Text(
+                        "选择需要预约座位的星期；系统会提前两天于 20:00 执行。",
+                        size=13,
+                        color=MUTED,
+                    ),
+                    ft.Row(
+                        [ft.Text("当前规则", size=13, color=MUTED), summary],
+                        spacing=8,
+                    ),
+                    ft.Row(list(self._policy_day_checks.values()), wrap=True, spacing=8),
+                    hint,
+                ],
+                spacing=12,
+                width=520,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            actions=[
+                ft.Button("取消", on_click=lambda _event: self.page.pop_dialog()),
+                ft.FilledButton(
+                    "保存规则",
+                    icon=ft.Icons.SAVE,
+                    color=BACKGROUND,
+                    bgcolor=ACCENT_SECONDARY,
+                    icon_color=BACKGROUND,
+                    on_click=self._save_policy_dialog,
+                ),
+            ],
+        )
+        self.page.show_dialog(self._policy_dialog)
+        self.page.update()
+
+    def _on_policy_day_toggle(self, _event) -> None:
+        checked = [day for day, box in self._policy_day_checks.items() if box.value]
+        self._policy_dialog_summary.value = self._policy_summary_label(checked)
+        empty = not checked
+        self._policy_dialog_hint.visible = empty
+        self._policy_dialog.actions[1].disabled = empty
+        self.page.update()
+
+    async def _save_policy_dialog(self, _event) -> None:
+        checked = sorted(day for day, box in self._policy_day_checks.items() if box.value)
+        if not checked:
+            self._policy_dialog_hint.visible = True
+            self.page.update()
+            return
+        try:
+            await asyncio.to_thread(self.application.save_schedule_policy, weekdays=checked)
+        except Exception as exc:
+            self._show_message(f"保存日期规则失败：{exc}", error=True)
+            return
+        self.page.pop_dialog()
+        self._show_message("运行日期已保存")
+        await self._refresh_schedule_policy()
+
+    def _toggle_pause_policy(self, _event) -> None:
+        if self.pause_policy_button.text == "恢复自动预约":
+            self.page.run_task(self._resume_schedule_policy)
+            return
         self.page.show_dialog(
             ft.AlertDialog(
                 modal=True,
-                icon=ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, color=ACCENT_SECONDARY),
-                title=ft.Text("立即执行调度？"),
+                icon=ft.Icon(ft.Icons.PAUSE_CIRCLE_OUTLINE, color=ACCENT_SECONDARY),
+                title=ft.Text("暂停自动预约？"),
                 content=ft.Text(
-                    f"{task_name} 将由 Windows 任务计划程序立即启动，可能会执行预约。",
+                    "暂停后系统仍会每天检查，但不会发起预约。星期规则与系统任务都会保留。"
                 ),
                 actions=[
                     ft.Button("取消", on_click=lambda _event: self.page.pop_dialog()),
                     ft.FilledButton(
-                        "立即执行",
-                        icon=ft.Icons.PLAY_ARROW,
+                        "确认暂停",
                         color=BACKGROUND,
                         bgcolor=ACCENT_SECONDARY,
                         icon_color=BACKGROUND,
-                        data=task_name,
-                        on_click=self._run_scheduled_task,
+                        on_click=self._confirm_pause_policy,
                     ),
                 ],
             )
         )
 
-    async def _run_scheduled_task(self, event) -> None:
-        task_name = str(event.control.data)
+    async def _confirm_pause_policy(self, _event) -> None:
         self.page.pop_dialog()
-        success, message = await asyncio.to_thread(self.application.run_scheduled_task, task_name)
-        self._show_message(message, error=not success)
+        try:
+            await asyncio.to_thread(self.application.save_schedule_policy, enabled=False)
+        except Exception as exc:
+            self._show_message(f"暂停失败：{exc}", error=True)
+            return
+        self._show_message("自动预约已暂停")
+        await self._refresh_schedule_policy()
+
+    async def _resume_schedule_policy(self) -> None:
+        try:
+            await asyncio.to_thread(self.application.save_schedule_policy, enabled=True)
+        except Exception as exc:
+            self._show_message(f"恢复失败：{exc}", error=True)
+            return
+        self._show_message("自动预约已恢复")
+        await self._refresh_schedule_policy()
+
+    def _confirm_run_override(self, _event) -> None:
+        try:
+            count = self.application.enabled_plan_count()
+        except Exception:
+            count = 0
+        booking_date = datetime.now(CST).date() + timedelta(days=BOOKING_DAY_OFFSET)
+        self.page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                icon=ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, color=ACCENT_SECONDARY),
+                title=ft.Text("确认立即执行？"),
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            f"目标预约日期：{booking_date.month} 月 {booking_date.day} 日（后天）"
+                        ),
+                        ft.Text(f"将执行的已启用方案：{count} 个"),
+                        ft.Text(
+                            "本次会绕过当前日期规则，不会修改已保存的配置。",
+                            size=13,
+                            color=MUTED,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+                actions=[
+                    ft.Button("取消", on_click=lambda _event: self.page.pop_dialog()),
+                    ft.FilledButton(
+                        "确认立即执行",
+                        icon=ft.Icons.PLAY_ARROW,
+                        color=BACKGROUND,
+                        bgcolor=ACCENT_SECONDARY,
+                        icon_color=BACKGROUND,
+                        on_click=self._run_override,
+                    ),
+                ],
+            )
+        )
+
+    async def _run_override(self, _event) -> None:
+        self.page.pop_dialog()
+        try:
+            exit_code = await asyncio.to_thread(self.application.run_booking_override)
+        except Exception as exc:
+            self._show_message(f"立即执行失败：{exc}", error=True)
+        else:
+            if exit_code == 0:
+                self._show_message("立即执行完成（已绕过日期规则）")
+            else:
+                self._show_message(f"立即执行未完成（退出码 {exit_code}）", error=True)
+        await self._refresh_schedule_policy()
         await self._refresh_scheduled_tasks()
 
     def _confirm_delete_scheduled_task(self, event) -> None:
@@ -1463,7 +1708,7 @@ class SniperFletView:
         )
         self._show_message(message, error=not success)
         await self._refresh_scheduled_tasks()
-        await self._refresh_scheduler_status()
+        await self._refresh_schedule_policy()
 
     def _on_application_event(self, event: ApplicationEvent) -> None:
         state_names = {

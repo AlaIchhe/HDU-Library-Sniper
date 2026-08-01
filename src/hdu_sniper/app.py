@@ -18,6 +18,7 @@ from hdu_sniper.library.client import AuthenticationExpiredError, LibraryClient
 from hdu_sniper.library.login import LibraryLogin
 from hdu_sniper.library.rooms import FloorInfo
 from hdu_sniper.notifier import Notifier
+from hdu_sniper.schedule_policy import SchedulePolicy
 from hdu_sniper.scheduler import ScheduledTask, SchedulerService, TaskStatus
 
 
@@ -468,7 +469,9 @@ class SniperApp:
                 return True, success_message
             raise
         actual_status = responses.booking_status(item)
-        expected_statuses = {expected_status} if isinstance(expected_status, str) else expected_status
+        expected_statuses = (
+            {expected_status} if isinstance(expected_status, str) else expected_status
+        )
         if actual_status not in expected_statuses:
             return (
                 False,
@@ -502,6 +505,35 @@ class SniperApp:
         if not self.plans.list_enabled():
             return False, "请先创建并启用至少一个预约方案"
         return self._configure_daily_scheduler()
+
+    def schedule_policy(self) -> SchedulePolicy:
+        """返回当前预约日期策略的只读快照。"""
+        self._require_authenticated()
+        return SchedulePolicy.load(self.settings.paths.schedule_policy_file)
+
+    def save_schedule_policy(
+        self,
+        *,
+        enabled: bool | None = None,
+        weekdays: list[int] | None = None,
+    ) -> SchedulePolicy:
+        """保存星期规则或暂停状态，返回更新后的策略。"""
+        self._require_authenticated()
+        updated = SchedulePolicy.load(self.settings.paths.schedule_policy_file).with_updates(
+            enabled=enabled,
+            weekdays=weekdays,
+        )
+        updated.save(self.settings.paths.schedule_policy_file)
+        return updated
+
+    def enabled_plan_count(self) -> int:
+        """返回当前启用的预约方案数量。"""
+        return len(self.plans.list_enabled())
+
+    def run_booking_override(self) -> int:
+        """人工立即执行：绕过暂停与日期规则，不修改已保存配置。"""
+        self._require_authenticated()
+        return self.booking.run_once(bypass_policy=True)
 
     def _ensure_daily_scheduler(self) -> None:
         """有效方案存在时，静默确保每天 20:00 的系统任务。"""
