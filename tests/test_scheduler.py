@@ -1,5 +1,6 @@
 """系统调度服务与统一路径配置测试。"""
 
+import base64
 import os
 import tempfile
 import unittest
@@ -164,6 +165,7 @@ class TestSchedulerService(unittest.TestCase):
 
         service = SchedulerService(self.paths, Path(__file__).resolve().parents[1])
         service.system = "Windows"
+        service._task_name_occupied_inaccessible = Mock(return_value=False)
         mock_run.side_effect = [
             Mock(returncode=1, stdout="", stderr="Register-ScheduledTask : Access is denied."),
             Mock(returncode=0, stdout="SUCCESS", stderr=""),
@@ -192,6 +194,7 @@ class TestSchedulerService(unittest.TestCase):
 
         service = SchedulerService(self.paths, Path(__file__).resolve().parents[1])
         service.system = "Windows"
+        service._task_name_occupied_inaccessible = Mock(return_value=False)
         mock_run.side_effect = [
             Mock(returncode=1, stdout="", stderr="0x80070005: permission denied"),
             Mock(returncode=0, stdout="SUCCESS", stderr=""),
@@ -208,6 +211,89 @@ class TestSchedulerService(unittest.TestCase):
         self.assertTrue(success)
         fallback_command = mock_run.call_args_list[1].args[0]
         self.assertEqual(fallback_command[fallback_command.index("/RU") + 1], "student")
+
+    @patch("subprocess.run")
+    def test_windows_configuration_repairs_blocking_task_when_allowed(self, mock_run):
+        from hdu_sniper.scheduler import SchedulerService
+
+        service = SchedulerService(self.paths, Path(__file__).resolve().parents[1])
+        service.system = "Windows"
+        service._task_name_occupied_inaccessible = Mock(return_value=True)
+        service._delete_windows_task_elevated = Mock(return_value=(True, "已删除"))
+        mock_run.side_effect = [
+            Mock(returncode=1, stdout="", stderr="Register-ScheduledTask : Access is denied."),
+            Mock(returncode=0, stdout="", stderr=""),
+        ]
+
+        success, message = service._configure_windows_task(
+            "20:00:00", wake_to_run=True, allow_elevated_repair=True
+        )
+
+        self.assertTrue(success)
+        service._delete_windows_task_elevated.assert_called_once_with("HDU-Library-Sniper-Daily")
+        self.assertIn("已自动清理", message)
+        self.assertEqual(mock_run.call_count, 2)
+
+    @patch("subprocess.run")
+    def test_windows_configuration_blocker_requires_repair_button(self, mock_run):
+        from hdu_sniper.scheduler import SchedulerService
+
+        service = SchedulerService(self.paths, Path(__file__).resolve().parents[1])
+        service.system = "Windows"
+        service._task_name_occupied_inaccessible = Mock(return_value=True)
+        mock_run.return_value = Mock(returncode=1, stdout="", stderr="拒绝访问")
+
+        success, message = service._configure_windows_task("20:00:00", wake_to_run=True)
+
+        self.assertFalse(success)
+        self.assertIn("检查并修复", message)
+        mock_run.assert_called_once()
+
+    @patch("subprocess.run")
+    def test_task_name_occupied_inaccessible_detects_access_denied(self, mock_run):
+        self.service.system = "Windows"
+        mock_run.return_value = Mock(returncode=1, stdout="", stderr="ERROR: Access is denied.")
+
+        self.assertTrue(self.service._task_name_occupied_inaccessible("HDU-Library-Sniper-Daily"))
+        command = mock_run.call_args.args[0]
+        self.assertEqual(command[:3], ["schtasks.exe", "/Query", "/TN"])
+
+    @patch("subprocess.run")
+    def test_task_name_occupied_inaccessible_false_when_missing(self, mock_run):
+        self.service.system = "Windows"
+        mock_run.return_value = Mock(
+            returncode=1,
+            stdout="",
+            stderr="ERROR: The system cannot find the file specified.",
+        )
+
+        self.assertFalse(self.service._task_name_occupied_inaccessible("HDU-Library-Sniper-Daily"))
+
+    @patch("subprocess.run")
+    def test_delete_windows_task_elevated_success(self, mock_run):
+        self.service.system = "Windows"
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        success, _ = self.service._delete_windows_task_elevated("HDU-Library-Sniper-Daily")
+
+        self.assertTrue(success)
+        command = mock_run.call_args.args[0]
+        self.assertIn("Start-Process", command[-1])
+        self.assertIn("-Verb RunAs", command[-1])
+        marker = "'-EncodedCommand','"
+        encoded = command[-1].split(marker, 1)[1].split("'", 1)[0]
+        inner = base64.b64decode(encoded).decode("utf-16-le")
+        self.assertIn("schtasks.exe /Delete /TN 'HDU-Library-Sniper-Daily' /F", inner)
+
+    @patch("subprocess.run")
+    def test_delete_windows_task_elevated_cancel(self, mock_run):
+        self.service.system = "Windows"
+        mock_run.return_value = Mock(returncode=1223, stdout="", stderr="")
+
+        success, message = self.service._delete_windows_task_elevated("HDU-Library-Sniper-Daily")
+
+        self.assertFalse(success)
+        self.assertIn("授权", message)
 
     @patch("subprocess.run")
     def test_windows_configuration_uses_oem_output_encoding(self, mock_run):

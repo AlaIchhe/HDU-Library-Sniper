@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import ctypes
 import json
 import locale
@@ -10,6 +11,7 @@ import platform
 import shlex
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -96,10 +98,12 @@ class SchedulerService:
             executable = self._find_pythonw() or executable
         return [str(executable), "-m", "hdu_sniper"]
 
-    def configure_task(self, wake_to_run: bool = True) -> tuple[bool, str]:
+    def configure_task(
+        self, wake_to_run: bool = True, *, allow_elevated_repair: bool = False
+    ) -> tuple[bool, str]:
         """配置固定为每天 20:00 的系统任务。"""
         if self.system == "Windows":
-            return self._configure_windows_task(DAILY_RUN_TIME, wake_to_run)
+            return self._configure_windows_task(DAILY_RUN_TIME, wake_to_run, allow_elevated_repair)
         if self.system == "Linux" or self.system == "Darwin":
             return self._configure_linux_cron(DAILY_RUN_TIME)
         return False, f"不支持的操作系统: {self.system}"
@@ -206,7 +210,12 @@ class SchedulerService:
 
     # Windows 实现
 
-    def _configure_windows_task(self, execute_time: str, wake_to_run: bool) -> tuple[bool, str]:
+    def _configure_windows_task(
+        self,
+        execute_time: str,
+        wake_to_run: bool,
+        allow_elevated_repair: bool = False,
+    ) -> tuple[bool, str]:
         """使用 AutoSchedule.ps1 配置 Windows 任务。"""
         ps_script = self.resource_root / "scripts" / "AutoSchedule.ps1"
         if not ps_script.exists():
@@ -222,9 +231,8 @@ class SchedulerService:
         env["SNIPER_WAKE_TO_RUN"] = "1" if wake_to_run else "0"
         env["SNIPER_FROZEN"] = "1" if getattr(sys, "frozen", False) else "0"
 
-        # 执行 PowerShell 脚本
-        try:
-            result = subprocess.run(
+        def run_script() -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
                 ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", str(ps_script)],
                 cwd=str(self.install_root),
                 capture_output=True,
@@ -236,16 +244,119 @@ class SchedulerService:
                 creationflags=WINDOWS_NO_WINDOW,
             )
 
+        # 执行 PowerShell 脚本
+        try:
+            result = run_script()
             if result.returncode == 0:
                 return True, f"定时任务配置成功！\n每天 {execute_time} 自动执行"
+
             error = self._command_error(result)
-            if self._is_windows_task_access_denied(error):
-                return self._configure_windows_task_with_schtasks(execute_time)
-            return False, f"配置失败:\n{error}"
+            if not self._is_windows_task_access_denied(error):
+                return False, f"配置失败:\n{error}"
+
+            # 同名任务被其他身份占用（当前用户无权访问）时，普通创建和 schtasks
+            # 回退都会因 ACL 被拒；修复入口允许先提权清理占坑任务再重试。
+            if self._task_name_occupied_inaccessible(self.task_name):
+                if not allow_elevated_repair:
+                    return (
+                        False,
+                        "检测到同名旧任务被其他身份占用且当前用户无权访问，"
+                        "请点击“检查并修复”自动清理后重试。",
+                    )
+                removed, remove_message = self._delete_windows_task_elevated(self.task_name)
+                if not removed:
+                    return False, remove_message
+
+                retry = run_script()
+                if retry.returncode == 0:
+                    return (
+                        True,
+                        f"定时任务配置成功！\n每天 {execute_time} 自动执行\n"
+                        "已自动清理占用的同名旧任务并重新创建。",
+                    )
+                retry_error = self._command_error(retry)
+                return False, f"已清理占用的旧任务，但重新创建失败:\n{retry_error}"
+
+            # 通用权限拒绝（没有同名占坑任务）时保留 schtasks 当前用户兼容回退
+            return self._configure_windows_task_with_schtasks(execute_time)
         except subprocess.TimeoutExpired:
             return False, "PowerShell 脚本执行超时"
         except Exception as e:
             return False, f"执行 PowerShell 脚本出错: {e}"
+
+    def _task_name_occupied_inaccessible(self, task_name: str) -> bool:
+        """检测任务名是否被当前用户无法读取/管理的既有任务占用。"""
+        try:
+            result = subprocess.run(
+                ["schtasks.exe", "/Query", "/TN", task_name],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                encoding=_windows_output_encoding(),
+                errors="replace",
+                creationflags=WINDOWS_NO_WINDOW,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return False
+        if result.returncode == 0:
+            return False
+        return self._is_windows_task_access_denied(self._command_error(result))
+
+    def _delete_windows_task_elevated(self, task_name: str) -> tuple[bool, str]:
+        """通过 UAC 提权删除当前用户无法访问的同名旧任务。"""
+        out_fd, out_path = tempfile.mkstemp(prefix="hdu-sniper-del-", suffix=".log")
+        os.close(out_fd)
+        try:
+            inner = (
+                f"schtasks.exe /Delete /TN {self._powershell_quote(task_name)} /F "
+                f"*> {self._powershell_quote(out_path)}; exit $LASTEXITCODE"
+            )
+            encoded = base64.b64encode(inner.encode("utf-16-le")).decode("ascii")
+            outer = (
+                "$ErrorActionPreference = 'Stop'; "
+                "try { "
+                "$p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru "
+                "-WindowStyle Hidden -ArgumentList @('-NoProfile','-NonInteractive',"
+                "'-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-EncodedCommand','"
+                + encoded
+                + "'); exit $p.ExitCode "
+                "} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1223 }"
+            )
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", outer],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                encoding=_windows_output_encoding(),
+                errors="replace",
+                creationflags=WINDOWS_NO_WINDOW,
+            )
+            details = ""
+            try:
+                details = (
+                    Path(out_path)
+                    .read_text(encoding=_windows_output_encoding(), errors="replace")
+                    .strip()
+                )
+            except OSError:
+                pass
+            if result.returncode == 0 or self._task_is_missing(details):
+                return True, "已通过管理员授权删除占用的旧任务"
+            if result.returncode == 1223:
+                return (
+                    False,
+                    "已取消管理员授权，未删除占用的旧任务；请再次点击“检查并修复”并允许授权",
+                )
+            return False, f"提权删除旧任务失败:\n{details or self._command_error(result)}"
+        except subprocess.TimeoutExpired:
+            return False, "等待管理员授权超时，未删除占用的旧任务"
+        except Exception as exc:
+            return False, f"提权删除旧任务时出错: {exc}"
+        finally:
+            try:
+                Path(out_path).unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _configure_windows_task_with_schtasks(self, execute_time: str) -> tuple[bool, str]:
         """在 ScheduledTasks 模块被拒绝时，用 schtasks 创建当前用户交互任务。"""
@@ -449,8 +560,7 @@ try {{
                 "-Command",
                 "[Console]::OutputEncoding = [Text.UTF8Encoding]::new(); "
                 "$OutputEncoding = [Console]::OutputEncoding; "
-                "$ErrorActionPreference = 'Stop'; "
-                + script,
+                "$ErrorActionPreference = 'Stop'; " + script,
             ],
             capture_output=True,
             text=True,

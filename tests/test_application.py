@@ -405,7 +405,7 @@ def test_scheduler_health_is_read_only_and_repair_uses_fixed_configuration(
 
     assert application.scheduler_status() is status
     assert application.repair_daily_scheduler() == (True, "ok")
-    dependencies["scheduler"].configure_task.assert_called_once_with()
+    dependencies["scheduler"].configure_task.assert_called_once_with(allow_elevated_repair=True)
 
 
 def test_application_delegates_managed_schedule_operations(tmp_path: Path) -> None:

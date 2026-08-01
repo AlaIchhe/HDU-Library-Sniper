@@ -504,7 +504,7 @@ class SniperApp:
         self._require_authenticated()
         if not self.plans.list_enabled():
             return False, "请先创建并启用至少一个预约方案"
-        return self._configure_daily_scheduler()
+        return self._configure_daily_scheduler(allow_elevated_repair=True)
 
     def schedule_policy(self) -> SchedulePolicy:
         """返回当前预约日期策略的只读快照。"""
@@ -541,9 +541,14 @@ class SniperApp:
             return
         self._configure_daily_scheduler()
 
-    def _configure_daily_scheduler(self) -> tuple[bool, str]:
+    def _configure_daily_scheduler(
+        self, *, allow_elevated_repair: bool = False
+    ) -> tuple[bool, str]:
         try:
-            success, message = self.scheduler.configure_task()
+            if allow_elevated_repair:
+                success, message = self.scheduler.configure_task(allow_elevated_repair=True)
+            else:
+                success, message = self.scheduler.configure_task()
         except Exception as exc:
             message = str(exc)
             self.notifier.send("自动调度配置失败", message, success=False)
