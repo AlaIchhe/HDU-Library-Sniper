@@ -97,4 +97,4 @@ def test_scheduler_public_configuration_is_fixed_to_20_00(tmp_path) -> None:
     scheduler._configure_windows_task = Mock(return_value=(True, "ok"))
 
     assert scheduler.configure_task(wake_to_run=False) == (True, "ok")
-    scheduler._configure_windows_task.assert_called_once_with(DAILY_RUN_TIME, False)
+    scheduler._configure_windows_task.assert_called_once_with(DAILY_RUN_TIME, False, False)
