@@ -840,8 +840,7 @@ class SniperFletView:
             plan.plan_id for plan in plans if plan.plan_id is not None
         )
         self.plan_list.controls.clear()
-        enabled_count = sum(plan.enabled for plan in plans)
-        self.plan_summary.value = f"{len(plans)} 个方案 · {enabled_count} 个启用"
+        self.plan_summary.value = f"{len(plans)} 个方案"
         for plan in plans:
             plan_id = plan.plan_id or ""
             checkbox = ft.Checkbox(value=plan_id in self.selected_plan_ids)
@@ -854,7 +853,6 @@ class SniperFletView:
                 self._sync_plan_actions()
 
             checkbox.on_change = select_plan
-            status = "启用" if plan.enabled else "停用"
             room_name = ROOM_TYPE_MAP.get(str(plan.room_type), f"类型 {plan.room_type}")
             self.plan_list.controls.append(
                 ft.Container(
@@ -880,10 +878,6 @@ class SniperFletView:
                                 ],
                                 spacing=2,
                                 expand=True,
-                            ),
-                            ft.Text(
-                                status,
-                                color=ACCENT_SECONDARY if plan.enabled else MUTED,
                             ),
                         ],
                     ),
