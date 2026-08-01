@@ -42,6 +42,10 @@ class AppPaths:
         return self.config_dir / "plans.yaml"
 
     @property
+    def schedule_policy_file(self) -> Path:
+        return self.config_dir / "schedule-policy.yaml"
+
+    @property
     def credentials_file(self) -> Path:
         return self.data_dir / "credentials.yaml"
 

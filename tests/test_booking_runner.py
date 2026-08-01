@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -9,10 +10,12 @@ import pytest
 
 from hdu_sniper.booking.models import BookingPlan, BookingResult
 from hdu_sniper.booking.runner import BookingRunner, ExitCode
+from hdu_sniper.booking.time import BOOKING_DAY_OFFSET, CST
 from hdu_sniper.config import Credentials, Settings
 from hdu_sniper.library import responses
 from hdu_sniper.library.client import HduLibraryError
 from hdu_sniper.paths import AppPaths
+from hdu_sniper.schedule_policy import ALL_WEEKDAYS, SchedulePolicy
 
 
 def _plan(seat_num: str = "001") -> BookingPlan:
@@ -254,6 +257,37 @@ def test_run_once_maps_booking_results(
     runner.run_now = Mock(side_effect=run_now)
     assert runner.run_once() == exit_code
     assert "result" in capsys.readouterr().out
+
+
+def test_run_once_respects_paused_policy(tmp_path: Path) -> None:
+    runner, dependencies = _runner(tmp_path)
+    runner.policy = SchedulePolicy(enabled=False, weekdays=frozenset(ALL_WEEKDAYS))
+
+    assert runner.run_once() == ExitCode.SUCCESS
+
+    dependencies["login"].try_cache.assert_not_called()
+
+
+def test_run_once_skips_weekday_mismatch(tmp_path: Path) -> None:
+    runner, dependencies = _runner(tmp_path)
+    booking_iso = (datetime.now(CST).date() + timedelta(days=BOOKING_DAY_OFFSET)).isoweekday()
+    days = [day for day in ALL_WEEKDAYS if day != booking_iso]
+    runner.policy = SchedulePolicy(enabled=True, weekdays=frozenset(days))
+
+    assert runner.run_once() == ExitCode.SUCCESS
+
+    dependencies["login"].try_cache.assert_not_called()
+
+
+def test_run_once_bypasses_paused_policy(tmp_path: Path) -> None:
+    runner, dependencies = _runner(tmp_path)
+    runner.policy = SchedulePolicy(enabled=False, weekdays=frozenset(ALL_WEEKDAYS))
+    dependencies["login"].try_cache.return_value = False
+    runner._relogin_with_credentials = Mock(return_value=False)
+
+    assert runner.run_once(bypass_policy=True) == ExitCode.AUTH_FAILED
+
+    dependencies["login"].try_cache.assert_called_once_with()
 
 
 def test_relogin_with_credentials_branches(tmp_path: Path, monkeypatch) -> None:
