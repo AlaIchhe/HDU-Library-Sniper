@@ -169,7 +169,12 @@ class TestSchedulerService(unittest.TestCase):
             Mock(returncode=0, stdout="SUCCESS", stderr=""),
         ]
 
-        with patch.dict(os.environ, {"USERNAME": "student", "USERDOMAIN": "HDU"}):
+        fake_ctypes = Mock()
+        fake_ctypes.windll.advapi32.GetUserNameW.return_value = False
+        with (
+            patch.dict(os.environ, {"USERNAME": "student", "USERDOMAIN": "HDU"}),
+            patch("hdu_sniper.scheduler.ctypes", fake_ctypes),
+        ):
             success, message = service._configure_windows_task("20:00:00", wake_to_run=True)
 
         self.assertTrue(success)
@@ -192,25 +197,72 @@ class TestSchedulerService(unittest.TestCase):
             Mock(returncode=0, stdout="SUCCESS", stderr=""),
         ]
 
-        with patch.dict(os.environ, {"USERNAME": "student", "USERDOMAIN": ""}):
+        fake_ctypes = Mock()
+        fake_ctypes.windll.advapi32.GetUserNameW.return_value = False
+        with (
+            patch.dict(os.environ, {"USERNAME": "student", "USERDOMAIN": ""}),
+            patch("hdu_sniper.scheduler.ctypes", fake_ctypes),
+        ):
             success, _ = service._configure_windows_task("20:00:00", wake_to_run=True)
 
         self.assertTrue(success)
         fallback_command = mock_run.call_args_list[1].args[0]
         self.assertEqual(fallback_command[fallback_command.index("/RU") + 1], "student")
 
+    @patch("subprocess.run")
+    def test_windows_configuration_uses_oem_output_encoding(self, mock_run):
+        from hdu_sniper.scheduler import SchedulerService, _windows_output_encoding
+
+        service = SchedulerService(self.paths, Path(__file__).resolve().parents[1])
+        service.system = "Windows"
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        service._configure_windows_task("20:00:00", wake_to_run=True)
+
+        self.assertEqual(mock_run.call_args.kwargs["encoding"], _windows_output_encoding())
+
+    def test_windows_output_encoding_is_registered_codec(self):
+        import codecs
+
+        from hdu_sniper.scheduler import _windows_output_encoding
+
+        encoding = _windows_output_encoding()
+        self.assertTrue(encoding)
+        codecs.lookup(encoding)
+
     def test_windows_user_task_requires_current_username(self):
-        with patch.dict(os.environ, {"USERNAME": "", "USERDOMAIN": ""}):
+        fake_ctypes = Mock()
+        fake_ctypes.windll.advapi32.GetUserNameW.return_value = False
+        with (
+            patch.dict(os.environ, {"USERNAME": "", "USERDOMAIN": ""}),
+            patch("hdu_sniper.scheduler.ctypes", fake_ctypes),
+        ):
             self.assertIsNone(self.service._current_windows_user())
+
+    def test_windows_user_task_prefers_token_identity(self):
+        buffer = Mock()
+        buffer.value = "tokenuser"
+        fake_ctypes = Mock()
+        fake_ctypes.create_unicode_buffer.return_value = buffer
+        fake_ctypes.windll.advapi32.GetUserNameW.return_value = True
+        with (
+            patch.dict(os.environ, {"USERNAME": "envuser", "USERDOMAIN": "HDU"}),
+            patch("hdu_sniper.scheduler.ctypes", fake_ctypes),
+        ):
+            self.assertEqual(self.service._current_windows_user(), "tokenuser")
 
     def test_auto_schedule_script_falls_back_to_unelevated_current_user_task(self):
         script = (Path(__file__).resolve().parents[1] / "scripts" / "AutoSchedule.ps1").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn('"/RU", $CurrentUserId', script)
-        self.assertIn('"/RL", "LIMITED"', script)
-        self.assertIn('"/IT"', script)
+        # 时间先独立校验，避免把任务计划程序的真实错误误报为时间格式无效。
+        self.assertIn("[datetime]::TryParse", script)
+        self.assertIn("New-ScheduledTaskTrigger -Daily -At $ParsedDailyAt", script)
+        # 注册失败统一由应用侧用短启动脚本回退，脚本内不再拼长 /TR 命令行。
+        self.assertNotIn('"/RU", $CurrentUserId', script)
+        self.assertNotIn("& schtasks.exe", script)
+        self.assertNotIn("SchtasksArguments", script)
         self.assertNotIn('"SYSTEM"', script)
 
     def test_find_pythonw_returns_optional_path(self):

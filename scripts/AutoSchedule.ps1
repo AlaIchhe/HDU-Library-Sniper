@@ -69,12 +69,24 @@ $WakeToRun = if ($env:SNIPER_WAKE_TO_RUN) {
     $true
 }
 
-try {
-    $Trigger = New-ScheduledTaskTrigger -Daily -At $DailyAt
-} catch {
+# Validate the time independently before touching the Task Scheduler API.
+# The cmdlet can fail for other reasons (e.g. access denied), and swallowing
+# those errors here would misreport them as an invalid time format.
+$ParsedDailyAt = [datetime]::MinValue
+$TimeParsed = [datetime]::TryParse(
+    $DailyAt,
+    [Globalization.CultureInfo]::InvariantCulture,
+    [Globalization.DateTimeStyles]::None,
+    [ref]$ParsedDailyAt
+)
+if (-not $TimeParsed) {
+    $TimeParsed = [datetime]::TryParse($DailyAt, [ref]$ParsedDailyAt)
+}
+if (-not $TimeParsed) {
     Write-Error "Invalid scheduled time: '$DailyAt'."
     Exit 4
 }
+$Trigger = New-ScheduledTaskTrigger -Daily -At $ParsedDailyAt
 
 if (-not (Test-Path -Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
@@ -113,42 +125,19 @@ if ($WakeToRun) {
 $TaskSettings = New-ScheduledTaskSettingsSet @SettingsParams
 $Description = "Run HDU-Library-Sniper daily at $DailyAt"
 
-try {
-    Register-ScheduledTask `
-        -TaskName $TaskName `
-        -Description $Description `
-        -Action $Action `
-        -Trigger $Trigger `
-        -Principal $Principal `
-        -Settings $TaskSettings `
-        -Force | Out-Null
-    $RegistrationMode = "ScheduledTasks"
-} catch {
-    $RegistrationError = $_.Exception.Message
-    $AccessDenied = $RegistrationError -match '(?i)access\s+(is\s+)?denied|permission\s+denied|0x80070005|拒绝访问|权限不足'
-    if (-not $AccessDenied) {
-        throw
-    }
-
-    # Create an unelevated, current-user task rather than retrying as SYSTEM or with
-    # the highest run level. /IT deliberately preserves the interactive logon model.
-    $SchtasksArguments = @(
-        "/Create", "/TN", $TaskName,
-        "/TR", ("powershell.exe " + $ActionArgument),
-        "/SC", "DAILY",
-        "/ST", $DailyAt.Substring(0, 5),
-        "/RU", $CurrentUserId,
-        "/RL", "LIMITED",
-        "/IT",
-        "/F"
-    )
-    $SchtasksOutput = & schtasks.exe @SchtasksArguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error ("Unable to create a current-user task with schtasks: " + ($SchtasksOutput -join "`n"))
-        Exit $LASTEXITCODE
-    }
-    $RegistrationMode = "schtasks current-user compatibility mode"
-}
+# Registration failures (e.g. access denied) propagate to the caller. The
+# application then retries with schtasks.exe using a short runner script;
+# building the schtasks command line here from $ActionArgument can exceed the
+# 261-character /TR limit and would mask the real cause.
+Register-ScheduledTask `
+    -TaskName $TaskName `
+    -Description $Description `
+    -Action $Action `
+    -Trigger $Trigger `
+    -Principal $Principal `
+    -Settings $TaskSettings `
+    -Force | Out-Null
+$RegistrationMode = "ScheduledTasks"
 
 Write-Host ('Scheduled task {0} created for {1} daily.' -f $TaskName, $DailyAt)
 Write-Host ('Run as: {0}' -f $CurrentUserId)

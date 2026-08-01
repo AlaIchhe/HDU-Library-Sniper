@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
+import locale
 import os
 import platform
 import shlex
@@ -17,6 +19,28 @@ from hdu_sniper.paths import APP_HOME_ENV, AppPaths
 TASK_MARKER = "HDU-Library-Sniper"
 DAILY_RUN_TIME = "20:00:00"
 WINDOWS_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def _windows_output_encoding() -> str:
+    """返回 Windows 控制台程序实际使用的 OEM 代码页。
+
+    ``powershell.exe`` / ``schtasks.exe`` 在中文系统上默认以 GBK(OEM 936)
+    输出错误信息；若一律按 UTF-8 解码，错误文本会变成乱码并干扰权限判断。
+    非 Windows 平台仍使用 UTF-8。
+    """
+    if os.name == "nt":
+        try:
+            code_page = ctypes.windll.kernel32.GetOEMCP()
+            return f"cp{code_page}"
+        except Exception:
+            pass
+        try:
+            encoding = locale.getpreferredencoding(False)
+            if encoding:
+                return encoding
+        except Exception:
+            pass
+    return "utf-8"
 
 
 @dataclass
@@ -160,7 +184,7 @@ class SchedulerService:
                 capture_output=True,
                 text=True,
                 timeout=60,
-                encoding="utf-8",
+                encoding=_windows_output_encoding(),
                 errors="replace",
                 creationflags=WINDOWS_NO_WINDOW,
             )
@@ -207,7 +231,7 @@ class SchedulerService:
                 text=True,
                 timeout=30,
                 env=env,
-                encoding="utf-8",
+                encoding=_windows_output_encoding(),
                 errors="replace",
                 creationflags=WINDOWS_NO_WINDOW,
             )
@@ -266,7 +290,7 @@ class SchedulerService:
                 capture_output=True,
                 text=True,
                 timeout=30,
-                encoding="utf-8",
+                encoding=_windows_output_encoding(),
                 errors="replace",
                 creationflags=WINDOWS_NO_WINDOW,
             )
@@ -441,7 +465,21 @@ try {{
 
     @staticmethod
     def _current_windows_user() -> str | None:
-        """返回 schtasks 可用的当前交互用户标识，不回退到 SYSTEM。"""
+        """返回 schtasks 可用的当前交互用户标识，不回退到 SYSTEM。
+
+        优先读取进程令牌中的用户名（`USERNAME` 环境变量在受限/代理环境下
+        可能与实际令牌用户不一致），失败时再回退到环境变量。
+        """
+        if os.name == "nt":
+            try:
+                buffer = ctypes.create_unicode_buffer(256)
+                size = ctypes.c_ulong(256)
+                if ctypes.windll.advapi32.GetUserNameW(buffer, ctypes.byref(size)):
+                    username = buffer.value.strip()
+                    if username:
+                        return username
+            except Exception:
+                pass
         username = os.environ.get("USERNAME", "").strip()
         if not username:
             return None
@@ -459,6 +497,7 @@ try {{
                 "access denied",
                 "permission denied",
                 "0x80070005",
+                "0x80041003",
                 "拒绝访问",
                 "权限不足",
             )
@@ -516,7 +555,7 @@ try {{
             ["where", "pythonw.exe"],
             capture_output=True,
             text=True,
-            encoding="utf-8",
+            encoding=_windows_output_encoding(),
             errors="replace",
             creationflags=WINDOWS_NO_WINDOW,
         )
