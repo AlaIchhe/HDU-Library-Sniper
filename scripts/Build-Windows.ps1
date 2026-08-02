@@ -11,6 +11,10 @@ $Version = (Select-String -Path (Join-Path $Root "pyproject.toml") -Pattern '^ve
 if ($env:RELEASE_VERSION -and $env:RELEASE_VERSION -match '^v?([0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?)$') {
     $Version = $Matches[1]
 }
+$PackageVersion = (Select-String -Path (Join-Path $Root "src\hdu_sniper\__init__.py") -Pattern '^__version__ = "(.+)"$').Matches.Groups[1].Value
+if ($PackageVersion -ne $Version) {
+    throw "Version mismatch: release/pyproject version is '$Version' but src/hdu_sniper/__init__.py reports '$PackageVersion'."
+}
 $BrowserDir = Join-Path $Root "packaging\.cache\playwright-browsers"
 $FontDir = Join-Path $Root "assets\fonts"
 $DesktopDir = Join-Path $Root "build\desktop"

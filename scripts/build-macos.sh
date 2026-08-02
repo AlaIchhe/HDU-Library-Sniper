@@ -6,6 +6,11 @@ VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/pyproject.toml" | head 
 if [[ "${RELEASE_VERSION:-}" =~ ^v?([0-9]+(\.[0-9]+){2}([-+][0-9A-Za-z.-]+)?)$ ]]; then
   VERSION="${BASH_REMATCH[1]}"
 fi
+PACKAGE_VERSION="$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' "$ROOT/src/hdu_sniper/__init__.py" | head -n 1)"
+if [[ "$PACKAGE_VERSION" != "$VERSION" ]]; then
+  echo "Version mismatch: release/pyproject version is '$VERSION' but src/hdu_sniper/__init__.py reports '$PACKAGE_VERSION'." >&2
+  exit 1
+fi
 BROWSER_DIR="$ROOT/packaging/.cache/playwright-browsers"
 FONT_DIR="$ROOT/assets/fonts"
 DESKTOP_DIR="$ROOT/build/desktop"
