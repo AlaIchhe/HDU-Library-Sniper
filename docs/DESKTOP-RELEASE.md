@@ -24,6 +24,22 @@ scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push
 
 也可以先不带参数运行，只修改本地文件并预览改动（`-DryRun`）。构建脚本和发布工作流会校验三处版本号及标签一致，不一致时直接构建失败。
 
+### Release 描述
+
+Release 描述默认由 GitHub 根据提交自动生成。如果想写自定义发布说明，可以在打标签时把说明写进标签消息，发布时会自动作为描述的开头，自动生成的更新日志会跟在后面：
+
+```powershell
+scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -NotesFile RELEASE_NOTES.md
+```
+
+也可以直接传文本（多行文本用 PowerShell 反引号 `` `n `` 换行）：
+
+```powershell
+scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -Notes "新功能：支持自动签到`n修复：预约时间校验"
+```
+
+不带 `-Notes` / `-NotesFile` 时，Release 描述就是 GitHub 自动生成的内容，不受影响。
+
 桌面版本包含 Python 运行时、项目依赖和 Chromium。最终用户不需要安装 Python、运行命令或下载浏览器。
 
 ## Windows

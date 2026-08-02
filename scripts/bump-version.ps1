@@ -12,6 +12,9 @@
 
 .EXAMPLE
     .\scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push
+
+.EXAMPLE
+    .\scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -NotesFile RELEASE_NOTES.md
 #>
 param(
     [Parameter(Mandatory = $true, Position = 0)]
@@ -22,6 +25,8 @@ param(
     [switch]$Tag,
     [switch]$Push,
     [switch]$SkipLock,
+    [string]$Notes,
+    [string]$NotesFile,
     [switch]$DryRun
 )
 
@@ -67,6 +72,23 @@ function Invoke-Checked {
     if ($LASTEXITCODE -ne 0) {
         throw "$Command failed with exit code $LASTEXITCODE"
     }
+}
+
+if ($Notes -and $NotesFile) {
+    throw "Specify only one of -Notes or -NotesFile."
+}
+$notesText = ""
+if ($NotesFile) {
+    if (-not (Test-Path -LiteralPath $NotesFile -PathType Leaf)) {
+        throw "Notes file not found: $NotesFile"
+    }
+    $notesText = (Read-Utf8 -Path $NotesFile).TrimEnd("`r", "`n")
+} elseif ($Notes) {
+    $notesText = $Notes.TrimEnd("`r", "`n")
+}
+$tagMessage = "Release $TagName"
+if ($notesText) {
+    $tagMessage += "`n`n" + $notesText
 }
 
 $currentVersion = Get-CurrentVersion -Path $PyProject -Pattern '(?m)^version = "([^"]+)"'
@@ -123,7 +145,13 @@ if ($Tag -and -not $Commit) {
 if ($DryRun) {
     if ($filesChanged) {
         if ($Commit) { Write-Host "[DRY-RUN] Would commit: chore: bump version to $Version" }
-        if ($Tag) { Write-Host "[DRY-RUN] Would create tag: $TagName" }
+        if ($Tag) {
+            Write-Host "[DRY-RUN] Would create tag: $TagName"
+            if ($notesText) {
+                Write-Host "[DRY-RUN] Tag message body:"
+                $notesText -split "`n" | ForEach-Object { Write-Host "  $_" }
+            }
+        }
         if ($Push) { Write-Host "[DRY-RUN] Would push branch and tag" }
     } elseif ($Tag) {
         if ($Tag) { Write-Host "[DRY-RUN] Would create tag: $TagName" }
@@ -148,7 +176,7 @@ if ($Tag) {
     if ($LASTEXITCODE -eq 0) {
         throw "Tag $TagName already exists."
     }
-    Invoke-Checked "git" @("tag", "-a", $TagName, "-m", "Release $TagName")
+    Invoke-Checked "git" @("tag", "-a", $TagName, "-m", $tagMessage)
 }
 
 if ($Push) {
