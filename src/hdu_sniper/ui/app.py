@@ -711,12 +711,12 @@ class SniperFletView:
             )
         )
 
-    def _open_update_download(self, _event) -> None:
+    async def _open_update_download(self, _event) -> None:
         update = self.available_update
         if update is None:
             return
         self.page.pop_dialog()
-        self.page.launch_url(update.download_url or update.release_url)
+        await self.page.launch_url(update.download_url or update.release_url)
 
     def _resize(self, event) -> None:
         self._apply_responsive_layout(width=event.width, update=True)
