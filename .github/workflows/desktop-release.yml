@@ -13,8 +13,31 @@ env:
   RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 
 jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify release version matches package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' pyproject.toml | head -n 1)"
+          package_version="$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' src/hdu_sniper/__init__.py | head -n 1)"
+          if [[ "$project_version" != "$package_version" ]]; then
+            echo "Version mismatch: pyproject.toml=$project_version, src/hdu_sniper/__init__.py=$package_version" >&2
+            exit 1
+          fi
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            tag_version="${RELEASE_VERSION#v}"
+            if [[ "$tag_version" != "$project_version" ]]; then
+              echo "Tag version mismatch: tag=$RELEASE_VERSION, project=$project_version" >&2
+              exit 1
+            fi
+          fi
+
   build-windows:
     runs-on: windows-latest
+    needs: validate-version
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -36,6 +59,7 @@ jobs:
 
   build-macos:
     runs-on: macos-latest
+    needs: validate-version
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
