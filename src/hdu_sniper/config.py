@@ -15,6 +15,18 @@ from hdu_sniper.paths import AppPaths, resolve_app_paths
 
 SCHEMA_VERSION = 1
 
+CHECK_IN_AGREEMENT_VERSION = "2026-08-02.1"
+CHECK_IN_AGREEMENT_TEXT = (
+    "自动签到功能会代替你向图书馆平台发起签到请求。启用前请确认：\n"
+    "1. 该行为可能违反学校或图书馆平台的使用规则，存在账号被封禁、"
+    "预约资格受限等风险；\n"
+    "2. 本工具仅按你配置的计划自动执行，不对任何账号处罚或预约失效"
+    "承担后果；\n"
+    "3. 你可以随时在“调度”页关闭自动签到，关闭后已创建的系统任务"
+    "会被移除。\n"
+    "勾选即表示你已阅读并知悉上述风险，自愿承担由此产生的全部后果。"
+)
+
 
 class ConfigError(ValueError):
     """配置文件存在但内容无效。"""
@@ -31,6 +43,10 @@ class Settings:
     window_wait_seconds: float = 30.0
     window_poll_interval: float = 1.0
     wechat_webhook: str = ""
+    auto_check_in_enabled: bool = False
+    auto_check_in_agreement_version: str = ""
+    auto_check_in_agreed_at: str = ""
+    check_in_retry_interval: float = 120.0
 
 
 @dataclass(frozen=True)
@@ -70,17 +86,26 @@ def load_settings(
             raise ConfigError(
                 f"不支持的配置版本 {version!r}，当前版本为 {SCHEMA_VERSION}: {settings_file}",
             )
-        unknown_sections = set(data) - {"schema_version", "booking", "notification"}
+        unknown_sections = set(data) - {
+            "schema_version",
+            "booking",
+            "notification",
+            "auto_check_in",
+        }
         if unknown_sections:
             names = ", ".join(sorted(unknown_sections))
             raise ConfigError(f"未知配置节点: {names}: {settings_file}")
 
     booking = _mapping(data.get("booking"), "booking")
     notification = _mapping(data.get("notification"), "notification")
+    auto_check_in = _mapping(data.get("auto_check_in"), "auto_check_in")
     webhook = environ.get("HDU_WECHAT_WEBHOOK", "").strip()
     dry_run = booking.get("dry_run", False)
     if not isinstance(dry_run, bool):
         raise ConfigError(f"booking.dry_run 必须是布尔值: {settings_file}")
+    check_in_enabled = auto_check_in.get("enabled", False)
+    if not isinstance(check_in_enabled, bool):
+        raise ConfigError(f"auto_check_in.enabled 必须是布尔值: {settings_file}")
 
     try:
         settings = Settings(
@@ -91,6 +116,12 @@ def load_settings(
             window_wait_seconds=float(booking.get("window_wait_seconds", 30.0)),
             window_poll_interval=float(booking.get("window_poll_interval", 1.0)),
             wechat_webhook=webhook or str(notification.get("wechat_webhook", "")),
+            auto_check_in_enabled=check_in_enabled,
+            auto_check_in_agreement_version=str(
+                auto_check_in.get("agreement_version", "")
+            ),
+            auto_check_in_agreed_at=str(auto_check_in.get("agreed_at", "")),
+            check_in_retry_interval=float(auto_check_in.get("retry_interval", 120.0)),
         )
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"配置字段类型错误: {settings_file}: {exc}") from exc
@@ -100,7 +131,40 @@ def load_settings(
         raise ConfigError("booking.retry_delay 不能为负数")
     if settings.window_wait_seconds < 0 or settings.window_poll_interval <= 0:
         raise ConfigError("预约窗口等待时间不能为负，轮询间隔必须大于 0")
+    if settings.check_in_retry_interval <= 0:
+        raise ConfigError("auto_check_in.retry_interval 必须大于 0")
     return settings
+
+
+def save_settings(settings: Settings, path: str | Path) -> None:
+    """将业务配置原子写入 YAML 文件，供自动签到等运行时开关使用。"""
+    data = {
+        "schema_version": SCHEMA_VERSION,
+        "booking": {
+            "max_trials": settings.max_trials,
+            "retry_delay": settings.retry_delay,
+            "dry_run": settings.dry_run,
+            "window_wait_seconds": settings.window_wait_seconds,
+            "window_poll_interval": settings.window_poll_interval,
+        },
+        "notification": {"wechat_webhook": settings.wechat_webhook},
+        "auto_check_in": {
+            "enabled": settings.auto_check_in_enabled,
+            "agreement_version": settings.auto_check_in_agreement_version,
+            "agreed_at": settings.auto_check_in_agreed_at,
+            "retry_interval": settings.check_in_retry_interval,
+        },
+    }
+    settings_path = Path(path).expanduser()
+    if not settings_path.is_absolute():
+        raise ValueError(f"配置路径必须是绝对路径: {settings_path}")
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = settings_path.with_suffix(f"{settings_path.suffix}.tmp")
+    temporary_path.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    temporary_path.replace(settings_path)
 
 
 def _secret_from_env(name: str, environ: Mapping[str, str]) -> str:

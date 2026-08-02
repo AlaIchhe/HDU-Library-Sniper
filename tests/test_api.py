@@ -138,3 +138,40 @@ def test_booking_endpoints_delegate_account_actions() -> None:
     application.come_back_booking.assert_called_once_with("1")
     application.leave_booking.assert_called_once_with("1")
     application.sign_out_booking.assert_called_once_with("1")
+
+
+def test_auto_check_in_status_and_enable_disable_endpoints() -> None:
+    application = Mock(authenticated=True)
+    application.auto_check_in_status.return_value = {
+        "enabled": False,
+        "agreement_version": "",
+        "agreed_at": "",
+        "current_agreement_version": "v1",
+        "consent_valid": False,
+    }
+    application.enable_auto_check_in.return_value = (True, "enabled")
+    application.disable_auto_check_in.return_value = (True, "disabled")
+
+    with patch("hdu_sniper.server.get_app", return_value=application):
+        client = TestClient(app)
+        status_response = client.get("/api/v1/auto-check-in")
+        enable_response = client.post("/api/v1/auto-check-in/enable")
+        disable_response = client.post("/api/v1/auto-check-in/disable")
+
+    assert status_response.status_code == 200
+    assert status_response.json()["consent_valid"] is False
+    assert enable_response.json() == {"success": True, "message": "enabled"}
+    assert disable_response.json() == {"success": True, "message": "disabled"}
+    application.enable_auto_check_in.assert_called_once_with()
+    application.disable_auto_check_in.assert_called_once_with()
+
+
+def test_auto_check_in_enable_conflict_reports_message() -> None:
+    application = Mock(authenticated=True)
+    application.enable_auto_check_in.return_value = (False, "denied")
+
+    with patch("hdu_sniper.server.get_app", return_value=application):
+        response = TestClient(app).post("/api/v1/auto-check-in/enable")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "denied"}

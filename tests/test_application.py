@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
-from hdu_sniper.app import AuthenticationRequiredError, DailySchedulerActivation, SniperApp
+from hdu_sniper.app import (
+    AuthenticationRequiredError,
+    CheckInExitCode,
+    DailySchedulerActivation,
+    SniperApp,
+)
 from hdu_sniper.booking.models import BookingPlan, BookingResult
-from hdu_sniper.config import Settings
+from hdu_sniper.config import CHECK_IN_AGREEMENT_VERSION, Settings
 from hdu_sniper.events import EventKind, JobState
 from hdu_sniper.library.client import AuthenticationExpiredError
 from hdu_sniper.paths import AppPaths
@@ -479,3 +485,150 @@ def test_enabled_plan_count_uses_enabled_plans(tmp_path: Path) -> None:
     ]
 
     assert application.enabled_plan_count() == 2
+
+
+def _grant_checkin_consent(application: SniperApp) -> None:
+    application.settings = replace(
+        application.settings,
+        auto_check_in_enabled=True,
+        auto_check_in_agreement_version=CHECK_IN_AGREEMENT_VERSION,
+        auto_check_in_agreed_at="2026-08-02T08:00:00+00:00",
+    )
+
+
+def test_auto_check_in_requires_consent_gate(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+
+    results = application.auto_check_in()
+
+    assert results == [
+        {
+            "success": False,
+            "message": "自动签到未启用：请先在“调度”页阅读并勾选风险协议后开启",
+        }
+    ]
+    dependencies["client"].get_bookings.assert_not_called()
+
+
+def test_auto_check_in_runs_when_consented(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    _grant_checkin_consent(application)
+    booking = {
+        "id": "1",
+        "status": "0",
+        "time": "1000",
+        "nowTime": "1000",
+        "limitSignAgo": "1800",
+        "limitSignBack": "1800",
+    }
+    dependencies["client"].get_bookings.side_effect = [
+        [booking],
+        [booking],
+        [{"id": "1", "status": "1"}],
+    ]
+    dependencies["client"].check_in_booking.return_value = {
+        "CODE": "ok",
+        "DATA": {"result": "success"},
+    }
+
+    results = application.auto_check_in()
+
+    assert results == [{"id": "1", "success": True, "message": "签到成功，座位使用中"}]
+
+
+def test_enable_auto_check_in_persists_consent_and_syncs_tasks(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    bookings = [{"id": "1", "status": "0"}]
+    dependencies["client"].get_bookings.return_value = bookings
+    dependencies["scheduler"].sync_checkin_tasks.return_value = (True, "ok")
+
+    success, message = application.enable_auto_check_in()
+
+    assert success is True
+    assert application.settings.auto_check_in_enabled is True
+    assert application.settings.auto_check_in_agreement_version == CHECK_IN_AGREEMENT_VERSION
+    assert application.settings.auto_check_in_agreed_at
+    stored = application.settings.paths.settings_file.read_text(encoding="utf-8")
+    assert "enabled: true" in stored
+    dependencies["scheduler"].sync_checkin_tasks.assert_called_once_with(
+        bookings,
+        enabled=True,
+    )
+
+
+def test_enable_auto_check_in_keeps_consent_when_sync_fails(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    dependencies["client"].get_bookings.return_value = []
+    dependencies["scheduler"].sync_checkin_tasks.return_value = (False, "denied")
+
+    success, message = application.enable_auto_check_in()
+
+    assert success is False
+    assert "denied" in message
+    assert application.settings.auto_check_in_enabled is True
+    dependencies["notifier"].send.assert_called_once_with(
+        "自动签到调度配置失败",
+        "denied",
+        success=False,
+    )
+
+
+def test_disable_auto_check_in_removes_tasks_and_keeps_history(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    _grant_checkin_consent(application)
+    dependencies["scheduler"].remove_checkin_tasks.return_value = (True, "removed")
+
+    success, message = application.disable_auto_check_in()
+
+    assert success is True
+    assert application.settings.auto_check_in_enabled is False
+    assert application.settings.auto_check_in_agreement_version == CHECK_IN_AGREEMENT_VERSION
+    assert application.settings.auto_check_in_agreed_at
+    dependencies["scheduler"].remove_checkin_tasks.assert_called_once_with()
+
+
+def test_auto_check_in_status_reflects_consent(tmp_path: Path) -> None:
+    application, _dependencies = build_test_application(tmp_path)
+
+    status = application.auto_check_in_status()
+    assert status["enabled"] is False
+    assert status["consent_valid"] is False
+    assert status["current_agreement_version"] == CHECK_IN_AGREEMENT_VERSION
+
+    _grant_checkin_consent(application)
+    status = application.auto_check_in_status()
+    assert status["enabled"] is True
+    assert status["consent_valid"] is True
+
+
+def test_run_checkin_exit_codes(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+
+    assert application.run_checkin() == CheckInExitCode.NOT_ENABLED
+
+    _grant_checkin_consent(application)
+    dependencies["booking"].ensure_login.return_value = False
+    assert application.run_checkin() == CheckInExitCode.AUTH_FAILED
+
+    dependencies["booking"].ensure_login.return_value = True
+    dependencies["client"].get_bookings.return_value = []
+    assert application.run_checkin() == CheckInExitCode.FAILED
+
+    booking = {
+        "id": "1",
+        "status": "0",
+        "time": "1000",
+        "nowTime": "1000",
+        "limitSignAgo": "1800",
+        "limitSignBack": "1800",
+    }
+    dependencies["client"].get_bookings.side_effect = [
+        [booking],
+        [booking],
+        [{"id": "1", "status": "1"}],
+    ]
+    dependencies["client"].check_in_booking.return_value = {
+        "CODE": "ok",
+        "DATA": {"result": "success"},
+    }
+    assert application.run_checkin() == CheckInExitCode.SUCCESS

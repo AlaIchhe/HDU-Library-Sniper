@@ -468,7 +468,7 @@ class BookingRunner:
             if skip_reason is not None:
                 return ExitCode.SUCCESS
 
-        if not self.login.try_cache() and not self._relogin_with_credentials():
+        if not self.ensure_login():
             self.notifier.send(
                 "抢座任务无法启动",
                 "登录态已过期且自动登录失败，请重新登录或提供环境 secret。",
@@ -504,6 +504,12 @@ class BookingRunner:
         return (
             ExitCode.SUCCESS if any(result.success for result in results) else ExitCode.ALL_FAILED
         )
+
+    def ensure_login(self) -> bool:
+        """尝试恢复缓存登录态，失败时用保存的凭据重新登录。"""
+        if self.login.try_cache():
+            return True
+        return self._relogin_with_credentials()
 
     def _evaluate_schedule_policy(self, execute_at) -> str | None:
         """按预约日期规则判断本次是否运行；返回跳过原因或 None。"""

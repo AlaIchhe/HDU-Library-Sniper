@@ -13,6 +13,7 @@ import flet as ft
 from hdu_sniper import __version__
 from hdu_sniper.app import SniperApp
 from hdu_sniper.booking.time import BOOKING_DAY_OFFSET, CST
+from hdu_sniper.config import CHECK_IN_AGREEMENT_TEXT
 from hdu_sniper.events import ApplicationEvent, EventKind, JobState
 from hdu_sniper.library import responses
 from hdu_sniper.library.client import ROOM_TYPE_MAP
@@ -242,6 +243,31 @@ class SniperFletView:
             on_click=self._refresh_scheduled_tasks,
         )
         self.schedule_list = ft.Column(spacing=8)
+        self.checkin_status_text = ft.Text(
+            "未启用",
+            size=15,
+            weight=ft.FontWeight.W_600,
+            color=FOREGROUND,
+        )
+        self.checkin_agreed_text = ft.Text(
+            "默认关闭；启用需阅读并同意风险协议。",
+            size=12,
+            color=MUTED,
+        )
+        self.enable_checkin_button = ft.FilledButton(
+            "启用自动签到",
+            icon=ft.Icons.SHIELD,
+            color=BACKGROUND,
+            bgcolor=ACCENT_SECONDARY,
+            icon_color=BACKGROUND,
+            on_click=self._open_checkin_consent_dialog,
+        )
+        self.disable_checkin_button = ft.Button(
+            "关闭自动签到",
+            icon=ft.Icons.POWER_SETTINGS_NEW,
+            on_click=self._disable_auto_check_in,
+            disabled=True,
+        )
         self.schedule_policy_icon = ft.Icon(ft.Icons.EVENT_AVAILABLE, color=ACCENT_SECONDARY)
         self.schedule_policy_title = ft.Text("自动预约已启用", size=16, weight=ft.FontWeight.W_600)
         self.schedule_rule_value = ft.Text("—", size=15, weight=ft.FontWeight.W_600)
@@ -456,6 +482,46 @@ class SniperFletView:
                 self._surface(
                     ft.Column(
                         [
+                            ft.Row(
+                                [
+                                    ft.Icon(ft.Icons.SHIELD, color=ACCENT_SECONDARY),
+                                    ft.Column(
+                                        [
+                                            ft.Text(
+                                                "自动签到（可选功能）",
+                                                size=16,
+                                                weight=ft.FontWeight.W_600,
+                                            ),
+                                            ft.Row(
+                                                [
+                                                    ft.Text("当前状态", size=14, color=MUTED),
+                                                    self.checkin_status_text,
+                                                ],
+                                                spacing=8,
+                                            ),
+                                            self.checkin_agreed_text,
+                                        ],
+                                        spacing=6,
+                                        expand=True,
+                                    ),
+                                    ft.Column(
+                                        [
+                                            self.enable_checkin_button,
+                                            self.disable_checkin_button,
+                                        ],
+                                        spacing=8,
+                                    ),
+                                ],
+                                spacing=16,
+                                vertical_alignment=ft.CrossAxisAlignment.START,
+                            ),
+                        ],
+                        spacing=8,
+                    )
+                ),
+                self._surface(
+                    ft.Column(
+                        [
                             ft.Text("系统任务详情", size=16, weight=ft.FontWeight.W_600),
                             ft.Row(
                                 [self.schedule_summary, self.refresh_schedules_button],
@@ -610,6 +676,7 @@ class SniperFletView:
         elif selected_index == 2:
             self.page.run_task(self._refresh_schedule_policy)
             self.page.run_task(self._refresh_scheduled_tasks)
+            self.page.run_task(self._refresh_check_in_status)
         self.page.update()
 
     def _open_reauthentication(self, _event) -> None:
@@ -645,6 +712,7 @@ class SniperFletView:
             self.page.run_task(self._load_room_types)
             self.page.run_task(self._refresh_schedule_policy)
             self.page.run_task(self._refresh_scheduled_tasks)
+            self.page.run_task(self._refresh_check_in_status)
         self._schedule_update_check()
         if update:
             self.page.update()
@@ -1324,6 +1392,9 @@ class SniperFletView:
         except Exception as exc:
             self._show_message(f"自动签到失败：{exc}", error=True)
         else:
+            if len(results) == 1 and not results[0].get("success"):
+                self._show_message(str(results[0].get("message") or "自动签到失败"), error=True)
+                return
             successes = sum(bool(item.get("success")) for item in results)
             self._show_message(f"自动签到完成：{successes}/{len(results)} 条成功")
             await self._refresh_bookings()
@@ -1432,6 +1503,99 @@ class SniperFletView:
             self.refresh_schedules_button.disabled = False
             with contextlib.suppress(RuntimeError):
                 self.page.update()
+
+    async def _refresh_check_in_status(self, _event=None) -> None:
+        try:
+            status = await asyncio.to_thread(self.application.auto_check_in_status)
+        except Exception as exc:
+            self.checkin_status_text.value = "读取失败"
+            self.checkin_agreed_text.value = str(exc)
+            with contextlib.suppress(RuntimeError):
+                self.page.update()
+            return
+        enabled = bool(status.get("enabled")) and bool(status.get("consent_valid"))
+        self.checkin_status_text.value = "已启用（风险自担）" if enabled else "未启用"
+        self.checkin_status_text.color = ACCENT_SECONDARY if enabled else FOREGROUND
+        self.enable_checkin_button.disabled = enabled
+        self.disable_checkin_button.disabled = not enabled
+        if enabled:
+            agreed_at = status.get("agreed_at") or "未知时间"
+            self.checkin_agreed_text.value = (
+                f"已同意风险协议（{agreed_at}）；登录触发与窗口开启时自动签到。"
+            )
+        else:
+            self.checkin_agreed_text.value = "默认关闭；启用需阅读并同意风险协议。"
+        with contextlib.suppress(RuntimeError):
+            self.page.update()
+
+    def _open_checkin_consent_dialog(self, _event) -> None:
+        checkbox = ft.Checkbox(
+            label="我已阅读并知悉封号风险，自愿承担全部后果，本系统概不负责",
+            value=False,
+            on_change=self._on_checkin_consent_change,
+        )
+        confirm = ft.FilledButton(
+            "同意并启用",
+            color=BACKGROUND,
+            bgcolor=ACCENT_SECONDARY,
+            icon_color=BACKGROUND,
+            disabled=True,
+            on_click=self._enable_auto_check_in,
+        )
+        self._checkin_consent_checkbox = checkbox
+        self._checkin_consent_confirm_button = confirm
+        self._checkin_consent_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("启用自动签到（可选功能）"),
+            content=ft.Column(
+                [
+                    ft.Text(CHECK_IN_AGREEMENT_TEXT, size=13),
+                    ft.Divider(height=1),
+                    checkbox,
+                ],
+                spacing=12,
+                tight=True,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            actions=[
+                ft.Button("暂不启用", on_click=lambda _e: self.page.pop_dialog()),
+                confirm,
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.show_dialog(self._checkin_consent_dialog)
+        self.page.update()
+
+    def _on_checkin_consent_change(self, event) -> None:
+        if self._checkin_consent_confirm_button is not None:
+            self._checkin_consent_confirm_button.disabled = not bool(event.control.value)
+            self.page.update()
+
+    async def _enable_auto_check_in(self, _event) -> None:
+        if self._checkin_consent_dialog is not None:
+            self.page.pop_dialog()
+        try:
+            success, message = await asyncio.to_thread(
+                self.application.enable_auto_check_in
+            )
+        except Exception as exc:
+            self._show_message(f"启用自动签到失败：{exc}", error=True)
+        else:
+            self._show_message(message, error=not success)
+        await self._refresh_check_in_status()
+        await self._refresh_scheduled_tasks()
+
+    async def _disable_auto_check_in(self, _event) -> None:
+        try:
+            success, message = await asyncio.to_thread(
+                self.application.disable_auto_check_in
+            )
+        except Exception as exc:
+            self._show_message(f"关闭自动签到失败：{exc}", error=True)
+        else:
+            self._show_message(message, error=not success)
+        await self._refresh_check_in_status()
+        await self._refresh_scheduled_tasks()
 
     def _render_scheduled_tasks(self, tasks: list[ScheduledTask]) -> None:
         self.schedule_list.controls.clear()

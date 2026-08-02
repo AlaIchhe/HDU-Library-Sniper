@@ -7,11 +7,13 @@ from pathlib import Path
 import pytest
 
 from hdu_sniper.config import (
+    CHECK_IN_AGREEMENT_VERSION,
     ConfigError,
     Credentials,
     load_credentials,
     load_settings,
     save_credentials,
+    save_settings,
 )
 from hdu_sniper.paths import resolve_app_paths
 
@@ -50,6 +52,58 @@ notification:
     assert settings.retry_delay == 0.5
     assert settings.dry_run is True
     assert settings.wechat_webhook == "from-file"
+
+
+def test_auto_check_in_defaults_to_disabled(tmp_path: Path) -> None:
+    paths = resolve_app_paths({"HDU_SNIPER_HOME": str(tmp_path)})
+
+    settings = load_settings(paths, env={})
+
+    assert settings.auto_check_in_enabled is False
+    assert settings.auto_check_in_agreement_version == ""
+    assert settings.auto_check_in_agreed_at == ""
+    assert settings.check_in_retry_interval == 120.0
+
+
+def test_auto_check_in_section_is_parsed_and_saved_round_trip(tmp_path: Path) -> None:
+    paths = resolve_app_paths({"HDU_SNIPER_HOME": str(tmp_path)})
+    paths.config_dir.mkdir(parents=True)
+    paths.settings_file.write_text(
+        f"""schema_version: 1
+booking:
+  max_trials: 5
+auto_check_in:
+  enabled: true
+  agreement_version: "{CHECK_IN_AGREEMENT_VERSION}"
+  agreed_at: "2026-08-02T08:00:00+00:00"
+  retry_interval: 60.0
+""",
+        encoding="utf-8",
+    )
+
+    settings = load_settings(paths, env={})
+
+    assert settings.auto_check_in_enabled is True
+    assert settings.auto_check_in_agreement_version == CHECK_IN_AGREEMENT_VERSION
+    assert settings.auto_check_in_agreed_at == "2026-08-02T08:00:00+00:00"
+    assert settings.check_in_retry_interval == 60.0
+
+    save_settings(settings, paths.settings_file)
+    reloaded = load_settings(paths, env={})
+
+    assert reloaded == settings
+
+
+def test_auto_check_in_enabled_must_be_boolean(tmp_path: Path) -> None:
+    paths = resolve_app_paths({"HDU_SNIPER_HOME": str(tmp_path)})
+    paths.config_dir.mkdir(parents=True)
+    paths.settings_file.write_text(
+        "schema_version: 1\nauto_check_in:\n  enabled: maybe\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match=r"auto_check_in\.enabled"):
+        load_settings(paths, env={})
 
 
 def test_webhook_environment_overrides_file(tmp_path: Path) -> None:

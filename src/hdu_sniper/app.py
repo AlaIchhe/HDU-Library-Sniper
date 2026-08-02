@@ -3,15 +3,24 @@
 from __future__ import annotations
 
 import contextlib
+import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from threading import RLock
 
 from hdu_sniper.booking.models import BookingPlan, BookingResult
 from hdu_sniper.booking.plans import BookingPlans
 from hdu_sniper.booking.runner import BookingRunner
-from hdu_sniper.config import Credentials, Settings, load_credentials, save_credentials
+from hdu_sniper.config import (
+    CHECK_IN_AGREEMENT_VERSION,
+    Credentials,
+    Settings,
+    load_credentials,
+    save_credentials,
+    save_settings,
+)
 from hdu_sniper.events import ApplicationEvent, EventKind, JobState
 from hdu_sniper.library import responses
 from hdu_sniper.library.client import AuthenticationExpiredError, LibraryClient
@@ -36,6 +45,15 @@ class DailySchedulerActivation:
     success: bool
     already_existed: bool
     message: str
+
+
+class CheckInExitCode:
+    """无头自动签到运行的退出码。"""
+
+    SUCCESS = 0
+    FAILED = 1
+    AUTH_FAILED = 2
+    NOT_ENABLED = 3
 
 
 class SniperApp:
@@ -357,6 +375,13 @@ class SniperApp:
 
     def auto_check_in(self) -> list[dict[str, str | bool]]:
         """扫描当前预约并自动签到所有已经进入窗口的预约。"""
+        if not self._auto_check_in_consented():
+            return [
+                {
+                    "success": False,
+                    "message": "自动签到未启用：请先在“调度”页阅读并勾选风险协议后开启",
+                }
+            ]
         if self.busy:
             return [{"success": False, "message": "当前任务正在运行，请稍后再自动签到"}]
         results: list[dict[str, str | bool]] = []
@@ -369,6 +394,135 @@ class SniperApp:
         if not results:
             return [{"success": False, "message": "没有处于可签到窗口的预约"}]
         return results
+
+    def auto_check_in_status(self) -> dict:
+        """返回自动签到开关、协议同意状态与当前协议版本。"""
+        return {
+            "enabled": self.settings.auto_check_in_enabled,
+            "agreement_version": self.settings.auto_check_in_agreement_version,
+            "agreed_at": self.settings.auto_check_in_agreed_at,
+            "current_agreement_version": CHECK_IN_AGREEMENT_VERSION,
+            "consent_valid": self._auto_check_in_consented(),
+        }
+
+    def enable_auto_check_in(self) -> tuple[bool, str]:
+        """记录风险协议同意并启用自动签到，随后同步系统任务。"""
+        self._require_authenticated()
+        if self.busy:
+            return False, "当前任务正在运行，请稍后再开启自动签到"
+        updated = replace(
+            self.settings,
+            auto_check_in_enabled=True,
+            auto_check_in_agreement_version=CHECK_IN_AGREEMENT_VERSION,
+            auto_check_in_agreed_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        )
+        try:
+            save_settings(updated, self.settings.paths.settings_file)
+        except OSError as exc:
+            return False, f"保存配置失败: {exc}"
+        self.settings = updated
+
+        try:
+            bookings = self._authenticated_call(self.client.get_bookings)
+            success, message = self.scheduler.sync_checkin_tasks(bookings, enabled=True)
+        except AuthenticationExpiredError:
+            self._expire_authentication()
+            message = "自动签到已启用，但登录态已失效，未能同步系统任务"
+            self.notifier.send("自动签到调度配置失败", message, success=False)
+            return False, message
+        except Exception as exc:
+            message = f"自动签到已启用，但调度配置失败: {exc}"
+            self.notifier.send("自动签到调度配置失败", message, success=False)
+            return False, message
+        if not success:
+            self.notifier.send("自动签到调度配置失败", message, success=False)
+            return False, message
+        return True, "自动签到已启用，登录触发与窗口签到任务已同步"
+
+    def disable_auto_check_in(self) -> tuple[bool, str]:
+        """关闭自动签到并移除相关系统任务，保留历史同意记录。"""
+        self._require_authenticated()
+        if self.busy:
+            return False, "当前任务正在运行，请稍后再关闭自动签到"
+        updated = replace(self.settings, auto_check_in_enabled=False)
+        try:
+            save_settings(updated, self.settings.paths.settings_file)
+        except OSError as exc:
+            return False, f"保存配置失败: {exc}"
+        self.settings = updated
+        try:
+            success, message = self.scheduler.remove_checkin_tasks()
+        except Exception as exc:
+            return False, f"自动签到已关闭，但清理系统任务失败: {exc}"
+        if not success:
+            return False, f"自动签到已关闭，但清理系统任务失败:\n{message}"
+        return True, "自动签到已关闭，相关系统任务已移除"
+
+    def run_checkin(self, *, wait: bool = False) -> int:
+        """无头自动签到入口；wait 时在签到窗口内持续重试。"""
+        if not self._auto_check_in_consented():
+            self.notifier.send(
+                "自动签到未启用",
+                "请在应用内阅读并同意风险协议后开启自动签到；"
+                "本工具不对账号封禁等后果负责。",
+                success=False,
+            )
+            return CheckInExitCode.NOT_ENABLED
+        if not self.booking.ensure_login():
+            self.notifier.send(
+                "自动签到无法启动",
+                "登录态已过期且自动登录失败，请重新登录。",
+                success=False,
+            )
+            return CheckInExitCode.AUTH_FAILED
+        with self._lock:
+            self._authenticated = True
+
+        interval = max(float(self.settings.check_in_retry_interval), 10.0)
+        deadline: float | None = None
+        while True:
+            results = self.auto_check_in()
+            if any(result.get("success") for result in results):
+                return CheckInExitCode.SUCCESS
+            if not wait:
+                return CheckInExitCode.FAILED
+            if deadline is None:
+                deadline = self._checkin_window_deadline()
+            if deadline is None:
+                return CheckInExitCode.FAILED
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                self.notifier.send(
+                    "自动签到失败",
+                    "签到窗口已结束，仍未完成签到。",
+                    success=False,
+                )
+                return CheckInExitCode.FAILED
+            time.sleep(min(interval, max(remaining, 1.0)))
+
+    def _auto_check_in_consented(self) -> bool:
+        return (
+            self.settings.auto_check_in_enabled
+            and self.settings.auto_check_in_agreement_version == CHECK_IN_AGREEMENT_VERSION
+        )
+
+    def _checkin_window_deadline(self) -> float | None:
+        """返回待签到预约中最晚的窗口关闭时间戳；没有待签到预约时返回 None。"""
+        try:
+            bookings = self.client.get_bookings()
+        except Exception:
+            return None
+        deadlines: list[float] = []
+        for item in bookings:
+            try:
+                if responses.booking_status(item) != responses.BOOKING_STATUS_PENDING:
+                    continue
+                begin_ts = responses.booking_begin_ts(item)
+                sign_back = int(item.get("limitSignBack") or 1800)
+            except (TypeError, ValueError):
+                continue
+            deadlines.append(float(begin_ts + sign_back))
+        return max(deadlines) if deadlines else None
 
     def check_in_test(self) -> list[dict[str, str | bool]]:
         """测试全部预约的签到条件，供界面一次性诊断。"""

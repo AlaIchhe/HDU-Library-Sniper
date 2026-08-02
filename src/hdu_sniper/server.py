@@ -163,6 +163,32 @@ def auto_check_in() -> dict:
     return {"results": _authenticated_application().auto_check_in()}
 
 
+@app.get("/api/v1/auto-check-in", tags=["auto-check-in"])
+def auto_check_in_status() -> dict:
+    """返回自动签到的开关、协议同意状态与当前协议版本。"""
+    return _authenticated_application().auto_check_in_status()
+
+
+@app.post("/api/v1/auto-check-in/enable", tags=["auto-check-in"])
+def enable_auto_check_in() -> dict[str, str | bool]:
+    """记录风险协议同意并启用自动签到，同步登录触发与窗口任务。"""
+    application = _authenticated_application()
+    success, message = application.enable_auto_check_in()
+    if not success:
+        raise HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=message)
+    return {"success": True, "message": message}
+
+
+@app.post("/api/v1/auto-check-in/disable", tags=["auto-check-in"])
+def disable_auto_check_in() -> dict[str, str | bool]:
+    """关闭自动签到并移除相关系统任务。"""
+    application = _authenticated_application()
+    success, message = application.disable_auto_check_in()
+    if not success:
+        raise HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=message)
+    return {"success": True, "message": message}
+
+
 @app.post("/api/v1/bookings/{booking_id}/leave", tags=["bookings"])
 def leave_booking(booking_id: str) -> dict[str, str | bool]:
     """让使用中的预约暂离。"""

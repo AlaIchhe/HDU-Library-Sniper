@@ -67,7 +67,7 @@ def test_authenticated_shell_hides_authentication_from_primary_navigation() -> N
     assert view.navigation_rail.visible is True
     assert view.reauthenticate_button.visible is True
     application.list_plans.assert_called_once_with()
-    assert page.run_task.call_count == 4
+    assert page.run_task.call_count == 5
 
 
 def test_reauthentication_entry_can_return_to_valid_session() -> None:
@@ -279,7 +279,7 @@ def test_navigation_refreshes_selected_business_view() -> None:
     page.run_task.reset_mock()
     view._navigate(SimpleNamespace(control=SimpleNamespace(selected_index=2)))
     assert view.content_frame.content is view.business_views[2]
-    assert page.run_task.call_count == 2
+    assert page.run_task.call_count == 3
 
 
 def test_navigation_redirects_expired_session_to_authentication() -> None:

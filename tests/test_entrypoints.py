@@ -80,6 +80,25 @@ def test_desktop_override_flag_bypasses_schedule_policy(monkeypatch) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("argument", "wait"),
+    [("--checkin-run", False), ("--checkin-wait", True)],
+)
+def test_desktop_routes_auto_checkin(argument: str, wait: bool, monkeypatch) -> None:
+    from hdu_sniper import desktop
+
+    application = Mock()
+    application.run_checkin.return_value = 0
+    monkeypatch.setattr("sys.argv", ["hdu-sniper", argument])
+    monkeypatch.setattr(desktop, "get_app", Mock(return_value=application))
+
+    with pytest.raises(SystemExit) as captured:
+        desktop.main()
+
+    assert captured.value.code == 0
+    application.run_checkin.assert_called_once_with(wait=wait)
+
+
 def test_desktop_starts_flet_by_default(monkeypatch) -> None:
     from hdu_sniper import desktop
 

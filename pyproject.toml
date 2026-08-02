@@ -156,6 +156,7 @@ docstring-code-format = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 addopts = [
     "--cov=src/hdu_sniper",
     "--cov-report=term-missing",
