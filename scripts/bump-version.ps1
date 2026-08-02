@@ -15,6 +15,9 @@
 
 .EXAMPLE
     .\scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -NotesFile RELEASE_NOTES.md
+
+.EXAMPLE
+    .\scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -NotesFile RELEASE_NOTES.md -Title "v1.4.0 - Auto check-in"
 #>
 param(
     [Parameter(Mandatory = $true, Position = 0)]
@@ -27,6 +30,7 @@ param(
     [switch]$SkipLock,
     [string]$Notes,
     [string]$NotesFile,
+    [string]$Title,
     [switch]$DryRun
 )
 
@@ -86,7 +90,14 @@ if ($NotesFile) {
 } elseif ($Notes) {
     $notesText = $Notes.TrimEnd("`r", "`n")
 }
-$tagMessage = "Release $TagName"
+$tagSubject = $TagName
+if ($Title) {
+    if ($Title -match "[`r`n]") {
+        throw "Title must be a single line."
+    }
+    $tagSubject = $Title
+}
+$tagMessage = $tagSubject
 if ($notesText) {
     $tagMessage += "`n`n" + $notesText
 }
@@ -147,6 +158,7 @@ if ($DryRun) {
         if ($Commit) { Write-Host "[DRY-RUN] Would commit: chore: bump version to $Version" }
         if ($Tag) {
             Write-Host "[DRY-RUN] Would create tag: $TagName"
+            Write-Host "[DRY-RUN] Release title: $tagSubject"
             if ($notesText) {
                 Write-Host "[DRY-RUN] Tag message body:"
                 $notesText -split "`n" | ForEach-Object { Write-Host "  $_" }
@@ -154,7 +166,12 @@ if ($DryRun) {
         }
         if ($Push) { Write-Host "[DRY-RUN] Would push branch and tag" }
     } elseif ($Tag) {
-        if ($Tag) { Write-Host "[DRY-RUN] Would create tag: $TagName" }
+        Write-Host "[DRY-RUN] Would create tag: $TagName"
+        Write-Host "[DRY-RUN] Release title: $tagSubject"
+        if ($notesText) {
+            Write-Host "[DRY-RUN] Tag message body:"
+            $notesText -split "`n" | ForEach-Object { Write-Host "  $_" }
+        }
         if ($Push) { Write-Host "[DRY-RUN] Would push tag" }
     }
     exit 0
