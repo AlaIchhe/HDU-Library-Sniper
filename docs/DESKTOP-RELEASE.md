@@ -21,6 +21,7 @@ scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push
 - `-Commit`：自动提交版本号变更
 - `-Tag`：自动创建 `v1.4.0` 标签（未指定 `-Commit` 时会自动提交）
 - `-Push`：推送提交和标签，推送 `v*` 标签会触发发布工作流
+- `-Title`：自定义 Release 标题；不带时默认使用标签名（如 `v1.4.0`）
 
 也可以先不带参数运行，只修改本地文件并预览改动（`-DryRun`）。构建脚本和发布工作流会校验三处版本号及标签一致，不一致时直接构建失败。
 
@@ -29,7 +30,7 @@ scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push
 Release 描述默认由 GitHub 根据提交自动生成。如果想写自定义发布说明，可以在打标签时把说明写进标签消息，发布时会自动作为描述的开头，自动生成的更新日志会跟在后面：
 
 ```powershell
-scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -NotesFile RELEASE_NOTES.md
+scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -NotesFile RELEASE_NOTES.md -Title "v1.4.0：新增自动签到"
 ```
 
 也可以直接传文本（多行文本用 PowerShell 反引号 `` `n `` 换行）：
@@ -39,6 +40,8 @@ scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -Notes "新功能：支持自�
 ```
 
 不带 `-Notes` / `-NotesFile` 时，Release 描述就是 GitHub 自动生成的内容，不受影响。
+
+Release 标题默认是标签名（`v1.4.0`）；需要更详细的标题时用 `-Title` 指定，标题会与发布说明一起写入标签并自动应用到 Release。
 
 ### 用 AI 生成发布说明
 
