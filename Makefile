@@ -1,4 +1,4 @@
-.PHONY: help install dev lint format test run web desktop-windows desktop-macos clean docker-build docker-web docker-run docker-scheduled docker-logs docker-stop docker-clean
+.PHONY: help install dev lint format test run web desktop-windows desktop-macos bump-version clean docker-build docker-web docker-run docker-scheduled docker-logs docker-stop docker-clean
 
 # 默认目标：显示帮助
 help:
@@ -65,6 +65,11 @@ desktop-windows:
 
 desktop-macos:
 	bash scripts/build-macos.sh
+
+# Bump project version in pyproject.toml, src/hdu_sniper/__init__.py and uv.lock
+# Usage: make bump-version VERSION=1.4.0
+bump-version:
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/bump-version.ps1 -Version "$(VERSION)"
 
 # 清理缓存
 clean:
