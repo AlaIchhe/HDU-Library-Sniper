@@ -1,6 +1,6 @@
 {
   "_endpoint": "POST /Seat/Index/bookSeats?LAB_JSON=1",
-  "_signing": "Header Api-Token = base64(md5(source)); source = post&/Seat/Index/bookSeats?LAB_JSON=1&api_time{api_time}&beginTime{beginTime}&duration{duration}&is_recommend{is_recommend}&seatBookers[0]{uid}&seats[0]{seat_id}. See utils/encrypt.py.",
+  "_signing": "Header Api-Token = base64(md5(source)); source = post&/Seat/Index/bookSeats?LAB_JSON=1&api_time{api_time}&beginTime{beginTime}&duration{duration}&is_recommend{is_recommend}&seatBookers[0]{uid}&seats[0]{seat_id}. See src/hdu_sniper/library/signing.py.",
   "_payload_fields": ["beginTime", "duration", "is_recommend", "api_time", "seats[0]=seat_id", "seatBookers[0]=uid"],
   "_envelope": "{CODE, MESSAGE, DATA:{...user(redacted)..., result?, msg?, href?}, ui_type:'com.Message'}",
   "time_out_of_range": {

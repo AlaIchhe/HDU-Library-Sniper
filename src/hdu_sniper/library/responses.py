@@ -4,8 +4,8 @@
 ``tests/test_contracts.py`` 对每条访问器在样例上断言——服务器改响应结构
 → 重新抓包更新样例 → 测试非零退出，提醒契约漂移。
 
-本模块是**纯叶模块**(仅依赖 stdlib，不导入 ``core/*``)，故与 ``client.py``/
-``room_browser.py``/``retry.py`` 无环。结构漂移时访问器自然抛
+本模块是**纯叶模块**(仅依赖 stdlib，不导入 ``library/*``)，故与 ``client.py``/
+``rooms.py``/``retry.py`` 无环。结构漂移时访问器自然抛
 ``KeyError``/``IndexError``/``TypeError``，由 ``LibraryClient`` 边界捕获并
 转 ``RoomQueryError``/``SeatQueryError``；只有 ``bookings_from_response``
 刻意容错(返回 ``[]``)，因 ``get_todays_bookings`` 是超时幂等确认的

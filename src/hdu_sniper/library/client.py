@@ -420,7 +420,7 @@ class LibraryClient:
         is_recommend: int = 1,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """提交预约请求。签名见 utils/encrypt.py,契约见
+        """提交预约请求。签名见 library/signing.py,契约见
         docs/contracts/samples/book_seats.json。"""
         begin_ts = int(begin_time.timestamp())
         duration_sec = int(duration_hours * 3600)
