@@ -3,11 +3,11 @@
 真实脱敏样例见 `samples/*.json`;运行期结构校验见 `../../tests/test_contracts.py`。
 本文档仅作类型注解参考,不参与运行期校验——服务器响应字段以样例为准。
 
-魔法路径与 `MSG_*` 常量的运行期定义在 `../../core/contract.py`(单一源);
+魔法路径与 `MSG_*` 常量的运行期定义在 `../../src/hdu_sniper/library/responses.py`(单一源);
 本文档不导入它(位于 docs/),避免双份漂移。
 
-> 以下各 TypedDict 仅为**人读形状规约**。运行期访问器(`contract.base_info_data`
-> 等)与 `MSG_*` 常量均在 `core/contract.py`,本文件不再持有常量副本。
+> 以下各 TypedDict 仅为**人读形状规约**。运行期访问器(`responses.base_info_data`
+> 等)与 `MSG_*` 常量均在 `src/hdu_sniper/library/responses.py`,本文件不再持有常量副本。
 
 ## HuituEnvelope
 
@@ -116,5 +116,5 @@ class BookingOrderItem(TypedDict):
 
 ---
 
-`MSG_*` 运行期定义在 `core/contract.py`(单一源,与 `samples/book_seats.json` 实抓对齐);
+`MSG_*` 运行期定义在 `src/hdu_sniper/library/responses.py`(单一源,与 `samples/book_seats.json` 实抓对齐);
 本文件仅作类型注解参考,不再持有常量副本,避免双份漂移。

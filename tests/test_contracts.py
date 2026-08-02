@@ -40,7 +40,7 @@ def _check(cond: bool, msg: str) -> None:
 
 
 def test_room_types() -> None:
-    """contract.room_types_from_response: samples/room_types.json"""
+    """responses.room_types_from_response: samples/room_types.json"""
     s = _load("room_types.json")
     items = responses.room_types_from_response(s)
     _check(isinstance(items, list) and len(items) > 0, "room_types: 解析出非空列表")
@@ -52,7 +52,7 @@ def test_room_types() -> None:
 
 
 def test_room_detail() -> None:
-    """contract.room_detail_from_response / space_category_id: samples/room_detail.json"""
+    """responses.room_detail_from_response / space_category_id: samples/room_detail.json"""
     s = _load("room_detail.json")
     detail = responses.room_detail_from_response(s)
     _check(responses.space_category_id(detail), "room_detail: space_category_id 空")
@@ -60,7 +60,7 @@ def test_room_detail() -> None:
 
 
 def test_seat_map() -> None:
-    """contract.floors_from_response + floor_id/floor_seats/seat_id/seat_title: samples/seat_map.json"""
+    """responses.floors_from_response + floor_id/floor_seats/seat_id/seat_title: samples/seat_map.json"""
     s = _load("seat_map.json")
     floors = responses.floors_from_response(s)
     _check(isinstance(floors, list) and len(floors) > 0, "seat_map: 楼层非空列表")
@@ -76,7 +76,7 @@ def test_seat_map() -> None:
 
 
 def test_base_info() -> None:
-    """contract.base_info_data → is_login/uid;学号 vs uid 钉死"""
+    """responses.base_info_data → is_login/uid;学号 vs uid 钉死"""
     s = _load("baseInfo.json")
     data = responses.base_info_data(s)
     _check(responses.base_info_is_login(data) is True, "baseInfo: DATA.is_login != True")
@@ -111,7 +111,7 @@ def test_book_seats() -> None:
 
 
 def test_my_booking_list() -> None:
-    """contract.bookings_from_response + booking_begin_ts:真实字段 seatNum/time/id。"""
+    """responses.bookings_from_response + booking_begin_ts:真实字段 seatNum/time/id。"""
     s = _load("myBookingList.json")
     items = responses.bookings_from_response(s)
     _check(isinstance(items, list), "myBookingList: content.defaultItems 非列表")
@@ -165,19 +165,19 @@ def test_seat_action_success() -> None:
 
 
 def test_msg_constants_match_samples() -> None:
-    """contract.MSG_* 必须与样例一致(单一源,不再两份对齐)。"""
+    """responses.MSG_* 必须与样例一致(单一源,不再两份对齐)。"""
     s = _load("book_seats.json")
     _check(
         responses.MSG_TIME_OUT_OF_RANGE in s["time_out_of_range"]["response"]["MESSAGE"],
-        "contract.MSG_TIME_OUT_OF_RANGE 与样例不一致",
+        "responses.MSG_TIME_OUT_OF_RANGE 与样例不一致",
     )
     _check(
         responses.MSG_DUPLICATE in s["duplicate"]["response"]["MESSAGE"],
-        "contract.MSG_DUPLICATE 与样例不一致",
+        "responses.MSG_DUPLICATE 与样例不一致",
     )
     _check(
         responses.MSG_SEAT_UNAVAILABLE in s["seat_unavailable"]["response"]["MESSAGE"],
-        "contract.MSG_SEAT_UNAVAILABLE 与样例不一致",
+        "responses.MSG_SEAT_UNAVAILABLE 与样例不一致",
     )
 
 
