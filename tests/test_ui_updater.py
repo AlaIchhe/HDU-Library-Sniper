@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from hdu_sniper.ui.app import SniperFletView
 from hdu_sniper.updater import UpdateInfo
@@ -12,7 +12,6 @@ from hdu_sniper.updater import UpdateInfo
 def _page() -> Mock:
     page = Mock()
     page.width = 1000
-    page.launch_url = AsyncMock()
     return page
 
 
@@ -35,10 +34,14 @@ def test_update_download_opens_installer_url() -> None:
         download_url="https://example.test/setup.exe",
     )
 
-    asyncio.run(view._open_update_download(None))
+    with patch("hdu_sniper.ui.app.ft.UrlLauncher") as launcher:
+        launcher.return_value.launch_url = AsyncMock()
+        asyncio.run(view._open_update_download(None))
 
-    view.page.pop_dialog.assert_called_once_with()
-    view.page.launch_url.assert_awaited_once_with("https://example.test/setup.exe")
+        view.page.pop_dialog.assert_called_once_with()
+        launcher.return_value.launch_url.assert_awaited_once_with(
+            "https://example.test/setup.exe"
+        )
 
 
 def test_update_download_falls_back_to_release_page() -> None:
@@ -50,8 +53,10 @@ def test_update_download_falls_back_to_release_page() -> None:
         download_url=None,
     )
 
-    asyncio.run(view._open_update_download(None))
+    with patch("hdu_sniper.ui.app.ft.UrlLauncher") as launcher:
+        launcher.return_value.launch_url = AsyncMock()
+        asyncio.run(view._open_update_download(None))
 
-    view.page.launch_url.assert_awaited_once_with(
-        "https://github.com/example/HDU-Library-Sniper/releases"
-    )
+        launcher.return_value.launch_url.assert_awaited_once_with(
+            "https://github.com/example/HDU-Library-Sniper/releases"
+        )
