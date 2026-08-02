@@ -40,6 +40,14 @@ scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -Notes "新功能：支持自�
 
 不带 `-Notes` / `-NotesFile` 时，Release 描述就是 GitHub 自动生成的内容，不受影响。
 
+### 用 AI 生成发布说明
+
+每次发布前可把下面这句话提示词交给 Codex 或其他 AI，它会自动找出自上次发布以来的提交并生成说明（无需手动指定版本号，可重复使用）：
+
+> 请先运行 `git log --no-merges --format='%s' $(git describe --tags --abbrev=0)..HEAD` 查看自上次发布以来的全部提交，然后用中文为即将发布的下一版本写一份面向用户的 GitHub Release 发布说明，按“新功能 / 改进 / 修复”分类，语言简洁，不包含提交哈希或内部实现细节。
+
+把生成的文本保存到文件后，用 `-NotesFile` 传给发布脚本即可。
+
 桌面版本包含 Python 运行时、项目依赖和 Chromium。最终用户不需要安装 Python、运行命令或下载浏览器。
 
 ## Windows
