@@ -26,4 +26,8 @@ def main() -> None:
         bypass_policy = "--override" in sys.argv[1:] or os.environ.get("HDU_BYPASS_POLICY") == "1"
         sys.exit(get_app().booking.run_once(execute_at=execute_at, bypass_policy=bypass_policy))
 
+    if "--checkin-run" in sys.argv[1:] or "--checkin-wait" in sys.argv[1:]:
+        wait = "--checkin-wait" in sys.argv[1:]
+        sys.exit(get_app().run_checkin(wait=wait))
+
     run_flet_app()

@@ -3,7 +3,9 @@
 import base64
 import os
 import tempfile
+import time
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -86,9 +88,9 @@ class TestSchedulerService(unittest.TestCase):
         mock_run.return_value = Mock(
             returncode=0,
             stdout=(
-                '{"name":"HDU-Library-Sniper-Daily","status":"Ready",'
+                '[{"name":"HDU-Library-Sniper-Daily","status":"Ready",'
                 '"next_run":"2026-07-26 20:00:00",'
-                '"last_run":"2026-07-25 20:00:01","last_result":"0"}'
+                '"last_run":"2026-07-25 20:00:01","last_result":"0"}]'
             ),
             stderr="",
         )
@@ -104,7 +106,8 @@ class TestSchedulerService(unittest.TestCase):
         self.assertEqual(task.last_result, "0")
         command = mock_run.call_args.args[0]
         assert command[:4] == ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command"]
-        assert "Get-ScheduledTask -TaskName 'HDU-Library-Sniper-Daily'" in command[-1]
+        assert "Get-ScheduledTask | Where-Object" in command[-1]
+        assert "TaskName -like 'HDU-Library-Sniper*'" in command[-1]
         assert "Get-ScheduledTaskInfo" in command[-1]
 
     @patch("subprocess.run")
@@ -123,12 +126,9 @@ class TestSchedulerService(unittest.TestCase):
     def test_list_windows_tasks_treats_scheduledtasks_not_found_as_empty(self, mock_run):
         self.service.system = "Windows"
         mock_run.return_value = Mock(
-            returncode=2,
-            stdout="",
-            stderr=(
-                "No MSFT_ScheduledTask objects found with property "
-                "'TaskName' equal to 'HDU-Library-Sniper-Daily'."
-            ),
+            returncode=0,
+            stdout="[]",
+            stderr="",
         )
 
         self.assertEqual(self.service.list_tasks(), [])
@@ -376,6 +376,123 @@ class TestSchedulerService(unittest.TestCase):
         self.assertIn("HDU_SNIPER_HOME=", crontab)
         self.assertIn(str(self.service.paths.task_log), crontab)
         self.assertIn("# HDU-Library-Sniper", crontab)
+
+    def test_plan_checkin_tasks_filters_pending_future_bookings(self):
+        from hdu_sniper.scheduler import CHECKIN_WINDOW_PREFIX
+
+        future = int(time.time()) + 7200
+        now = int(time.time())
+        bookings = [
+            {"id": "1", "status": "0", "time": str(future), "limitSignAgo": 1800},
+            {"id": "2", "status": "1", "time": str(future), "limitSignAgo": 1800},
+            {"id": "3", "status": "0", "time": str(now), "limitSignAgo": 1800},
+            {"id": "4", "status": "0", "time": str(future), "limitSignAgo": 10000},
+            {"id": "5", "status": "0", "time": "not-a-time", "limitSignAgo": 1800},
+        ]
+
+        planned = self.service._plan_checkin_tasks(bookings)
+
+        self.assertEqual([name for name, _start in planned], [f"{CHECKIN_WINDOW_PREFIX}1"])
+        task_name, start_str = planned[0]
+        expected_start = (
+            datetime.fromtimestamp(future - 1800 + 60, tz=UTC)
+            .astimezone()
+            .strftime("%Y-%m-%d %H:%M:%S")
+        )
+        self.assertEqual(start_str, expected_start)
+
+    def test_sync_checkin_tasks_disabled_removes_tasks(self):
+        self.service.remove_checkin_tasks = Mock(return_value=(True, "removed"))
+
+        ok, message = self.service.sync_checkin_tasks([], enabled=False)
+
+        self.assertTrue(ok)
+        self.assertEqual(message, "removed")
+        self.service.remove_checkin_tasks.assert_called_once_with()
+
+    def test_sync_windows_checkin_tasks_registers_and_cleans_stale(self):
+        from hdu_sniper.scheduler import CHECKIN_LOGON_TASK, CHECKIN_WINDOW_PREFIX
+
+        self.service.system = "Windows"
+        future = int(time.time()) + 7200
+        self.service._existing_checkin_task_names = Mock(
+            return_value=[f"{CHECKIN_WINDOW_PREFIX}stale"]
+        )
+        self.service._register_windows_checkin_task = Mock(return_value=(True, "ok"))
+        self.service._delete_windows_task = Mock(return_value=(True, "deleted"))
+        bookings = [
+            {"id": "10", "status": "0", "time": str(future), "limitSignAgo": 1800}
+        ]
+
+        ok, _message = self.service.sync_checkin_tasks(bookings, enabled=True)
+
+        self.assertTrue(ok)
+        registered = [
+            call.args[0]
+            for call in self.service._register_windows_checkin_task.call_args_list
+        ]
+        self.assertIn(CHECKIN_LOGON_TASK, registered)
+        self.assertIn(f"{CHECKIN_WINDOW_PREFIX}10", registered)
+        self.service._delete_windows_task.assert_called_once_with(
+            f"{CHECKIN_WINDOW_PREFIX}stale"
+        )
+
+    def test_require_managed_task_allows_checkin_tasks(self):
+        from hdu_sniper.scheduler import CHECKIN_LOGON_TASK, CHECKIN_WINDOW_PREFIX
+
+        self.service._require_managed_task("HDU-Library-Sniper-Daily")
+        self.service._require_managed_task(CHECKIN_LOGON_TASK)
+        self.service._require_managed_task(f"{CHECKIN_WINDOW_PREFIX}123")
+
+        with self.assertRaises(ValueError):
+            self.service._require_managed_task("Unrelated-System-Task")
+
+    def test_remove_windows_checkin_tasks_deletes_logon_and_window_tasks(self):
+        from hdu_sniper.scheduler import (
+            CHECKIN_LOGON_TASK,
+            CHECKIN_WINDOW_PREFIX,
+        )
+
+        self.service.system = "Windows"
+        self.service._existing_checkin_task_names = Mock(
+            return_value=[f"{CHECKIN_WINDOW_PREFIX}9"]
+        )
+        self.service._delete_windows_task = Mock(return_value=(True, "deleted"))
+
+        ok, _message = self.service.remove_checkin_tasks()
+
+        self.assertTrue(ok)
+        calls = [call.args[0] for call in self.service._delete_windows_task.call_args_list]
+        self.assertEqual(calls, [CHECKIN_LOGON_TASK, f"{CHECKIN_WINDOW_PREFIX}9"])
+
+    @patch("subprocess.Popen")
+    @patch("subprocess.run")
+    def test_posix_checkin_cron_configure_and_remove(self, mock_run, mock_popen):
+        self.service.system = "Linux"
+        mock_run.return_value = Mock(returncode=1, stdout="")
+        process = Mock(returncode=0)
+        process.communicate.return_value = ("", "")
+        mock_popen.return_value = process
+
+        ok, _message = self.service._configure_posix_checkin_cron()
+
+        self.assertTrue(ok)
+        crontab = process.communicate.call_args.kwargs["input"]
+        self.assertIn("@reboot", crontab)
+        self.assertIn("--checkin-run", crontab)
+        self.assertIn("# HDU-Library-Sniper-CheckIn", crontab)
+
+        mock_run.return_value = Mock(
+            returncode=0,
+            stdout=process.communicate.call_args.kwargs["input"],
+        )
+        process.communicate.reset_mock()
+        process.communicate.return_value = ("", "")
+        ok, _message = self.service._remove_posix_checkin_cron()
+
+        self.assertTrue(ok)
+        removed_crontab = process.communicate.call_args.kwargs["input"]
+        self.assertNotIn("# HDU-Library-Sniper-CheckIn", removed_crontab)
 
 
 class TestSettingsPaths(unittest.TestCase):

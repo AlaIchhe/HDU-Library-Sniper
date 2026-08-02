@@ -12,14 +12,22 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
+from hdu_sniper.library import responses
 from hdu_sniper.paths import APP_HOME_ENV, AppPaths
 
 
 TASK_MARKER = "HDU-Library-Sniper"
 DAILY_RUN_TIME = "20:00:00"
+CHECKIN_LOGON_TASK = "HDU-Library-Sniper-CheckIn-Logon"
+CHECKIN_WINDOW_PREFIX = "HDU-Library-Sniper-CheckIn-"
+CHECKIN_MARKER = "HDU-Library-Sniper-CheckIn"
+CHECKIN_START_OFFSET_SECONDS = 60
+CHECKIN_DEFAULT_SIGN_AGO = 1800
 WINDOWS_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
@@ -120,6 +128,34 @@ class SchedulerService:
             return self._remove_linux_cron()
         return False, f"不支持的操作系统: {self.system}"
 
+    def sync_checkin_tasks(
+        self,
+        bookings: list[dict],
+        *,
+        enabled: bool = True,
+    ) -> tuple[bool, str]:
+        """按当前预约同步自动签到系统任务。
+
+        启用时创建“登录触发”兜底任务，并为每个仍待签到且窗口尚未开启的
+        预约创建一个窗口开启时执行的一次性任务；同时清理已过期的窗口任务。
+        关闭时移除全部自动签到任务。
+        """
+        if not enabled:
+            return self.remove_checkin_tasks()
+        if self.system == "Windows":
+            return self._sync_windows_checkin_tasks(bookings)
+        if self.system in ("Linux", "Darwin"):
+            return self._sync_posix_checkin_tasks(bookings)
+        return False, f"不支持的操作系统: {self.system}"
+
+    def remove_checkin_tasks(self) -> tuple[bool, str]:
+        """移除全部由本应用创建的自动签到系统任务。"""
+        if self.system == "Windows":
+            return self._remove_windows_checkin_tasks()
+        if self.system in ("Linux", "Darwin"):
+            return self._remove_posix_checkin_cron()
+        return False, f"不支持的操作系统: {self.system}"
+
     def get_task_status(self) -> TaskStatus:
         """获取定时任务状态。
 
@@ -127,7 +163,10 @@ class SchedulerService:
             任务状态
         """
         if self.system == "Windows":
-            return self._get_windows_task_status()
+            task = self._read_windows_task(self.task_name)
+            if task is None:
+                return TaskStatus(exists=False)
+            return TaskStatus(exists=True, next_run=task.next_run)
         if self.system in ("Linux", "Darwin"):
             return self._get_linux_cron_status()
         return TaskStatus(exists=False)
@@ -137,15 +176,22 @@ class SchedulerService:
         if self.system == "Windows":
             return self._list_windows_tasks()
         if self.system in ("Linux", "Darwin"):
+            tasks: list[ScheduledTask] = []
             status = self._get_linux_cron_status()
-            if not status.exists:
-                return []
-            return [
-                ScheduledTask(
-                    name=self.task_name,
-                    next_run=status.next_run,
+            if status.exists:
+                tasks.append(ScheduledTask(name=self.task_name, next_run=status.next_run))
+            try:
+                result = subprocess.run(
+                    ["crontab", "-l"],
+                    capture_output=True,
+                    text=True,
                 )
-            ]
+                crontab = result.stdout if result.returncode == 0 else ""
+            except Exception:
+                crontab = ""
+            if CHECKIN_MARKER in crontab:
+                tasks.append(ScheduledTask(name=CHECKIN_LOGON_TASK, next_run="登录触发"))
+            return tasks
         return []
 
     def run_task(self, task_name: str) -> tuple[bool, str]:
@@ -419,9 +465,13 @@ class SchedulerService:
             )
         return False, f"schtasks 创建任务失败:\n{self._command_error(result)}"
 
-    def _write_windows_task_runner(self) -> Path:
+    def _write_windows_task_runner(
+        self,
+        launch_args: list[str] | None = None,
+        runner_name: str = "hdu-sniper-task.ps1",
+    ) -> Path:
         """写入 schtasks 兼容回退使用的短启动脚本。"""
-        runner_path = self._windows_task_runner_path()
+        runner_path = self.paths.state_dir / runner_name
         runner_path.parent.mkdir(parents=True, exist_ok=True)
         task_log = self._powershell_quote(str(self.paths.task_log))
         lines = [
@@ -438,10 +488,9 @@ class SchedulerService:
             lines.append(f"$env:{APP_HOME_ENV} = {self._powershell_quote(app_home)}")
 
         launcher = self._powershell_quote(self._launcher_command()[0])
-        if getattr(sys, "frozen", False):
-            lines.append(f"& {launcher} --run-now *>> $logFile")
-        else:
-            lines.append(f"& {launcher} -m hdu_sniper --run-now *>> $logFile")
+        if launch_args is None:
+            launch_args = ["--run-now"] if getattr(sys, "frozen", False) else ["-m", "hdu_sniper", "--run-now"]
+        lines.append(f"& {launcher} {subprocess.list2cmdline(launch_args)} *>> $logFile")
         lines.append("exit $LASTEXITCODE")
         runner_path.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
         return runner_path
@@ -454,6 +503,275 @@ class SchedulerService:
             self._windows_task_runner_path().unlink(missing_ok=True)
         except OSError:
             pass
+
+    def _plan_checkin_tasks(self, bookings: list[dict]) -> list[tuple[str, str]]:
+        """从预约列表筛选需要创建窗口任务的预约，返回 (任务名, 本地开始时间)。"""
+        planned: list[tuple[str, str]] = []
+        now_ts = time.time()
+        for item in bookings or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                booking_id = responses.booking_id(item)
+                status = responses.booking_status(item)
+                begin_ts = responses.booking_begin_ts(item)
+            except (TypeError, ValueError):
+                continue
+            if not booking_id or status != responses.BOOKING_STATUS_PENDING:
+                continue
+            try:
+                sign_ago = int(item.get("limitSignAgo") or CHECKIN_DEFAULT_SIGN_AGO)
+            except (TypeError, ValueError):
+                sign_ago = CHECKIN_DEFAULT_SIGN_AGO
+            open_ts = begin_ts - sign_ago + CHECKIN_START_OFFSET_SECONDS
+            if open_ts <= now_ts + 120:
+                continue
+            start_str = (
+                datetime.fromtimestamp(open_ts, tz=UTC)
+                .astimezone()
+                .strftime("%Y-%m-%d %H:%M:%S")
+            )
+            planned.append((f"{CHECKIN_WINDOW_PREFIX}{booking_id}", start_str))
+        return planned
+
+    def _existing_checkin_task_names(self) -> list[str]:
+        """返回已注册的登录触发任务与窗口任务名称（查询失败时按空处理）。"""
+        try:
+            tasks = self._list_windows_tasks()
+        except RuntimeError:
+            return []
+        return [
+            task.name
+            for task in tasks
+            if task.name == CHECKIN_LOGON_TASK or task.name.startswith(CHECKIN_WINDOW_PREFIX)
+        ]
+
+    def _sync_windows_checkin_tasks(self, bookings: list[dict]) -> tuple[bool, str]:
+        planned = self._plan_checkin_tasks(bookings)
+        existing = self._existing_checkin_task_names()
+        messages: list[str] = []
+        ok = True
+
+        if CHECKIN_LOGON_TASK not in existing:
+            success, message = self._register_windows_checkin_task(
+                CHECKIN_LOGON_TASK,
+                trigger="Logon",
+                wait=False,
+            )
+            ok = ok and success
+            messages.append(message)
+        else:
+            messages.append("登录触发签到任务已存在")
+
+        desired = {name for name, _start in planned}
+        for task_name, start_str in planned:
+            if task_name in existing:
+                continue
+            success, message = self._register_windows_checkin_task(
+                task_name,
+                trigger="Once",
+                start_str=start_str,
+                wait=True,
+            )
+            ok = ok and success
+            messages.append(message)
+
+        stale = [
+            name
+            for name in existing
+            if name.startswith(CHECKIN_WINDOW_PREFIX) and name not in desired
+        ]
+        for task_name in stale:
+            success, message = self._delete_windows_task(task_name)
+            ok = ok and success
+            messages.append(message)
+
+        if not planned:
+            messages.append("当前没有需要创建窗口任务的待签到预约")
+        return ok, "\n".join(messages)
+
+    def _register_windows_checkin_task(
+        self,
+        task_name: str,
+        *,
+        trigger: str,
+        start_str: str = "",
+        wait: bool,
+    ) -> tuple[bool, str]:
+        """注册一个自动签到系统任务（登录触发或一次性窗口触发）。"""
+        runner_path = self._write_checkin_runner(wait=wait)
+        current_user = self._current_windows_user()
+        if not current_user:
+            return False, "无法确定当前 Windows 用户，不能创建自动签到任务"
+
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(runner_path),
+        ]
+        argument_line = subprocess.list2cmdline(command)
+        if trigger == "Logon":
+            trigger_expr = "New-ScheduledTaskTrigger -AtLogOn"
+        else:
+            trigger_expr = (
+                "New-ScheduledTaskTrigger -Once -At "
+                f"([datetime]::Parse({self._powershell_quote(start_str)}))"
+            )
+        execution_minutes = 90 if wait else 15
+        script = "\n".join(
+            [
+                "$ErrorActionPreference = 'Stop'",
+                "$action = New-ScheduledTaskAction "
+                f"-Execute {self._powershell_quote('powershell.exe')} "
+                f"-Argument {self._powershell_quote(argument_line)} "
+                f"-WorkingDirectory {self._powershell_quote(str(self.install_root))}",
+                f"$trigger = {trigger_expr}",
+                "$principal = New-ScheduledTaskPrincipal "
+                f"-UserId {self._powershell_quote(current_user)} "
+                "-LogonType Interactive -RunLevel Limited",
+                "$settings = New-ScheduledTaskSettingsSet "
+                "-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
+                "-StartWhenAvailable -WakeToRun "
+                f"-ExecutionTimeLimit (New-TimeSpan -Minutes {execution_minutes}) "
+                "-MultipleInstances IgnoreNew",
+                "Register-ScheduledTask "
+                f"-TaskName {self._powershell_quote(task_name)} "
+                f"-Description {self._powershell_quote('HDU Library Sniper auto check-in')} "
+                "-Action $action -Trigger $trigger -Principal $principal "
+                "-Settings $settings -Force | Out-Null",
+                'Write-Host "registered"',
+            ]
+        )
+        try:
+            result = self._run_windows_powershell(script)
+        except Exception as exc:
+            return False, f"注册签到任务失败: {exc}"
+
+        if result.returncode == 0:
+            mode = "登录触发" if trigger == "Logon" else "窗口触发"
+            return True, f"已创建{mode}签到任务 {task_name}"
+        error = self._command_error(result)
+        if not self._is_windows_task_access_denied(error):
+            return False, f"创建签到任务失败:\n{error}"
+        return self._configure_windows_checkin_task_with_schtasks(
+            task_name,
+            trigger,
+            start_str,
+            runner_path,
+            current_user,
+        )
+
+    def _configure_windows_checkin_task_with_schtasks(
+        self,
+        task_name: str,
+        trigger: str,
+        start_str: str,
+        runner_path: Path,
+        current_user: str,
+    ) -> tuple[bool, str]:
+        """ScheduledTasks 模块被拒绝时用 schtasks 创建当前用户签到任务。"""
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(runner_path),
+        ]
+        args = [
+            "schtasks.exe",
+            "/Create",
+            "/TN",
+            task_name,
+            "/TR",
+            subprocess.list2cmdline(command),
+            "/RU",
+            current_user,
+            "/RL",
+            "LIMITED",
+            "/IT",
+            "/F",
+        ]
+        if trigger == "Logon":
+            args += ["/SC", "ONLOGON"]
+        else:
+            try:
+                parsed = datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                return False, f"无效的签到任务时间: {start_str}"
+            args += [
+                "/SC",
+                "ONCE",
+                "/SD",
+                parsed.strftime("%m/%d/%Y"),
+                "/ST",
+                parsed.strftime("%H:%M"),
+            ]
+        try:
+            result = subprocess.run(
+                args,
+                cwd=str(self.install_root),
+                capture_output=True,
+                text=True,
+                timeout=30,
+                encoding=_windows_output_encoding(),
+                errors="replace",
+                creationflags=WINDOWS_NO_WINDOW,
+            )
+        except Exception as exc:
+            return False, f"调用 schtasks 创建签到任务时出错: {exc}"
+        if result.returncode == 0:
+            mode = "登录触发" if trigger == "Logon" else "窗口触发"
+            return (
+                True,
+                f"已通过 schtasks 创建{mode}签到任务 {task_name}"
+                "（当前用户兼容模式，睡眠唤醒不可用）",
+            )
+        return False, f"schtasks 创建签到任务失败:\n{self._command_error(result)}"
+
+    def _write_checkin_runner(self, *, wait: bool) -> Path:
+        """写入自动签到任务的短启动脚本。"""
+        launch_args = ["--checkin-wait"] if wait else ["--checkin-run"]
+        if not getattr(sys, "frozen", False):
+            launch_args = ["-m", "hdu_sniper", *launch_args]
+        return self._write_windows_task_runner(
+            launch_args=launch_args,
+            runner_name="hdu-sniper-checkin-wait.ps1" if wait else "hdu-sniper-checkin.ps1",
+        )
+
+    def _remove_windows_checkin_tasks(self) -> tuple[bool, str]:
+        messages: list[str] = []
+        ok = True
+        names = [CHECKIN_LOGON_TASK, *self._existing_checkin_task_names()]
+        seen: set[str] = set()
+        for task_name in names:
+            if task_name in seen:
+                continue
+            if task_name != CHECKIN_LOGON_TASK and not task_name.startswith(
+                CHECKIN_WINDOW_PREFIX
+            ):
+                continue
+            seen.add(task_name)
+            success, message = self._delete_windows_task(task_name)
+            ok = ok and success
+            messages.append(message)
+        for runner_name in ("hdu-sniper-checkin.ps1", "hdu-sniper-checkin-wait.ps1"):
+            try:
+                (self.paths.state_dir / runner_name).unlink(missing_ok=True)
+            except OSError:
+                pass
+        if not messages:
+            messages.append("没有已注册的自动签到系统任务")
+        return ok, "\n".join(messages)
 
     def _remove_windows_task(self) -> tuple[bool, str]:
         """移除 Windows 定时任务。"""
@@ -478,24 +796,68 @@ class SchedulerService:
         except Exception as exc:
             return False, f"删除任务出错: {exc}"
 
-    def _get_windows_task_status(self) -> TaskStatus:
-        """获取 Windows 任务状态。"""
-        tasks = self._list_windows_tasks()
-        if not tasks:
-            return TaskStatus(exists=False)
-        task = tasks[0]
-        return TaskStatus(
-            exists=True,
-            next_run=task.next_run,
-        )
-
     def _list_windows_tasks(self) -> list[ScheduledTask]:
-        """按名称逐个读取应用创建的 Windows 任务，避免枚举无关系统任务。"""
+        """读取本应用创建的全部 Windows 任务（每日、登录触发与窗口任务）。"""
+        script = f"""
+$ErrorActionPreference = 'Stop'
+function Format-TaskTime([datetime]$value) {{
+    if ($value -eq [datetime]::MinValue) {{ return $null }}
+    return $value.ToString('yyyy-MM-dd HH:mm:ss')
+}}
+$tasks = @(Get-ScheduledTask | Where-Object {{ $_.TaskName -like '{TASK_MARKER}*' }})
+$items = @($tasks | ForEach-Object {{
+    $info = Get-ScheduledTaskInfo -TaskName $_.TaskName -TaskPath $_.TaskPath
+    [pscustomobject]@{{
+        name = $_.TaskName
+        status = [string]$_.State
+        next_run = Format-TaskTime $info.NextRunTime
+        last_run = Format-TaskTime $info.LastRunTime
+        last_result = [string]$info.LastTaskResult
+    }}
+}})
+if ($items.Count -eq 0) {{
+    Write-Output '[]'
+    exit 0
+}}
+ConvertTo-Json -InputObject $items -Compress
+"""
+        try:
+            result = self._run_windows_powershell(script)
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"读取 Windows 任务计划程序时出错: {exc}") from exc
+
+        if result.returncode != 0:
+            stderr = result.stderr if isinstance(result.stderr, str) else ""
+            stdout = result.stdout if isinstance(result.stdout, str) else ""
+            error = (stderr or stdout).strip()
+            if not error or self._task_is_missing(error):
+                return []
+            raise RuntimeError(f"无法读取 Windows 任务计划程序: {error}")
+
+        try:
+            fields = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Windows 任务计划程序返回了无效的任务详情") from exc
+        if isinstance(fields, dict):
+            fields = [fields]
+        if not isinstance(fields, list):
+            raise RuntimeError("Windows 任务计划程序返回了无效的任务详情")
+
         tasks: list[ScheduledTask] = []
-        for task_name in self.managed_task_names:
-            task = self._read_windows_task(task_name)
-            if task is not None:
-                tasks.append(task)
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            tasks.append(
+                ScheduledTask(
+                    name=str(field.get("name") or ""),
+                    status=self._optional_string(field.get("status")),
+                    next_run=self._optional_string(field.get("next_run")),
+                    last_run=self._optional_string(field.get("last_run")),
+                    last_result=self._optional_string(field.get("last_result")),
+                )
+            )
         return tasks
 
     def _read_windows_task(self, task_name: str) -> ScheduledTask | None:
@@ -620,6 +982,10 @@ try {{
         return str(value)
 
     def _require_managed_task(self, task_name: str) -> None:
+        if task_name == self.task_name:
+            return
+        if task_name == CHECKIN_LOGON_TASK or task_name.startswith(CHECKIN_WINDOW_PREFIX):
+            return
         if task_name not in self.managed_task_names:
             raise ValueError(f"不允许操作非本应用创建的任务: {task_name}")
 
@@ -772,6 +1138,108 @@ try {{
             return False, f"移除失败:\n{stderr}"
         except Exception as e:
             return False, f"移除任务出错: {e}"
+
+    def _sync_posix_checkin_tasks(self, bookings: list[dict]) -> tuple[bool, str]:
+        ok, message = self._configure_posix_checkin_cron()
+        messages = [message]
+        planned = self._plan_checkin_tasks(bookings)
+        for _task_name, start_str in planned:
+            success, item_message = self._schedule_posix_checkin_once(start_str)
+            ok = ok and success
+            messages.append(item_message)
+        if not planned:
+            messages.append("当前没有需要创建窗口任务的待签到预约")
+        return ok, "\n".join(messages)
+
+    def _configure_posix_checkin_cron(self) -> tuple[bool, str]:
+        """配置 @reboot 登录触发签到（Linux/macOS crontab）。"""
+        command = shlex.join([*self._launcher_command(), "--checkin-run"])
+        home = os.environ.get(APP_HOME_ENV, "").strip()
+        home_prefix = f"{APP_HOME_ENV}={shlex.quote(home)} " if home else ""
+        cron_command = (
+            f"@reboot {home_prefix}{command} >> {shlex.quote(str(self.paths.task_log))} 2>&1"
+            f" # {CHECKIN_MARKER}"
+        )
+        try:
+            result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+            existing = result.stdout if result.returncode == 0 else ""
+        except Exception:
+            existing = ""
+        lines = [line for line in existing.split("\n") if CHECKIN_MARKER not in line]
+        lines.append(cron_command)
+        new_crontab = "\n".join(lines) + "\n"
+        try:
+            process = subprocess.Popen(
+                ["crontab", "-"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            stdout, stderr = process.communicate(input=new_crontab)
+            if process.returncode == 0:
+                return True, "已配置开机登录自动签到（@reboot）"
+            return False, f"配置开机签到失败:\n{stderr}"
+        except Exception as exc:
+            return False, f"配置开机签到失败: {exc}"
+
+    def _remove_posix_checkin_cron(self) -> tuple[bool, str]:
+        """移除 crontab 中的开机签到行。"""
+        try:
+            result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+            if result.returncode != 0:
+                return True, "没有配置开机自动签到"
+            existing = result.stdout
+        except Exception as exc:
+            return False, f"读取 crontab 失败: {exc}"
+        lines = [line for line in existing.split("\n") if CHECKIN_MARKER not in line]
+        new_crontab = "\n".join(lines) + "\n"
+        try:
+            process = subprocess.Popen(
+                ["crontab", "-"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            stdout, stderr = process.communicate(input=new_crontab)
+            if process.returncode == 0:
+                return True, "已移除开机自动签到"
+            return False, f"移除开机签到失败:\n{stderr}"
+        except Exception as exc:
+            return False, f"移除开机签到失败: {exc}"
+
+    def _schedule_posix_checkin_once(self, start_str: str) -> tuple[bool, str]:
+        """通过 at 为单个预约创建一次性窗口签到任务（尽力而为）。"""
+        command = shlex.join([*self._launcher_command(), "--checkin-wait"])
+        home = os.environ.get(APP_HOME_ENV, "").strip()
+        home_prefix = f"{APP_HOME_ENV}={shlex.quote(home)} " if home else ""
+        command_line = (
+            f"{home_prefix}{command} >> {shlex.quote(str(self.paths.task_log))} 2>&1"
+        )
+        try:
+            parsed = datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return False, f"无效的签到任务时间: {start_str}"
+        if self.system == "Darwin":
+            time_expr = f"{parsed.strftime('%H:%M')} {parsed.strftime('%m/%d/%y')}"
+        else:
+            time_expr = f"{parsed.strftime('%H:%M')} {parsed.strftime('%m/%d/%Y')}"
+        try:
+            result = subprocess.run(
+                ["at", time_expr],
+                input=command_line + "\n",
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except FileNotFoundError:
+            return False, "系统未安装 at 命令，无法创建一次性窗口签到任务（开机签到仍可用）"
+        except Exception as exc:
+            return False, f"调用 at 失败: {exc}"
+        if result.returncode == 0:
+            return True, f"已通过 at 创建窗口签到任务 {time_expr}"
+        return False, f"at 创建签到任务失败:\n{result.stderr or result.stdout}"
 
     def _get_linux_cron_status(self) -> TaskStatus:
         """获取 Linux cron 任务状态。"""
