@@ -23,8 +23,13 @@ jobs:
           set -euo pipefail
           project_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' pyproject.toml | head -n 1)"
           package_version="$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' src/hdu_sniper/__init__.py | head -n 1)"
+          lock_version="$(awk '/^name = "hdu-library-sniper"$/{found=1} found && /^version = "([^"]+)"$/{sub(/^version = "/, ""); sub(/"$/, ""); print; exit}' uv.lock)"
           if [[ "$project_version" != "$package_version" ]]; then
             echo "Version mismatch: pyproject.toml=$project_version, src/hdu_sniper/__init__.py=$package_version" >&2
+            exit 1
+          fi
+          if [[ "$project_version" != "$lock_version" ]]; then
+            echo "Version mismatch: pyproject.toml=$project_version, uv.lock=$lock_version" >&2
             exit 1
           fi
           if [[ -n "$RELEASE_VERSION" ]]; then
