@@ -437,6 +437,25 @@ class TestSchedulerService(unittest.TestCase):
             f"{CHECKIN_WINDOW_PREFIX}stale"
         )
 
+    def test_windows_checkin_logon_trigger_limits_to_current_user(self):
+        from hdu_sniper.scheduler import CHECKIN_LOGON_TASK
+
+        self.service.system = "Windows"
+        self.service._write_checkin_runner = Mock(return_value=Path("C:/runner.ps1"))
+        self.service._current_windows_user = Mock(return_value="DESKTOP-X\\zhuhe")
+        result = Mock(returncode=0, stdout="", stderr="")
+        self.service._run_windows_powershell = Mock(return_value=result)
+
+        ok, _message = self.service._register_windows_checkin_task(
+            CHECKIN_LOGON_TASK,
+            trigger="Logon",
+            wait=False,
+        )
+
+        self.assertTrue(ok)
+        script = self.service._run_windows_powershell.call_args.args[0]
+        self.assertIn("New-ScheduledTaskTrigger -AtLogOn -User 'DESKTOP-X\\zhuhe'", script)
+
     def test_require_managed_task_allows_checkin_tasks(self):
         from hdu_sniper.scheduler import CHECKIN_LOGON_TASK, CHECKIN_WINDOW_PREFIX
 

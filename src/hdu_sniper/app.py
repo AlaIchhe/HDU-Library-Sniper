@@ -406,7 +406,10 @@ class SniperApp:
         }
 
     def enable_auto_check_in(self) -> tuple[bool, str]:
-        """记录风险协议同意并启用自动签到，随后同步系统任务。"""
+        """记录风险协议同意并启用自动签到，随后同步系统任务。
+
+        同步失败时回滚已启用的开关，避免界面显示已启用但系统任务未创建。
+        """
         self._require_authenticated()
         if self.busy:
             return False, "当前任务正在运行，请稍后再开启自动签到"
@@ -427,17 +430,37 @@ class SniperApp:
             success, message = self.scheduler.sync_checkin_tasks(bookings, enabled=True)
         except AuthenticationExpiredError:
             self._expire_authentication()
-            message = "自动签到已启用，但登录态已失效，未能同步系统任务"
-            self.notifier.send("自动签到调度配置失败", message, success=False)
-            return False, message
+            return self._fail_checkin_enable("登录态已失效，未能同步自动签到系统任务")
+        except AuthenticationRequiredError:
+            return self._fail_checkin_enable(
+                "登录态已失效，未能同步自动签到系统任务",
+                cleanup=False,
+            )
         except Exception as exc:
-            message = f"自动签到已启用，但调度配置失败: {exc}"
-            self.notifier.send("自动签到调度配置失败", message, success=False)
-            return False, message
+            return self._fail_checkin_enable(f"调度配置失败: {exc}")
         if not success:
-            self.notifier.send("自动签到调度配置失败", message, success=False)
-            return False, message
+            return self._fail_checkin_enable(message)
         return True, "自动签到已启用，登录触发与窗口签到任务已同步"
+
+    def _fail_checkin_enable(
+        self,
+        message: str,
+        *,
+        cleanup: bool = True,
+    ) -> tuple[bool, str]:
+        """自动签到启用失败时清理部分任务并回滚开关。"""
+        if cleanup:
+            with contextlib.suppress(Exception):
+                self.scheduler.remove_checkin_tasks()
+        rolled_back = replace(self.settings, auto_check_in_enabled=False)
+        try:
+            save_settings(rolled_back, self.settings.paths.settings_file)
+            self.settings = rolled_back
+        except OSError as exc:
+            message = f"{message}\n回滚自动签到开关失败: {exc}"
+        full_message = f"自动签到未启用：{message}"
+        self.notifier.send("自动签到调度配置失败", full_message, success=False)
+        return False, full_message
 
     def disable_auto_check_in(self) -> tuple[bool, str]:
         """关闭自动签到并移除相关系统任务，保留历史同意记录。"""
