@@ -42,6 +42,7 @@ def build_test_application(tmp_path: Path) -> tuple[SniperApp, dict[str, Mock]]:
     dependencies["plans"].list_enabled.return_value = []
     dependencies["scheduler"].configure_task.return_value = (True, "ok")
     dependencies["scheduler"].get_task_status.return_value = TaskStatus(exists=False)
+    dependencies["scheduler"].checkin_tasks_ready.return_value = False
     application = SniperApp(
         settings,
         dependencies["client"],
@@ -621,17 +622,31 @@ def test_disable_auto_check_in_removes_tasks_and_keeps_history(tmp_path: Path) -
 
 
 def test_auto_check_in_status_reflects_consent(tmp_path: Path) -> None:
-    application, _dependencies = build_test_application(tmp_path)
+    application, dependencies = build_test_application(tmp_path)
 
     status = application.auto_check_in_status()
     assert status["enabled"] is False
     assert status["consent_valid"] is False
+    assert status["tasks_ready"] is False
     assert status["current_agreement_version"] == CHECK_IN_AGREEMENT_VERSION
 
     _grant_checkin_consent(application)
+    dependencies["scheduler"].checkin_tasks_ready.return_value = True
     status = application.auto_check_in_status()
     assert status["enabled"] is True
     assert status["consent_valid"] is True
+    assert status["tasks_ready"] is True
+
+
+def test_auto_check_in_status_reports_missing_tasks(tmp_path: Path) -> None:
+    application, _dependencies = build_test_application(tmp_path)
+    _grant_checkin_consent(application)
+
+    status = application.auto_check_in_status()
+
+    assert status["enabled"] is True
+    assert status["consent_valid"] is True
+    assert status["tasks_ready"] is False
 
 
 def test_run_checkin_exit_codes(tmp_path: Path) -> None:

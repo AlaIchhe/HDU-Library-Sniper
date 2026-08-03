@@ -148,6 +148,7 @@ def test_auto_check_in_status_and_enable_disable_endpoints() -> None:
         "agreed_at": "",
         "current_agreement_version": "v1",
         "consent_valid": False,
+        "tasks_ready": False,
     }
     application.enable_auto_check_in.return_value = (True, "enabled")
     application.disable_auto_check_in.return_value = (True, "disabled")
