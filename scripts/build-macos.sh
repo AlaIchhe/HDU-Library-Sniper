@@ -40,7 +40,7 @@ done
 iconutil -c icns "$ICONSET" -o "$ICON"
 
 args=(
-  run flet pack src/desktop.py
+  run flet pack src/flet_entry.py
   --distpath "$DESKTOP_DIR"
   --name "HDU Library Sniper"
   --icon "$ICON"
