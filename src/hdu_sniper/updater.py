@@ -2,31 +2,62 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
+import subprocess
 import sys
-from collections.abc import Mapping, Sequence
+import tempfile
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+from platformdirs import user_downloads_dir
 
 from hdu_sniper import __version__
 
 
 DEFAULT_UPDATE_API_URL = "https://api.github.com/repos/AlaIchhe/HDU-Library-Sniper/releases/latest"
 UPDATE_TIMEOUT_SECONDS = 8
+DOWNLOAD_TIMEOUT_SECONDS = 120
+DOWNLOAD_CHUNK_SIZE = 64 * 1024
 _VERSION_PATTERN = re.compile(r"^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+]([0-9A-Za-z.-]+))?$")
+
+
+class UpdateCancelled(RuntimeError):
+    """Raised when the user cancels an update download."""
+
+
+class UpdateChecksumError(RuntimeError):
+    """Raised when a downloaded installer does not match its release checksum."""
+
+
+@dataclass(frozen=True)
+class DownloadProgress:
+    """Download byte counts reported to the UI during an update."""
+
+    downloaded: int
+    total: int | None
+
+    @property
+    def percent(self) -> float | None:
+        return self.downloaded / self.total if self.total else None
 
 
 @dataclass(frozen=True)
 class UpdateInfo:
-    """Information needed to notify a user and open the matching download."""
+    """Information needed to download, verify, and install an update."""
 
     version: str
     tag_name: str
     release_url: str
     download_url: str | None
+    sha256: str | None = None
     notes: str | None = None
     published_at: str | None = None
 
@@ -64,16 +95,16 @@ def is_newer_version(current: str, candidate: str) -> bool:
     return bool(current_key and candidate_key and candidate_key > current_key)
 
 
-def _select_download_url(assets: Sequence[Any]) -> str | None:
-    """Choose an installer suitable for the current platform."""
-    candidates: list[tuple[str, str]] = []
+def _select_asset(assets: Sequence[Any]) -> Mapping[str, Any] | None:
+    """Choose an installer asset suitable for the current platform."""
+    candidates: list[tuple[str, str, Mapping[str, Any]]] = []
     for asset in assets:
         if not isinstance(asset, Mapping):
             continue
         name = asset.get("name")
         url = asset.get("browser_download_url")
         if isinstance(name, str) and isinstance(url, str):
-            candidates.append((name, url))
+            candidates.append((name, url, asset))
 
     if sys.platform == "win32":
         preferred = [
@@ -88,7 +119,7 @@ def _select_download_url(assets: Sequence[Any]) -> str | None:
             if item[0].lower().endswith((".appimage", ".deb", ".rpm", ".tar.gz", ".zip"))
         ]
 
-    return (preferred or candidates)[0][1] if preferred or candidates else None
+    return (preferred or candidates)[0][2] if preferred or candidates else None
 
 
 def _fetch_latest_release(api_url: str, timeout: int) -> Mapping[str, Any]:
@@ -131,13 +162,113 @@ def check_for_update(
     if not isinstance(assets, Sequence) or isinstance(assets, (str, bytes)):
         assets = []
 
+    asset = _select_asset(assets)
+    download_url = asset["browser_download_url"] if asset else None
+    digest = asset.get("digest") if asset else None
+    sha256_value = None
+    if isinstance(digest, str) and digest.lower().startswith("sha256:"):
+        candidate = digest[7:]
+        if re.fullmatch(r"[0-9a-fA-F]{64}", candidate):
+            sha256_value = candidate.lower()
+
     body = release.get("body")
     published_at = release.get("published_at")
     return UpdateInfo(
         version=normalize_version(tag_name),
         tag_name=tag_name,
         release_url=release_url,
-        download_url=_select_download_url(assets),
+        download_url=download_url,
+        sha256=sha256_value,
         notes=body if isinstance(body, str) and body.strip() else None,
         published_at=published_at if isinstance(published_at, str) else None,
     )
+
+
+def default_download_dir() -> Path:
+    """Return the user's Downloads folder, falling back to a temp directory."""
+    try:
+        downloads = user_downloads_dir()
+        if downloads:
+            return Path(downloads)
+    except Exception:
+        pass
+    return Path(tempfile.gettempdir()) / "HDU-Library-Sniper-Updates"
+
+
+def download_update(
+    update: UpdateInfo,
+    destination_dir: Path,
+    *,
+    progress: Callable[[DownloadProgress], None] | None = None,
+    cancel: Callable[[], bool] | None = None,
+    timeout: int = DOWNLOAD_TIMEOUT_SECONDS,
+) -> Path:
+    """Download and verify an installer, returning the saved file path."""
+    if not update.download_url:
+        raise ValueError("Update has no installer download URL")
+
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    url_name = Path(urlparse(update.download_url).path).name
+    file_name = re.sub(r'[\\/:*?"<>|]', "_", url_name).strip()
+    if not file_name:
+        file_name = f"HDU-Library-Sniper-Setup-{update.version}.exe"
+    target = destination_dir / file_name
+    partial = destination_dir / f".{file_name}.part"
+
+    request = Request(
+        update.download_url,
+        headers={"User-Agent": "HDU-Library-Sniper-Updater"},
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response, open(partial, "wb") as output:
+            content_length = response.headers.get("Content-Length")
+            total = int(content_length) if content_length and content_length.isdigit() else None
+            downloaded = 0
+            while True:
+                if cancel is not None and cancel():
+                    raise UpdateCancelled("Update download cancelled")
+                chunk = response.read(DOWNLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+                output.write(chunk)
+                downloaded += len(chunk)
+                if progress is not None:
+                    progress(DownloadProgress(downloaded=downloaded, total=total))
+
+        if total is not None and downloaded != total:
+            raise UpdateChecksumError(
+                f"Download incomplete: expected {total} bytes, got {downloaded}"
+            )
+
+        if update.sha256:
+            digest = sha256()
+            with open(partial, "rb") as handle:
+                for block in iter(lambda: handle.read(DOWNLOAD_CHUNK_SIZE), b""):
+                    digest.update(block)
+            if digest.hexdigest() != update.sha256.lower():
+                raise UpdateChecksumError(
+                    f"SHA-256 mismatch: expected {update.sha256}, got {digest.hexdigest()}"
+                )
+
+        partial.replace(target)
+    except Exception:
+        with contextlib.suppress(OSError):
+            partial.unlink()
+        raise
+    return target
+
+
+def launch_installer(installer: Path) -> None:
+    """Launch an installer detached from this process so the app can close."""
+    if sys.platform == "win32":
+        subprocess.Popen(
+            [str(installer), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+            cwd=str(installer.parent),
+            # CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
+            creationflags=0x00000200 | 0x00000008,
+        )
+        return
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", str(installer)], start_new_session=True)
+        return
+    subprocess.Popen(["xdg-open", str(installer)], start_new_session=True)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import queue
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,7 +21,16 @@ from hdu_sniper.library.client import ROOM_TYPE_MAP
 from hdu_sniper.runtime import get_app
 from hdu_sniper.schedule_policy import ALL_WEEKDAYS, WEEKDAY_NAMES, SchedulePolicy
 from hdu_sniper.scheduler import ScheduledTask
-from hdu_sniper.updater import UpdateInfo, check_for_update
+from hdu_sniper.updater import (
+    DownloadProgress,
+    UpdateCancelled,
+    UpdateChecksumError,
+    UpdateInfo,
+    check_for_update,
+    default_download_dir,
+    download_update,
+    launch_installer,
+)
 
 
 FONT_FAMILY = "SF Pro Text"
@@ -37,6 +47,16 @@ BORDER = "#dbdbdb"
 ACCENT = "#2997ff"
 ACCENT_SECONDARY = "#0071e3"
 RADIUS = 8
+
+
+def _format_bytes(size: int) -> str:
+    units = ("B", "KB", "MB", "GB")
+    value = float(size)
+    for unit in units:
+        if value < 1024:
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} GB"
 
 
 def resolve_assets_dir() -> str:
@@ -61,6 +81,17 @@ class SniperFletView:
         self.floors: dict[str, object] = {}
         self.available_update: UpdateInfo | None = None
         self._update_check_started = False
+        self._update_download_task = None
+        self._update_progress_queue: queue.Queue[DownloadProgress] = queue.Queue()
+        self._update_cancel_requested = False
+        self._update_progress_bar = ft.ProgressBar(
+            value=0,
+            color=ACCENT_SECONDARY,
+            bgcolor=BORDER,
+        )
+        self._update_status = ft.Text("正在连接下载地址...", size=13)
+        self._update_cancel_button = ft.Button("取消", on_click=self._cancel_update_download)
+        self._update_dialog = None
 
         self._configure_page()
         self._build_controls()
@@ -740,7 +771,7 @@ class SniperFletView:
 
     def _show_update_dialog(self, _event) -> None:
         update = self.available_update
-        if update is None:
+        if update is None or self._update_download_task is not None:
             return
 
         notes = update.notes.strip() if update.notes else ""
@@ -765,19 +796,158 @@ class SniperFletView:
                 icon=ft.Icon(ft.Icons.SYSTEM_UPDATE_ALT, color=ACCENT_SECONDARY),
                 title=ft.Text("发现新版本"),
                 content=content,
-                actions=[
-                    ft.Button("稍后再说", on_click=lambda _event: self.page.pop_dialog()),
-                    ft.FilledButton(
-                        "下载更新",
-                        icon=ft.Icons.DOWNLOAD,
-                        color=BACKGROUND,
-                        bgcolor=ACCENT_SECONDARY,
-                        icon_color=BACKGROUND,
-                        on_click=self._open_update_download,
-                    ),
-                ],
+                actions=self._update_dialog_actions(update),
             )
         )
+
+    def _update_dialog_actions(self, update: UpdateInfo) -> list[ft.Control]:
+        actions = [ft.Button("稍后再说", on_click=lambda _event: self.page.pop_dialog())]
+        if update.download_url:
+            actions.append(
+                ft.FilledButton(
+                    "下载更新",
+                    icon=ft.Icons.DOWNLOAD,
+                    color=BACKGROUND,
+                    bgcolor=ACCENT_SECONDARY,
+                    icon_color=BACKGROUND,
+                    on_click=self._start_update_download,
+                )
+            )
+        else:
+            actions.append(
+                ft.FilledButton(
+                    "打开发布页",
+                    icon=ft.Icons.OPEN_IN_NEW,
+                    color=BACKGROUND,
+                    bgcolor=ACCENT_SECONDARY,
+                    icon_color=BACKGROUND,
+                    on_click=self._open_update_download,
+                )
+            )
+        return actions
+
+    async def _start_update_download(self, _event) -> None:
+        update = self.available_update
+        if update is None or self._update_download_task is not None:
+            return
+        if (
+            self.page.web
+            or sys.platform != "win32"
+            or not (update.download_url or "").lower().endswith(".exe")
+        ):
+            await self._open_update_download(_event)
+            return
+
+        self._update_cancel_requested = False
+        self._update_progress_queue = queue.Queue()
+        self._update_progress_bar.value = 0
+        self._update_status.value = "正在连接下载地址..."
+        self._update_cancel_button.text = "取消"
+        self._update_cancel_button.disabled = False
+        self._update_cancel_button.on_click = self._cancel_update_download
+        self.update_button.disabled = True
+        self._update_dialog = ft.AlertDialog(
+            modal=True,
+            icon=ft.Icon(ft.Icons.DOWNLOAD, color=ACCENT_SECONDARY),
+            title=ft.Text("正在下载更新"),
+            content=ft.Column(
+                [
+                    ft.Text(f"新版本：{update.version}"),
+                    self._update_progress_bar,
+                    self._update_status,
+                ],
+                tight=True,
+                spacing=10,
+            ),
+            actions=[self._update_cancel_button],
+        )
+        self.page.pop_dialog()
+        self.page.show_dialog(self._update_dialog)
+        self.page.update()
+        self._update_download_task = self.page.run_task(self._perform_update_download, update)
+
+    async def _perform_update_download(self, update: UpdateInfo) -> None:
+        poller = asyncio.create_task(self._poll_update_progress())
+        try:
+            installer = await asyncio.to_thread(
+                download_update,
+                update,
+                default_download_dir(),
+                progress=self._queue_update_progress,
+                cancel=lambda: self._update_cancel_requested,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._show_update_failure(exc)
+            return
+        finally:
+            poller.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await poller
+            self._update_download_task = None
+
+        self._drain_update_progress()
+        self._update_progress_bar.value = 1
+        self._update_status.value = "校验完成，正在启动安装程序..."
+        with contextlib.suppress(RuntimeError):
+            self.page.update()
+        await asyncio.sleep(0.4)
+        try:
+            launch_installer(installer)
+        except Exception as exc:
+            self._show_update_failure(f"安装包已保存，但自动启动失败：{exc}")
+            return
+        self.page.window.close()
+
+    async def _poll_update_progress(self) -> None:
+        while True:
+            self._drain_update_progress()
+            await asyncio.sleep(0.1)
+
+    def _queue_update_progress(self, progress: DownloadProgress) -> None:
+        self._update_progress_queue.put(progress)
+
+    def _drain_update_progress(self) -> None:
+        changed = False
+        while True:
+            try:
+                progress = self._update_progress_queue.get_nowait()
+            except queue.Empty:
+                break
+            self._update_progress_bar.value = progress.percent
+            total = _format_bytes(progress.total) if progress.total else "未知大小"
+            self._update_status.value = (
+                f"正在下载 {_format_bytes(progress.downloaded)} / {total}"
+            )
+            changed = True
+        if changed:
+            with contextlib.suppress(RuntimeError):
+                self.page.update()
+
+    def _cancel_update_download(self, _event) -> None:
+        self._update_cancel_requested = True
+        self._update_cancel_button.disabled = True
+        self._update_status.value = "正在取消..."
+        with contextlib.suppress(RuntimeError):
+            self.page.update()
+
+    def _show_update_failure(self, error: Exception | str) -> None:
+        if isinstance(error, UpdateCancelled):
+            message = "下载已取消"
+        elif isinstance(error, UpdateChecksumError):
+            message = "更新失败：安装包校验未通过，已停止安装"
+        else:
+            message = f"更新失败：{error}"
+        self._update_status.value = message
+        self._update_progress_bar.value = 0
+        self._update_cancel_button.text = "关闭"
+        self._update_cancel_button.disabled = False
+        self._update_cancel_button.on_click = lambda _event: self.page.pop_dialog()
+        self.update_button.disabled = False
+        self._update_download_task = None
+        with contextlib.suppress(RuntimeError):
+            self.page.update()
 
     async def _open_update_download(self, _event) -> None:
         update = self.available_update
