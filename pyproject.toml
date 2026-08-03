@@ -83,6 +83,7 @@ package = [
     "pyinstaller>=6.14.0,<7",
 ]
 test = [
+    "httpx2>=2.9.1",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
 ]
