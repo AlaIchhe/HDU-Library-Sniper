@@ -214,8 +214,8 @@ if ($Push) {
 }
 
 if ($DeleteNotesFile -and (Test-Path -LiteralPath $NotesFile -PathType Leaf)) {
-    $null = & git ls-files --error-unmatch -- $NotesFile 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    $tracked = & git ls-files -- $NotesFile
+    if ($tracked) {
         Write-Warning "Notes file is tracked by git; skipping deletion: $NotesFile"
     } else {
         Remove-Item -LiteralPath $NotesFile -Force
