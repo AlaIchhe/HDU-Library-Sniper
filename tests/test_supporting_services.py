@@ -204,7 +204,35 @@ def test_notifier_ignores_log_and_webhook_failures(tmp_path: Path, monkeypatch) 
         "hdu_sniper.notifier.requests.post",
         Mock(side_effect=requests.RequestException("offline")),
     )
-    Notifier(tmp_path, "https://example.invalid/webhook").send("title", "body")
+    Notifier(tmp_path, "https://example.invalid/webhook").send("title", "body", success=False)
+
+
+def test_notifier_sends_system_notification_on_success(tmp_path: Path, monkeypatch) -> None:
+    system_notify = Mock()
+    monkeypatch.setattr(notifier_module, "_system_notify", system_notify)
+
+    Notifier(tmp_path / "booking.log").send("预约成功", "座位已锁定", success=True)
+
+    system_notify.assert_called_once_with("预约成功", "座位已锁定")
+
+
+def test_notifier_skips_system_notification_on_failure(tmp_path: Path, monkeypatch) -> None:
+    system_notify = Mock()
+    monkeypatch.setattr(notifier_module, "_system_notify", system_notify)
+
+    Notifier(tmp_path / "booking.log").send("预约失败", "请求超时", success=False)
+
+    system_notify.assert_not_called()
+
+
+def test_notifier_ignores_system_notification_failures(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        notifier_module,
+        "_system_notify",
+        Mock(side_effect=RuntimeError("system notification unavailable")),
+    )
+
+    Notifier(tmp_path / "booking.log").send("预约成功", "座位已锁定", success=True)
 
 
 def test_notifier_console_output_tolerates_unrepresentable_characters(monkeypatch) -> None:

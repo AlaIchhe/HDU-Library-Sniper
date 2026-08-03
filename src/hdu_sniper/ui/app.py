@@ -15,7 +15,7 @@ from hdu_sniper import __version__
 from hdu_sniper.app import SniperApp
 from hdu_sniper.booking.time import BOOKING_DAY_OFFSET, CST
 from hdu_sniper.config import CHECK_IN_AGREEMENT_TEXT
-from hdu_sniper.events import ApplicationEvent, EventKind, JobState
+from hdu_sniper.events import ApplicationEvent, EventKind
 from hdu_sniper.library import responses
 from hdu_sniper.library.client import ROOM_TYPE_MAP
 from hdu_sniper.runtime import get_app
@@ -165,7 +165,6 @@ class SniperFletView:
 
     def _build_controls(self) -> None:
         credentials = self.application.saved_credentials()
-        self.global_status = ft.Text("就绪", size=13, color=MUTED)
 
         self.student_id = ft.TextField(
             label="学号",
@@ -656,7 +655,7 @@ class SniperFletView:
                         spacing=2,
                     ),
                     ft.Row(
-                        [self.update_button, self.global_status, self.reauthenticate_button],
+                        [self.update_button, self.reauthenticate_button],
                         spacing=8,
                     ),
                 ],
@@ -898,7 +897,7 @@ class SniperFletView:
         except Exception as exc:
             self._show_update_failure(f"安装包已保存，但自动启动失败：{exc}")
             return
-        self.page.window.close()
+        await self.page.window.close()
 
     async def _poll_update_progress(self) -> None:
         while True:
@@ -2043,16 +2042,6 @@ class SniperFletView:
         await self._refresh_schedule_policy()
 
     def _on_application_event(self, event: ApplicationEvent) -> None:
-        state_names = {
-            JobState.IDLE: "空闲",
-            JobState.AUTHENTICATING: "认证中",
-            JobState.RUNNING: "执行中",
-            JobState.CANCELLING: "取消中",
-            JobState.SUCCEEDED: "预约成功",
-            JobState.FAILED: "执行失败",
-            JobState.CANCELLED: "已取消",
-        }
-        self.global_status.value = state_names[event.state]
         if event.kind == EventKind.AUTH_REQUIRED:
             self.auth_state.value = "认证已失效"
             self.auth_state.color = FOREGROUND
