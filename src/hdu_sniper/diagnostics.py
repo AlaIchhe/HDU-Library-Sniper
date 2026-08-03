@@ -6,7 +6,7 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
-from hdu_sniper.library.login import configure_packaged_browser
+from hdu_sniper.packaged_runtime import configure_packaged_browser
 
 
 def desktop_self_check() -> int:

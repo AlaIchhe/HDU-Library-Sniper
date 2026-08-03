@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -20,6 +19,12 @@ from urllib.request import Request, urlopen
 from platformdirs import user_downloads_dir
 
 from hdu_sniper import __version__
+from hdu_sniper.dto import (
+    DownloadProgress,
+    UpdateCancelled,
+    UpdateChecksumError,
+    UpdateInfo,
+)
 
 
 DEFAULT_UPDATE_API_URL = "https://api.github.com/repos/AlaIchhe/HDU-Library-Sniper/releases/latest"
@@ -27,39 +32,6 @@ UPDATE_TIMEOUT_SECONDS = 8
 DOWNLOAD_TIMEOUT_SECONDS = 120
 DOWNLOAD_CHUNK_SIZE = 64 * 1024
 _VERSION_PATTERN = re.compile(r"^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+]([0-9A-Za-z.-]+))?$")
-
-
-class UpdateCancelled(RuntimeError):
-    """Raised when the user cancels an update download."""
-
-
-class UpdateChecksumError(RuntimeError):
-    """Raised when a downloaded installer does not match its release checksum."""
-
-
-@dataclass(frozen=True)
-class DownloadProgress:
-    """Download byte counts reported to the UI during an update."""
-
-    downloaded: int
-    total: int | None
-
-    @property
-    def percent(self) -> float | None:
-        return self.downloaded / self.total if self.total else None
-
-
-@dataclass(frozen=True)
-class UpdateInfo:
-    """Information needed to download, verify, and install an update."""
-
-    version: str
-    tag_name: str
-    release_url: str
-    download_url: str | None
-    sha256: str | None = None
-    notes: str | None = None
-    published_at: str | None = None
 
 
 def normalize_version(value: str) -> str:
@@ -220,7 +192,7 @@ def download_update(
         headers={"User-Agent": "HDU-Library-Sniper-Updater"},
     )
     try:
-        with urlopen(request, timeout=timeout) as response, open(partial, "wb") as output:
+        with urlopen(request, timeout=timeout) as response, partial.open("wb") as output:
             content_length = response.headers.get("Content-Length")
             total = int(content_length) if content_length and content_length.isdigit() else None
             downloaded = 0
@@ -242,7 +214,7 @@ def download_update(
 
         if update.sha256:
             digest = sha256()
-            with open(partial, "rb") as handle:
+            with partial.open("rb") as handle:
                 for block in iter(lambda: handle.read(DOWNLOAD_CHUNK_SIZE), b""):
                     digest.update(block)
             if digest.hexdigest() != update.sha256.lower():
@@ -272,3 +244,45 @@ def launch_installer(installer: Path) -> None:
         subprocess.Popen(["open", str(installer)], start_new_session=True)
         return
     subprocess.Popen(["xdg-open", str(installer)], start_new_session=True)
+
+
+class UpdateService:
+    """应用层更新服务：封装检查、下载、安装与平台能力判断。"""
+
+    def __init__(self, *, allow_installer_download: bool | None = None) -> None:
+        self._allow_installer_download = (
+            sys.platform == "win32"
+            if allow_installer_download is None
+            else allow_installer_download
+        )
+
+    def check_for_update(self) -> UpdateInfo | None:
+        """检查 GitHub Releases 是否有更新。"""
+        return check_for_update()
+
+    def install_supported(self, update: UpdateInfo) -> bool:
+        """判断当前环境是否支持应用内下载并启动安装包。"""
+        return (
+            self._allow_installer_download
+            and bool(update.download_url)
+            and update.download_url.lower().endswith(".exe")
+        )
+
+    def download(
+        self,
+        update: UpdateInfo,
+        *,
+        progress: Callable[[DownloadProgress], None] | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ) -> Path:
+        """下载到默认目录并校验安装包。"""
+        return download_update(
+            update,
+            default_download_dir(),
+            progress=progress,
+            cancel=cancel,
+        )
+
+    def launch(self, installer: Path) -> None:
+        """启动已下载的安装程序。"""
+        launch_installer(installer)

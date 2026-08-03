@@ -13,36 +13,50 @@ def test_package_main_routes_web_mode(monkeypatch) -> None:
     from hdu_sniper import __main__
 
     run = Mock()
+    application = Mock()
+    server_app = object()
     monkeypatch.setattr(uvicorn, "run", run)
+    monkeypatch.setattr("hdu_sniper.runtime.get_app", Mock(return_value=application))
+    monkeypatch.setattr(
+        "hdu_sniper.server.create_server_app",
+        Mock(return_value=server_app),
+    )
     monkeypatch.setattr("sys.argv", ["hdu-sniper", "--web"])
     monkeypatch.setenv("FLET_SERVER_IP", "127.0.0.1")
     monkeypatch.setenv("FLET_SERVER_PORT", "9000")
 
     __main__.main()
 
-    run.assert_called_once_with("hdu_sniper.server:app", host="127.0.0.1", port=9000)
+    run.assert_called_once_with(server_app, host="127.0.0.1", port=9000)
 
 
 def test_package_main_routes_desktop_mode(monkeypatch) -> None:
     from hdu_sniper import __main__, desktop
 
     desktop_main = Mock()
+    application = Mock()
+    self_check = Mock()
     monkeypatch.setattr(desktop, "main", desktop_main)
+    monkeypatch.setattr("hdu_sniper.runtime.get_app", Mock(return_value=application))
+    monkeypatch.setattr("hdu_sniper.diagnostics.desktop_self_check", self_check)
     monkeypatch.setattr("sys.argv", ["hdu-sniper"])
 
     __main__.main()
 
-    desktop_main.assert_called_once_with()
+    desktop_main.assert_called_once_with(
+        application=application,
+        self_check=self_check,
+    )
 
 
 def test_desktop_routes_self_check(monkeypatch) -> None:
     from hdu_sniper import desktop
 
     monkeypatch.setattr("sys.argv", ["hdu-sniper", "--self-check"])
-    monkeypatch.setattr(desktop, "desktop_self_check", Mock(return_value=11))
+    check = Mock(return_value=11)
 
     with pytest.raises(SystemExit) as captured:
-        desktop.main()
+        desktop.main(Mock(), self_check=check)
 
     assert captured.value.code == 11
 
@@ -52,12 +66,11 @@ def test_desktop_routes_background_booking(argument: str, monkeypatch) -> None:
     from hdu_sniper import desktop
 
     application = Mock()
-    application.booking.run_once.return_value = 3
+    application.run_daemon.return_value = 3
     monkeypatch.setattr("sys.argv", ["hdu-sniper", argument])
-    monkeypatch.setattr(desktop, "get_app", Mock(return_value=application))
 
     with pytest.raises(SystemExit) as captured:
-        desktop.main()
+        desktop.main(application, self_check=Mock())
 
     assert captured.value.code == 3
 
@@ -66,15 +79,14 @@ def test_desktop_override_flag_bypasses_schedule_policy(monkeypatch) -> None:
     from hdu_sniper import desktop
 
     application = Mock()
-    application.booking.run_once.return_value = 0
+    application.run_daemon.return_value = 0
     monkeypatch.setattr("sys.argv", ["hdu-sniper", "--daemon", "--override"])
-    monkeypatch.setattr(desktop, "get_app", Mock(return_value=application))
 
     with pytest.raises(SystemExit) as captured:
-        desktop.main()
+        desktop.main(application, self_check=Mock())
 
     assert captured.value.code == 0
-    application.booking.run_once.assert_called_once_with(
+    application.run_daemon.assert_called_once_with(
         execute_at=None,
         bypass_policy=True,
     )
@@ -90,10 +102,9 @@ def test_desktop_routes_auto_checkin(argument: str, wait: bool, monkeypatch) -> 
     application = Mock()
     application.run_checkin.return_value = 0
     monkeypatch.setattr("sys.argv", ["hdu-sniper", argument])
-    monkeypatch.setattr(desktop, "get_app", Mock(return_value=application))
 
     with pytest.raises(SystemExit) as captured:
-        desktop.main()
+        desktop.main(application, self_check=Mock())
 
     assert captured.value.code == 0
     application.run_checkin.assert_called_once_with(wait=wait)
@@ -103,9 +114,10 @@ def test_desktop_starts_flet_by_default(monkeypatch) -> None:
     from hdu_sniper import desktop
 
     run_flet_app = Mock()
+    application = Mock()
     monkeypatch.setattr("sys.argv", ["hdu-sniper"])
     monkeypatch.setattr(desktop, "run_flet_app", run_flet_app)
 
-    desktop.main()
+    desktop.main(application, self_check=Mock())
 
-    run_flet_app.assert_called_once_with()
+    run_flet_app.assert_called_once_with(application)

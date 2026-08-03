@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from hdu_sniper import diagnostics
-from hdu_sniper.library.login import configure_packaged_browser
+from hdu_sniper.packaged_runtime import configure_packaged_browser
 from hdu_sniper.paths import AppPaths
 from hdu_sniper.scheduler import SchedulerService
 

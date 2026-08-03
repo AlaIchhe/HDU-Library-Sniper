@@ -82,7 +82,7 @@ if (-not (Test-Path -LiteralPath $BrowserDir -PathType Container)) {
 }
 
 $packArgs = @(
-    "run", "flet", "pack", "src\desktop.py",
+    "run", "flet", "pack", "src\flet_entry.py",
     "--onedir",
     "--distpath", $DesktopDir,
     "--name", "HDU-Library-Sniper",
@@ -95,7 +95,7 @@ $packArgs = @(
     "--copyright", "Copyright (C) 2026 HDU Library Sniper Contributors",
     "--add-data", "${BrowserDir}:playwright-browsers",
     "--add-data", "${FontDir}:assets/fonts",
-    "--add-data", "scripts\AutoSchedule.ps1:scripts",
+    "--add-data", "scripts\Register-AutoSchedule.ps1:scripts",
     "--hidden-import", "playwright.sync_api",
     "--yes"
 )

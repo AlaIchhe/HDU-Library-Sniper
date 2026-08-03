@@ -355,7 +355,11 @@ class TestSchedulerService(unittest.TestCase):
             self.assertEqual(self.service._current_windows_user(), "tokenuser")
 
     def test_auto_schedule_script_falls_back_to_unelevated_current_user_task(self):
-        script = (Path(__file__).resolve().parents[1] / "scripts" / "AutoSchedule.ps1").read_text(
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "Register-AutoSchedule.ps1"
+        ).read_text(
             encoding="utf-8"
         )
 
