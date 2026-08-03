@@ -194,6 +194,14 @@ class SchedulerService:
             return tasks
         return []
 
+    def checkin_tasks_ready(self) -> bool:
+        """确认自动签到的登录触发任务已注册。"""
+        try:
+            tasks = self.list_tasks()
+        except RuntimeError:
+            return False
+        return any(task.name == CHECKIN_LOGON_TASK for task in tasks)
+
     def run_task(self, task_name: str) -> tuple[bool, str]:
         """请求 Windows 任务计划程序立即运行一个应用托管任务。"""
         self._require_managed_task(task_name)
@@ -804,11 +812,14 @@ class SchedulerService:
         """读取本应用创建的全部 Windows 任务（每日、登录触发与窗口任务）。"""
         script = f"""
 $ErrorActionPreference = 'Stop'
-function Format-TaskTime([datetime]$value) {{
-    if ($value -eq [datetime]::MinValue) {{ return $null }}
-    return $value.ToString('yyyy-MM-dd HH:mm:ss')
+function Format-TaskTime($value) {{
+    if ($null -eq $value) {{ return $null }}
+    $parsed = $null
+    try {{ $parsed = [datetime]$value }} catch {{ return $null }}
+    if ($parsed -eq [datetime]::MinValue) {{ return $null }}
+    return $parsed.ToString('yyyy-MM-dd HH:mm:ss')
 }}
-$tasks = @(Get-ScheduledTask | Where-Object {{ $_.TaskName -like '{TASK_MARKER}*' }})
+$tasks = @(Get-ScheduledTask -TaskName '{TASK_MARKER}-*')
 $items = @($tasks | ForEach-Object {{
     $info = Get-ScheduledTaskInfo -TaskName $_.TaskName -TaskPath $_.TaskPath
     [pscustomobject]@{{
@@ -871,9 +882,12 @@ ConvertTo-Json -InputObject $items -Compress
 try {{
     $task = Get-ScheduledTask -TaskName {task_name_literal}
     $info = Get-ScheduledTaskInfo -TaskName $task.TaskName -TaskPath $task.TaskPath
-    function Format-TaskTime([datetime]$value) {{
-        if ($value -eq [datetime]::MinValue) {{ return $null }}
-        return $value.ToString('yyyy-MM-dd HH:mm:ss')
+    function Format-TaskTime($value) {{
+        if ($null -eq $value) {{ return $null }}
+        $parsed = $null
+        try {{ $parsed = [datetime]$value }} catch {{ return $null }}
+        if ($parsed -eq [datetime]::MinValue) {{ return $null }}
+        return $parsed.ToString('yyyy-MM-dd HH:mm:ss')
     }}
     [pscustomobject]@{{
         name = $task.TaskName

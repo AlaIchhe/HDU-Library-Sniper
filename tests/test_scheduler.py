@@ -106,9 +106,26 @@ class TestSchedulerService(unittest.TestCase):
         self.assertEqual(task.last_result, "0")
         command = mock_run.call_args.args[0]
         assert command[:4] == ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command"]
-        assert "Get-ScheduledTask | Where-Object" in command[-1]
-        assert "TaskName -like 'HDU-Library-Sniper*'" in command[-1]
+        assert "Get-ScheduledTask -TaskName 'HDU-Library-Sniper-*'" in command[-1]
         assert "Get-ScheduledTaskInfo" in command[-1]
+        assert "function Format-TaskTime($value)" in command[-1]
+        assert "if ($null -eq $value)" in command[-1]
+
+    def test_checkin_tasks_ready_reflects_logon_task(self):
+        from hdu_sniper.scheduler import CHECKIN_LOGON_TASK, ScheduledTask
+
+        self.service.list_tasks = Mock(
+            return_value=[ScheduledTask(name=CHECKIN_LOGON_TASK)]
+        )
+        self.assertTrue(self.service.checkin_tasks_ready())
+
+        self.service.list_tasks = Mock(
+            return_value=[ScheduledTask(name="HDU-Library-Sniper-Daily")]
+        )
+        self.assertFalse(self.service.checkin_tasks_ready())
+
+        self.service.list_tasks = Mock(side_effect=RuntimeError("denied"))
+        self.assertFalse(self.service.checkin_tasks_ready())
 
     @patch("subprocess.run")
     def test_list_windows_tasks_surfaces_scheduler_access_errors(self, mock_run):

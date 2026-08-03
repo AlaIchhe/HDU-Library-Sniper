@@ -1683,12 +1683,16 @@ class SniperFletView:
             with contextlib.suppress(RuntimeError):
                 self.page.update()
             return
-        enabled = bool(status.get("enabled")) and bool(status.get("consent_valid"))
+        consent_valid = bool(status.get("consent_valid"))
+        tasks_ready = bool(status.get("tasks_ready"))
+        enabled = bool(status.get("enabled")) and consent_valid and tasks_ready
         self.checkin_status_text.value = "已启用（风险自担）" if enabled else "未启用"
         self.checkin_status_text.color = ACCENT_SECONDARY if enabled else FOREGROUND
         self.enable_checkin_button.disabled = enabled
         self.disable_checkin_button.disabled = not enabled
-        if enabled:
+        if status.get("enabled") and consent_valid and not tasks_ready:
+            self.checkin_agreed_text.value = "配置显示已启用，但未找到登录触发任务；请重新启用。"
+        elif enabled:
             agreed_at = status.get("agreed_at") or "未知时间"
             self.checkin_agreed_text.value = (
                 f"已同意风险协议（{agreed_at}）；登录触发与窗口开启时自动签到。"

@@ -403,6 +403,7 @@ class SniperApp:
             "agreed_at": self.settings.auto_check_in_agreed_at,
             "current_agreement_version": CHECK_IN_AGREEMENT_VERSION,
             "consent_valid": self._auto_check_in_consented(),
+            "tasks_ready": self.scheduler.checkin_tasks_ready(),
         }
 
     def enable_auto_check_in(self) -> tuple[bool, str]:
