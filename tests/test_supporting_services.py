@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, Mock
 
@@ -241,6 +242,118 @@ def test_notifier_console_output_tolerates_unrepresentable_characters(monkeypatc
 
     monkeypatch.setattr(notifier_module.sys, "stdout", GbkStdout())
     assert "?" in Notifier._console_safe("调度失败�")
+
+
+def test_notifier_skips_webhook_when_not_configured(tmp_path: Path, monkeypatch) -> None:
+    post = Mock()
+    system_notify = Mock()
+    monkeypatch.setattr("hdu_sniper.notifier.requests.post", post)
+    monkeypatch.setattr(notifier_module, "_system_notify", system_notify)
+    log_file = tmp_path / "logs" / "booking.log"
+
+    Notifier(log_file).send("booking ok", "seat locked", success=True)
+
+    post.assert_not_called()
+    system_notify.assert_called_once_with("booking ok", "seat locked")
+    assert "[SUCCESS] booking ok" in log_file.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("plain", "'plain'"), ("it's", "'it''s'"), ("", "''")],
+)
+def test_powershell_quote_escapes_single_quotes(value: str, expected: str) -> None:
+    assert notifier_module._powershell_quote(value) == expected
+
+
+def test_windows_system_notify_builds_hidden_powershell_toast(monkeypatch) -> None:
+    popen = Mock()
+    monkeypatch.setattr(notifier_module.subprocess, "Popen", popen)
+
+    notifier_module._windows_system_notify("Seat's ready", "Room 101")
+
+    command, kwargs = popen.call_args.args[0], popen.call_args.kwargs
+    assert command[:7] == [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Sta",
+        "-WindowStyle",
+        "Hidden",
+        "-EncodedCommand",
+    ]
+    script = base64.b64decode(command[7]).decode("utf-16-le")
+    assert "Seat''s ready" in script
+    assert "Room 101" in script
+    assert kwargs["stdout"] is notifier_module.subprocess.DEVNULL
+    assert kwargs["stderr"] is notifier_module.subprocess.DEVNULL
+    assert kwargs["creationflags"] == getattr(
+        notifier_module.subprocess, "CREATE_NO_WINDOW", 0
+    )
+
+
+def test_macos_system_notify_uses_json_escaped_applescript(monkeypatch) -> None:
+    popen = Mock()
+    monkeypatch.setattr(notifier_module.subprocess, "Popen", popen)
+
+    notifier_module._macos_system_notify('Seat "reserved"', "Room 101")
+
+    args, kwargs = popen.call_args
+    expected = (
+        "display notification "
+        + json.dumps("Room 101", ensure_ascii=False)
+        + " with title "
+        + json.dumps('Seat "reserved"', ensure_ascii=False)
+    )
+    assert args[0] == ["/usr/bin/osascript", "-e", expected]
+    assert kwargs["stdout"] is notifier_module.subprocess.DEVNULL
+    assert kwargs["stderr"] is notifier_module.subprocess.DEVNULL
+
+
+def test_linux_system_notify_skips_when_notify_send_is_missing(monkeypatch) -> None:
+    popen = Mock()
+    monkeypatch.setattr(notifier_module.shutil, "which", Mock(return_value=None))
+    monkeypatch.setattr(notifier_module.subprocess, "Popen", popen)
+
+    notifier_module._linux_system_notify("title", "body")
+
+    popen.assert_not_called()
+
+
+def test_linux_system_notify_launches_notify_send(monkeypatch) -> None:
+    popen = Mock()
+    monkeypatch.setattr(
+        notifier_module.shutil, "which", Mock(return_value="/usr/bin/notify-send")
+    )
+    monkeypatch.setattr(notifier_module.subprocess, "Popen", popen)
+
+    notifier_module._linux_system_notify("title", "body")
+
+    popen.assert_called_once_with(
+        ["/usr/bin/notify-send", "--app-name", notifier_module.APP_NAME, "title", "body"],
+        stdout=notifier_module.subprocess.DEVNULL,
+        stderr=notifier_module.subprocess.DEVNULL,
+    )
+
+
+@pytest.mark.parametrize(
+    ("platform", "target"),
+    [
+        ("win32", "_windows_system_notify"),
+        ("darwin", "_macos_system_notify"),
+        ("linux", "_linux_system_notify"),
+    ],
+)
+def test_system_notify_dispatches_on_platform(
+    monkeypatch, platform: str, target: str
+) -> None:
+    notify = Mock()
+    monkeypatch.setattr(notifier_module.sys, "platform", platform)
+    monkeypatch.setattr(notifier_module, target, notify)
+
+    notifier_module._system_notify("title", "body")
+
+    notify.assert_called_once_with("title", "body")
 
 
 def test_generate_api_token_is_deterministic() -> None:
