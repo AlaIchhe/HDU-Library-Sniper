@@ -328,7 +328,7 @@ class SniperApp:
 
     def check_in_booking(self, booking_id: str | int) -> tuple[bool, str]:
         """签到当前账户中处于待签到状态的预约。"""
-        return self._run_booking_action(
+        success, message = self._run_booking_action(
             booking_id,
             allowed_statuses={responses.BOOKING_STATUS_PENDING},
             allowed_item=responses.booking_is_check_in_available,
@@ -338,6 +338,9 @@ class SniperApp:
             action_name="签到",
             success_message="签到成功，座位使用中",
         )
+        if success:
+            self.notifier.send("签到成功", message, success=True)
+        return success, message
 
     def come_back_booking(self, booking_id: str | int) -> tuple[bool, str]:
         """让当前账户中处于暂离状态的预约恢复为使用中。"""

@@ -14,6 +14,8 @@ def _page() -> Mock:
     page = Mock()
     page.width = 1000
     page.web = False
+    page.window = Mock()
+    page.window.close = AsyncMock()
     return page
 
 
@@ -135,7 +137,7 @@ def test_perform_update_download_launches_installer_and_closes() -> None:
         asyncio.run(view._perform_update_download(update))
 
     launch.assert_called_once_with(installer)
-    view.page.window.close.assert_called_once_with()
+    view.page.window.close.assert_awaited_once_with()
 
 
 def test_perform_update_download_reports_cancellation() -> None:

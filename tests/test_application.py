@@ -246,6 +246,11 @@ def test_application_checks_in_and_returns_after_status_verification(tmp_path: P
         [{"id": "1", "status": "1"}],
     ]
     assert application.check_in_booking("1") == (True, "签到成功，座位使用中")
+    dependencies["notifier"].send.assert_called_once_with(
+        "签到成功",
+        "签到成功，座位使用中",
+        success=True,
+    )
 
     dependencies["client"].come_back_booking.return_value = success_response
     dependencies["client"].get_bookings.side_effect = [
@@ -535,6 +540,11 @@ def test_auto_check_in_runs_when_consented(tmp_path: Path) -> None:
     results = application.auto_check_in()
 
     assert results == [{"id": "1", "success": True, "message": "签到成功，座位使用中"}]
+    dependencies["notifier"].send.assert_called_once_with(
+        "签到成功",
+        "签到成功，座位使用中",
+        success=True,
+    )
 
 
 def test_enable_auto_check_in_persists_consent_and_syncs_tasks(tmp_path: Path) -> None:
