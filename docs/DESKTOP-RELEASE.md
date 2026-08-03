@@ -22,6 +22,7 @@ scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push
 - `-Tag`：自动创建 `v1.4.0` 标签（未指定 `-Commit` 时会自动提交）
 - `-Push`：推送提交和标签，推送 `v*` 标签会触发发布工作流
 - `-Title`：自定义 Release 标题；不带时默认使用标签名（如 `v1.4.0`）
+- `-DeleteNotesFile`：配合 `-NotesFile` 使用，`git push` 成功后自动删除未跟踪的说明草稿（已跟踪文件会跳过）
 
 也可以先不带参数运行，只修改本地文件并预览改动（`-DryRun`）。构建脚本和发布工作流会校验三处版本号及标签一致，不一致时直接构建失败。
 
@@ -30,7 +31,7 @@ scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push
 Release 描述默认由 GitHub 根据提交自动生成。如果想写自定义发布说明，可以在打标签时把说明写进标签消息，发布时会自动作为描述的开头，自动生成的更新日志会跟在后面：
 
 ```powershell
-scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -NotesFile RELEASE_NOTES.md -Title "v1.4.0：新增自动签到"
+scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -NotesFile RELEASE_NOTES.md -DeleteNotesFile -Title "v1.4.0：新增自动签到"
 ```
 
 也可以直接传文本（多行文本用 PowerShell 反引号 `` `n `` 换行）：
@@ -41,6 +42,8 @@ scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -Notes "新功能：支持自�
 
 不带 `-Notes` / `-NotesFile` 时，Release 描述就是 GitHub 自动生成的内容，不受影响。
 
+使用 `-NotesFile` 时草稿默认保留；加上 `-DeleteNotesFile` 会在推送成功后自动删除未跟踪草稿，避免工作区残留未跟踪文件。
+
 Release 标题默认是标签名（`v1.4.0`）；需要更详细的标题时用 `-Title` 指定，标题会与发布说明一起写入标签并自动应用到 Release。
 
 ### 用 AI 生成发布说明
@@ -49,7 +52,7 @@ Release 标题默认是标签名（`v1.4.0`）；需要更详细的标题时用 
 
 > 请先运行 `git log --no-merges --format='%s' $(git describe --tags --abbrev=0)..HEAD` 查看自上次发布以来的全部提交，然后用中文为即将发布的下一版本写一份面向用户的 GitHub Release 发布说明，按“新功能 / 改进 / 修复”分类，语言简洁，不包含提交哈希或内部实现细节。
 
-把生成的文本保存到文件后，用 `-NotesFile` 传给发布脚本即可。
+把生成的文本保存到文件后，用 `-NotesFile` 传给发布脚本即可（发布时加 `-DeleteNotesFile` 可自动清理草稿）。
 
 桌面版本包含 Python 运行时、项目依赖和 Chromium。最终用户不需要安装 Python、运行命令或下载浏览器。
 

@@ -18,6 +18,9 @@
 
 .EXAMPLE
     .\scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -NotesFile RELEASE_NOTES.md -Title "v1.4.0 - Auto check-in"
+
+.EXAMPLE
+    .\scripts\bump-version.ps1 1.4.0 -Commit -Tag -Push -NotesFile RELEASE_NOTES.md -DeleteNotesFile
 #>
 param(
     [Parameter(Mandatory = $true, Position = 0)]
@@ -31,6 +34,7 @@ param(
     [string]$Notes,
     [string]$NotesFile,
     [string]$Title,
+    [switch]$DeleteNotesFile,
     [switch]$DryRun
 )
 
@@ -80,6 +84,9 @@ function Invoke-Checked {
 
 if ($Notes -and $NotesFile) {
     throw "Specify only one of -Notes or -NotesFile."
+}
+if ($DeleteNotesFile -and -not $NotesFile) {
+    throw "-DeleteNotesFile requires -NotesFile."
 }
 $notesText = ""
 if ($NotesFile) {
@@ -165,6 +172,7 @@ if ($DryRun) {
             }
         }
         if ($Push) { Write-Host "[DRY-RUN] Would push branch and tag" }
+        if ($DeleteNotesFile) { Write-Host "[DRY-RUN] Would delete notes file: $NotesFile" }
     } elseif ($Tag) {
         Write-Host "[DRY-RUN] Would create tag: $TagName"
         Write-Host "[DRY-RUN] Release title: $tagSubject"
@@ -173,6 +181,7 @@ if ($DryRun) {
             $notesText -split "`n" | ForEach-Object { Write-Host "  $_" }
         }
         if ($Push) { Write-Host "[DRY-RUN] Would push tag" }
+        if ($DeleteNotesFile) { Write-Host "[DRY-RUN] Would delete notes file: $NotesFile" }
     }
     exit 0
 }
@@ -201,6 +210,16 @@ if ($Push) {
         Invoke-Checked "git" @("push", "--follow-tags")
     } else {
         Invoke-Checked "git" @("push")
+    }
+}
+
+if ($DeleteNotesFile -and (Test-Path -LiteralPath $NotesFile -PathType Leaf)) {
+    $null = & git ls-files --error-unmatch -- $NotesFile 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Warning "Notes file is tracked by git; skipping deletion: $NotesFile"
+    } else {
+        Remove-Item -LiteralPath $NotesFile -Force
+        Write-Host "Removed notes file: $NotesFile"
     }
 }
 
