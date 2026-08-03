@@ -6,31 +6,25 @@ import asyncio
 import contextlib
 import queue
 import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import flet as ft
 
 from hdu_sniper import __version__
-from hdu_sniper.app import SniperApp
-from hdu_sniper.booking.time import BOOKING_DAY_OFFSET, CST
-from hdu_sniper.config import CHECK_IN_AGREEMENT_TEXT
-from hdu_sniper.events import ApplicationEvent, EventKind
-from hdu_sniper.library import responses
-from hdu_sniper.library.client import ROOM_TYPE_MAP
-from hdu_sniper.runtime import get_app
-from hdu_sniper.schedule_policy import ALL_WEEKDAYS, WEEKDAY_NAMES, SchedulePolicy
-from hdu_sniper.scheduler import ScheduledTask
-from hdu_sniper.updater import (
+from hdu_sniper.application import SniperAppProtocol
+from hdu_sniper.dto import (
+    BookingView,
     DownloadProgress,
+    FloorView,
+    PlanView,
+    RoomTypeView,
+    ScheduledTaskView,
+    SchedulePolicyView,
     UpdateCancelled,
     UpdateChecksumError,
     UpdateInfo,
-    check_for_update,
-    default_download_dir,
-    download_update,
-    launch_installer,
 )
+from hdu_sniper.events import ApplicationEvent, EventKind
 
 
 FONT_FAMILY = "SF Pro Text"
@@ -73,12 +67,12 @@ def resolve_assets_dir() -> str:
 class SniperFletView:
     """单个 Flet Page 的展示适配器。"""
 
-    def __init__(self, page: ft.Page, application: SniperApp) -> None:
+    def __init__(self, page: ft.Page, application: SniperAppProtocol) -> None:
         self.page = page
         self.application = application
         self.selected_plan_ids: set[str] = set()
-        self.room_types: dict[str, dict] = {}
-        self.floors: dict[str, object] = {}
+        self.room_types: dict[str, RoomTypeView] = {}
+        self.floors: dict[str, FloorView] = {}
         self.available_update: UpdateInfo | None = None
         self._update_check_started = False
         self._update_download_task = None
@@ -755,7 +749,7 @@ class SniperFletView:
 
     async def _check_for_updates(self) -> None:
         try:
-            update = await asyncio.to_thread(check_for_update)
+            update = await asyncio.to_thread(self.application.check_for_update)
         except Exception:
             # 更新检查是可选功能，离线时不能影响登录、预约和调度。
             return
@@ -829,11 +823,7 @@ class SniperFletView:
         update = self.available_update
         if update is None or self._update_download_task is not None:
             return
-        if (
-            self.page.web
-            or sys.platform != "win32"
-            or not (update.download_url or "").lower().endswith(".exe")
-        ):
+        if self.page.web or not self.application.update_install_supported(update):
             await self._open_update_download(_event)
             return
 
@@ -869,9 +859,8 @@ class SniperFletView:
         poller = asyncio.create_task(self._poll_update_progress())
         try:
             installer = await asyncio.to_thread(
-                download_update,
+                self.application.download_update,
                 update,
-                default_download_dir(),
                 progress=self._queue_update_progress,
                 cancel=lambda: self._update_cancel_requested,
             )
@@ -893,7 +882,7 @@ class SniperFletView:
             self.page.update()
         await asyncio.sleep(0.4)
         try:
-            launch_installer(installer)
+            self.application.launch_installer(installer)
         except Exception as exc:
             self._show_update_failure(f"安装包已保存，但自动启动失败：{exc}")
             return
@@ -1026,11 +1015,11 @@ class SniperFletView:
         except Exception as exc:
             self._show_message(f"房间类型加载失败: {exc}", error=True)
             return
-        self.room_types = {str(item.get("query", "")): item for item in room_types}
+        self.room_types = {item.query: item for item in room_types}
         self.room_type.options = [
-            ft.DropdownOption(key=query, text=str(item.get("name") or query))
-            for query, item in self.room_types.items()
-            if query
+            ft.DropdownOption(key=item.query, text=item.name)
+            for item in self.room_types.values()
+            if item.query
         ]
         self.page.update()
 
@@ -1049,7 +1038,7 @@ class SniperFletView:
             self._show_message(self.seat_hint.value, error=True)
             self.page.update()
             return
-        self.floors = {str(item.floor_id): item for item in floors}
+        self.floors = {item.floor_id: item for item in floors}
         self.floor.options = [
             ft.DropdownOption(
                 key=str(item.floor_id),
@@ -1072,7 +1061,7 @@ class SniperFletView:
         self.page.update()
 
     def _refresh_plans(self) -> None:
-        plans = self.application.list_plans()
+        plans: list[PlanView] = self.application.list_plans()
         self.selected_plan_ids.intersection_update(
             plan.plan_id for plan in plans if plan.plan_id is not None
         )
@@ -1090,7 +1079,6 @@ class SniperFletView:
                 self._sync_plan_actions()
 
             checkbox.on_change = select_plan
-            room_name = ROOM_TYPE_MAP.get(str(plan.room_type), f"类型 {plan.room_type}")
             self.plan_list.controls.append(
                 ft.Container(
                     ft.Row(
@@ -1099,7 +1087,7 @@ class SniperFletView:
                             ft.Column(
                                 [
                                     ft.Text(
-                                        f"{room_name} · {plan.seat_num} 座",
+                                        f"{plan.room_name} · {plan.seat_num} 座",
                                         weight=ft.FontWeight.W_500,
                                     ),
                                     ft.Text(
@@ -1144,7 +1132,7 @@ class SniperFletView:
         try:
             plan, errors, fell_back, scheduler = await asyncio.to_thread(
                 self.application.create_plan,
-                room_type_name=str(room.get("name", "")),
+                room_type_name=room.name,
                 room_query=room_query,
                 floor_id=int(self.floor.value),
                 seat_num=(self.seat_num.value or "").strip(),
@@ -1251,8 +1239,8 @@ class SniperFletView:
         with contextlib.suppress(RuntimeError):
             self.page.update()
 
-    def _render_schedule_policy(self, policy, task_exists: bool) -> None:
-        if bool(getattr(policy, "corrupt", False)):
+    def _render_schedule_policy(self, policy: SchedulePolicyView, task_exists: bool) -> None:
+        if policy.corrupt:
             self.schedule_policy_icon.name = ft.Icons.WARNING_AMBER_ROUNDED
             self.schedule_policy_icon.color = FOREGROUND
             self.schedule_policy_title.value = "自动预约已暂停"
@@ -1265,7 +1253,7 @@ class SniperFletView:
             self.pause_policy_button.icon = ft.Icons.PAUSE_CIRCLE_OUTLINE
             return
 
-        self.schedule_rule_value.value = policy.summary_label()
+        self.schedule_rule_value.value = policy.summary_label
         if policy.enabled:
             self.schedule_policy_icon.name = ft.Icons.EVENT_AVAILABLE
             self.schedule_policy_icon.color = ACCENT_SECONDARY
@@ -1274,26 +1262,14 @@ class SniperFletView:
             )
             self.pause_policy_button.text = "暂停自动预约"
             self.pause_policy_button.icon = ft.Icons.PAUSE_CIRCLE_OUTLINE
-            today = datetime.now(CST).date()
-            next_date = policy.next_booking_date(today)
             task_text = f"系统任务：{'就绪' if task_exists else '需要修复'}"
-            if next_date is None:
+            if policy.next_run_text is None:
                 self.schedule_next_run.value = "90 天内没有符合规则的可预约日期"
                 self.schedule_policy_note.value = task_text
             else:
-                execute_date = next_date - timedelta(days=BOOKING_DAY_OFFSET)
-                execute_label = (
-                    "今天"
-                    if execute_date == today
-                    else f"{execute_date.month} 月 {execute_date.day} 日"
-                )
-                self.schedule_next_run.value = (
-                    f"下一次预约 {next_date.month} 月 {next_date.day} 日"
-                    f" · {execute_label} 20:00 执行"
-                )
-                booking_iso = (today + timedelta(days=BOOKING_DAY_OFFSET)).isoweekday()
+                self.schedule_next_run.value = policy.next_run_text
                 note_parts = [task_text]
-                if booking_iso not in policy.weekdays:
+                if policy.today_excluded:
                     note_parts.append("今天不在当前运行规则中")
                 self.schedule_policy_note.value = " · ".join(note_parts)
         else:
@@ -1307,11 +1283,8 @@ class SniperFletView:
             self.pause_policy_button.text = "恢复自动预约"
             self.pause_policy_button.icon = ft.Icons.PLAY_CIRCLE_OUTLINE
 
-    @staticmethod
-    def _policy_summary_label(checked: list[int]) -> str:
-        if not checked:
-            return "未选择"
-        return SchedulePolicy(enabled=True, weekdays=frozenset(checked)).summary_label()
+    def _policy_summary_label(self, checked: list[int]) -> str:
+        return self.application.schedule_policy_preview(checked)
 
     async def _refresh_bookings(self, _event=None) -> None:
         self.refresh_bookings_button.disabled = True
@@ -1330,15 +1303,8 @@ class SniperFletView:
             with contextlib.suppress(RuntimeError):
                 self.page.update()
 
-    def _render_bookings(self, bookings: list[dict]) -> None:
-        hidden_statuses = {
-            responses.BOOKING_STATUS_FINISHED,
-            responses.BOOKING_STATUS_CANCELLED,
-            responses.BOOKING_STATUS_SYSTEM_SIGNED_OUT,
-        }
-        bookings = [
-            item for item in bookings if responses.booking_status(item) not in hidden_statuses
-        ]
+    def _render_bookings(self, bookings: list[BookingView]) -> None:
+        bookings = [item for item in bookings if item.show_in_list]
         self.booking_list.controls.clear()
         self.booking_summary.value = f"共 {len(bookings)} 条预约记录"
         self.booking_summary.color = FOREGROUND
@@ -1346,96 +1312,54 @@ class SniperFletView:
             self.booking_list.controls.append(ft.Text("暂无预约记录", color=MUTED))
             return
 
-        status_labels = {
-            "0": "待签到",
-            "1": "使用中",
-            "2": "暂离中",
-            "3": "已结束",
-            "4": "已取消",
-            "5": "未签到结束",
-            "6": "暂离未归结束",
-            "7": "系统签退结束",
-            "8": "预约待确认",
-            "9": "已拒绝",
-        }
         for item in bookings:
-            booking_id = responses.booking_id(item)
-            status = responses.booking_status(item)
-            state = responses.booking_state(item)
-            room_name = str(item.get("roomName") or "未知房间")
-            seat_num = str(item.get("seatNum") or "-")
-            try:
-                start_time = datetime.fromtimestamp(
-                    responses.booking_begin_ts(item), tz=CST
-                ).strftime("%Y-%m-%d %H:%M")
-            except (TypeError, ValueError, OSError):
-                start_time = "未知时间"
-            try:
-                duration_hours = int(item.get("duration") or 0) / 3600
-                duration_text = f"{duration_hours:g} 小时" if duration_hours else "时长未知"
-            except (TypeError, ValueError):
-                duration_text = "时长未知"
-            status_label = status_labels.get(status) or f"状态 {status or '未知'}"
-            details = f"座位 {seat_num} · {start_time} · {duration_text} · {status_label}"
-            if state == responses.BOOKING_STATE_CHECK_IN:
-                details = details.replace(status_label, "可签到", 1)
-            elif state == responses.BOOKING_STATE_IN_USE:
-                details = details.replace(status_label, "签到成功，使用中", 1)
+            details = (
+                f"座位 {item.seat_num} · {item.start_text} · {item.duration_text}"
+                f" · {item.status_label}"
+            )
             actions: list[ft.Control] = []
-            if status in {"0", "8"} and booking_id:
+            if item.can_cancel:
                 actions.append(
                     ft.Button(
                         "取消预约",
                         icon=ft.Icons.CANCEL_OUTLINED,
                         color=FOREGROUND,
-                        data={
-                            "id": booking_id,
-                            "summary": f"{room_name} · 座位 {seat_num} · {start_time}",
-                        },
+                        data={"id": item.booking_id, "summary": item.summary},
                         on_click=self._confirm_cancel_remote_booking,
                     )
                 )
-                if state == responses.BOOKING_STATE_CHECK_IN:
+                if item.can_check_in:
                     actions.append(
                         ft.Button(
                             "签到",
                             icon=ft.Icons.LOGIN,
-                            data={
-                                "id": booking_id,
-                                "summary": f"{room_name} · 座位 {seat_num} · {start_time}",
-                            },
+                            data={"id": item.booking_id, "summary": item.summary},
                             on_click=self._confirm_check_in_booking,
                         )
                     )
-            elif state == responses.BOOKING_STATE_IN_USE and booking_id:
+            elif item.can_sign_out:
                 actions.extend(
                     [
                         ft.Button(
                             "签退",
                             icon=ft.Icons.LOGOUT,
-                            data={
-                                "id": booking_id,
-                                "summary": f"{room_name} 路 搴т綅 {seat_num} 路 {start_time}",
-                            },
+                            data={"id": item.booking_id, "summary": item.summary},
                             on_click=self._confirm_sign_out_booking,
                         ),
                         ft.Button(
                             "暂离",
                             icon=ft.Icons.PAUSE_CIRCLE_OUTLINE,
-                            data={
-                                "id": booking_id,
-                                "summary": f"{room_name} 路 搴т綅 {seat_num} 路 {start_time}",
-                            },
+                            data={"id": item.booking_id, "summary": item.summary},
                             on_click=self._confirm_leave_booking,
                         ),
                     ]
                 )
-            elif state == responses.BOOKING_STATE_AWAY and booking_id:
+            elif item.can_renew:
                 actions.append(
                     ft.Button(
                         "续座",
                         icon=ft.Icons.KEYBOARD_RETURN,
-                        data=booking_id,
+                        data=item.booking_id,
                         on_click=self._renew_booking,
                     )
                 )
@@ -1445,7 +1369,7 @@ class SniperFletView:
                         [
                             ft.Column(
                                 [
-                                    ft.Text(room_name, weight=ft.FontWeight.W_500),
+                                    ft.Text(item.room_name, weight=ft.FontWeight.W_500),
                                     ft.Text(details, size=12, color=MUTED),
                                 ],
                                 spacing=4,
@@ -1453,6 +1377,7 @@ class SniperFletView:
                             ),
                             *actions,
                         ],
+                        wrap=False,
                     ),
                     padding=12,
                     border=ft.Border(bottom=ft.BorderSide(1, BORDER)),
@@ -1722,7 +1647,7 @@ class SniperFletView:
             title=ft.Text("启用自动签到（可选功能）"),
             content=ft.Column(
                 [
-                    ft.Text(CHECK_IN_AGREEMENT_TEXT, size=13),
+                    ft.Text(self.application.check_in_agreement_text(), size=13),
                     ft.Divider(height=1),
                     checkbox,
                 ],
@@ -1770,7 +1695,7 @@ class SniperFletView:
         await self._refresh_check_in_status()
         await self._refresh_scheduled_tasks()
 
-    def _render_scheduled_tasks(self, tasks: list[ScheduledTask]) -> None:
+    def _render_scheduled_tasks(self, tasks: list[ScheduledTaskView]) -> None:
         self.schedule_list.controls.clear()
         self.schedule_summary.value = f"已创建 {len(tasks)} 个调度"
         self.schedule_summary.color = FOREGROUND
@@ -1828,13 +1753,16 @@ class SniperFletView:
         except Exception as exc:
             self._show_message(f"读取日期规则失败：{exc}", error=True)
             return
-        corrupt = bool(getattr(policy, "corrupt", False))
-        selected = set(ALL_WEEKDAYS) if corrupt else set(getattr(policy, "weekdays", ()))
+        selected = (
+            {option.value for option in policy.options}
+            if policy.corrupt
+            else set(policy.weekdays)
+        )
         self._policy_day_checks = {}
-        for day in ALL_WEEKDAYS:
-            self._policy_day_checks[day] = ft.Checkbox(
-                label=WEEKDAY_NAMES[day],
-                value=day in selected,
+        for option in policy.options:
+            self._policy_day_checks[option.value] = ft.Checkbox(
+                label=option.label,
+                value=option.value in selected,
                 on_change=self._on_policy_day_toggle,
             )
         summary = ft.Text(
@@ -1958,7 +1886,6 @@ class SniperFletView:
             count = self.application.enabled_plan_count()
         except Exception:
             count = 0
-        booking_date = datetime.now(CST).date() + timedelta(days=BOOKING_DAY_OFFSET)
         self.page.show_dialog(
             ft.AlertDialog(
                 modal=True,
@@ -1967,7 +1894,7 @@ class SniperFletView:
                 content=ft.Column(
                     [
                         ft.Text(
-                            f"目标预约日期：{booking_date.month} 月 {booking_date.day} 日（后天）"
+                            f"目标预约日期：{self.application.booking_day_text()}（后天）"
                         ),
                         ft.Text(f"将执行的已启用方案：{count} 个"),
                         ft.Text(
@@ -2051,14 +1978,14 @@ class SniperFletView:
             self.page.update()
 
 
-def flet_main(page: ft.Page) -> None:
-    SniperFletView(page, get_app())
+def flet_main(page: ft.Page, application: SniperAppProtocol) -> None:
+    SniperFletView(page, application)
 
 
-def run_flet_app() -> None:
+def run_flet_app(application: SniperAppProtocol) -> None:
     """启动桌面 Flet 客户端。"""
     ft.run(
-        flet_main,
+        lambda page: flet_main(page, application),
         view=ft.AppView.FLET_APP,
         assets_dir=resolve_assets_dir(),
     )

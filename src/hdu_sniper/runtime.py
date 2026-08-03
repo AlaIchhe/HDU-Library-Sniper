@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from hdu_sniper.app import SniperApp
+from hdu_sniper.application import SniperApp
 from hdu_sniper.booking.plans import BookingPlans
 from hdu_sniper.booking.runner import BookingRunner
 from hdu_sniper.config import load_settings
@@ -13,6 +13,7 @@ from hdu_sniper.library.login import LibraryLogin
 from hdu_sniper.library.rooms import LibraryRooms
 from hdu_sniper.notifier import Notifier
 from hdu_sniper.scheduler import SchedulerService
+from hdu_sniper.updater import UpdateService
 
 
 def create_app() -> SniperApp:
@@ -32,6 +33,7 @@ def create_app() -> SniperApp:
         login=login,
     )
     scheduler = SchedulerService(settings.paths)
+    update_service = UpdateService()
     return SniperApp(
         settings,
         client,
@@ -40,6 +42,7 @@ def create_app() -> SniperApp:
         login=login,
         booking=booking,
         scheduler=scheduler,
+        update_service=update_service,
     )
 
 

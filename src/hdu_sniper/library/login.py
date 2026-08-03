@@ -14,14 +14,13 @@
 
 from __future__ import annotations
 
-import os
 import re
 import sys
-from pathlib import Path
 from typing import Any
 
 from hdu_sniper.config import Settings
 from hdu_sniper.library.client import CookieError, HduLibraryError, LibraryClient
+from hdu_sniper.packaged_runtime import configure_packaged_browser
 
 
 # 登录入口：慧图根域名，浏览器会自动重定向到杭电统一身份认证 (sso.hdu.edu.cn)。
@@ -35,26 +34,6 @@ DESKTOP_UA = (
 )
 # 登录成功后 CAS 会重定向回慧图域；以此作为登录成功的信号。
 _HUITU_URL = re.compile(r"huitu\.zhishulib\.com")
-
-
-def configure_packaged_browser() -> Path | None:
-    """Point Playwright at Chromium bundled with a frozen desktop app."""
-    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
-    if configured:
-        return Path(configured)
-    if not getattr(sys, "frozen", False):
-        return None
-
-    executable_dir = Path(sys.executable).resolve().parent
-    bundle_dir = Path(getattr(sys, "_MEIPASS", executable_dir))
-    for candidate in (
-        bundle_dir / "playwright-browsers",
-        executable_dir / "playwright-browsers",
-    ):
-        if candidate.is_dir():
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(candidate)
-            return candidate
-    return None
 
 
 class LibraryLogin:

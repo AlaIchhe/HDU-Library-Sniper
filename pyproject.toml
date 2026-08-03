@@ -48,7 +48,7 @@ build_number = 1
 
 [tool.flet.app]
 path = "src"
-module = "desktop.py"
+module = "flet_entry.py"
 exclude = ["__pycache__", "*.pyc"]
 
 [tool.hatch.build]
