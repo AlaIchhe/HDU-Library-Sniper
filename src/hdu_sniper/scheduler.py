@@ -617,7 +617,11 @@ class SchedulerService:
         ]
         argument_line = subprocess.list2cmdline(command)
         if trigger == "Logon":
-            trigger_expr = "New-ScheduledTaskTrigger -AtLogOn"
+            # 不限定用户时 Windows 要求管理员权限，普通用户创建会被拒绝。
+            trigger_expr = (
+                "New-ScheduledTaskTrigger -AtLogOn "
+                f"-User {self._powershell_quote(current_user)}"
+            )
         else:
             trigger_expr = (
                 "New-ScheduledTaskTrigger -Once -At "

@@ -556,21 +556,54 @@ def test_enable_auto_check_in_persists_consent_and_syncs_tasks(tmp_path: Path) -
     )
 
 
-def test_enable_auto_check_in_keeps_consent_when_sync_fails(tmp_path: Path) -> None:
+def test_enable_auto_check_in_rolls_back_when_sync_fails(tmp_path: Path) -> None:
     application, dependencies = build_test_application(tmp_path)
     dependencies["client"].get_bookings.return_value = []
     dependencies["scheduler"].sync_checkin_tasks.return_value = (False, "denied")
+    dependencies["scheduler"].remove_checkin_tasks.return_value = (True, "removed")
 
     success, message = application.enable_auto_check_in()
 
     assert success is False
     assert "denied" in message
-    assert application.settings.auto_check_in_enabled is True
+    assert application.settings.auto_check_in_enabled is False
+    assert application.settings.auto_check_in_agreement_version == CHECK_IN_AGREEMENT_VERSION
+    assert application.settings.auto_check_in_agreed_at
+    stored = application.settings.paths.settings_file.read_text(encoding="utf-8")
+    assert "enabled: false" in stored
+    dependencies["scheduler"].remove_checkin_tasks.assert_called_once_with()
     dependencies["notifier"].send.assert_called_once_with(
         "自动签到调度配置失败",
-        "denied",
+        message,
         success=False,
     )
+
+
+def test_enable_auto_check_in_rolls_back_when_sync_raises(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    dependencies["client"].get_bookings.return_value = []
+    dependencies["scheduler"].sync_checkin_tasks.side_effect = RuntimeError("denied")
+    dependencies["scheduler"].remove_checkin_tasks.return_value = (True, "removed")
+
+    success, message = application.enable_auto_check_in()
+
+    assert success is False
+    assert "denied" in message
+    assert application.settings.auto_check_in_enabled is False
+    dependencies["scheduler"].remove_checkin_tasks.assert_called_once_with()
+
+
+def test_enable_auto_check_in_rolls_back_when_login_expired(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    dependencies["client"].get_bookings.side_effect = AuthenticationExpiredError("expired")
+
+    success, message = application.enable_auto_check_in()
+
+    assert success is False
+    assert "登录态已失效" in message
+    assert application.settings.auto_check_in_enabled is False
+    assert application.authenticated is False
+    dependencies["scheduler"].remove_checkin_tasks.assert_not_called()
 
 
 def test_disable_auto_check_in_removes_tasks_and_keeps_history(tmp_path: Path) -> None:
