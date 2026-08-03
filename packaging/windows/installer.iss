@@ -40,4 +40,4 @@ Name: "{autodesktop}\HDU Library Sniper"; Filename: "{app}\HDU-Library-Sniper.ex
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加快捷方式："; Flags: unchecked
 
 [Run]
-Filename: "{app}\HDU-Library-Sniper.exe"; Description: "启动 HDU Library Sniper"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\HDU-Library-Sniper.exe"; Description: "启动 HDU Library Sniper"; Flags: nowait postinstall
