@@ -89,6 +89,10 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      - name: Restore annotated tag message
+        shell: bash
+        run: |
+          git fetch --force --no-tags origin "+refs/tags/${{ github.ref_name }}:refs/tags/${{ github.ref_name }}"
       - name: Export release notes from tag message
         id: release-notes
         shell: bash
