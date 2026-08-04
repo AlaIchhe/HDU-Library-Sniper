@@ -1,6 +1,6 @@
 """HDU Library Sniper 应用包。"""
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 from hdu_sniper.events import ApplicationEvent, EventKind, JobState
 
