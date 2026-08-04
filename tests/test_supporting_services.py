@@ -287,9 +287,7 @@ def test_windows_system_notify_builds_hidden_powershell_toast(monkeypatch) -> No
     assert "Room 101" in script
     assert kwargs["stdout"] is notifier_module.subprocess.DEVNULL
     assert kwargs["stderr"] is notifier_module.subprocess.DEVNULL
-    assert kwargs["creationflags"] == getattr(
-        notifier_module.subprocess, "CREATE_NO_WINDOW", 0
-    )
+    assert kwargs["creationflags"] == getattr(notifier_module.subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def test_macos_system_notify_uses_json_escaped_applescript(monkeypatch) -> None:
@@ -322,9 +320,7 @@ def test_linux_system_notify_skips_when_notify_send_is_missing(monkeypatch) -> N
 
 def test_linux_system_notify_launches_notify_send(monkeypatch) -> None:
     popen = Mock()
-    monkeypatch.setattr(
-        notifier_module.shutil, "which", Mock(return_value="/usr/bin/notify-send")
-    )
+    monkeypatch.setattr(notifier_module.shutil, "which", Mock(return_value="/usr/bin/notify-send"))
     monkeypatch.setattr(notifier_module.subprocess, "Popen", popen)
 
     notifier_module._linux_system_notify("title", "body")
@@ -344,9 +340,7 @@ def test_linux_system_notify_launches_notify_send(monkeypatch) -> None:
         ("linux", "_linux_system_notify"),
     ],
 )
-def test_system_notify_dispatches_on_platform(
-    monkeypatch, platform: str, target: str
-) -> None:
+def test_system_notify_dispatches_on_platform(monkeypatch, platform: str, target: str) -> None:
     notify = Mock()
     monkeypatch.setattr(notifier_module.sys, "platform", platform)
     monkeypatch.setattr(notifier_module, target, notify)
@@ -419,21 +413,11 @@ def test_get_app_is_cached(monkeypatch) -> None:
     runtime.get_app.cache_clear()
 
 
-def test_desktop_self_check_handles_frozen_missing_browser(monkeypatch) -> None:
-    monkeypatch.setattr("hdu_sniper.diagnostics.sys.frozen", True, raising=False)
-    monkeypatch.setattr("hdu_sniper.diagnostics.configure_packaged_browser", lambda: None)
-    assert desktop_self_check() == 10
-
-
-def test_desktop_self_check_launch_success_and_failure(monkeypatch) -> None:
-    monkeypatch.setattr("hdu_sniper.diagnostics.sys.frozen", False, raising=False)
-    monkeypatch.setattr("hdu_sniper.diagnostics.configure_packaged_browser", lambda: None)
-    playwright = MagicMock()
-    context = MagicMock()
-    context.__enter__.return_value = playwright
-    monkeypatch.setattr("hdu_sniper.diagnostics.sync_playwright", Mock(return_value=context))
+def test_desktop_self_check_verifies_crypto_runtime(monkeypatch) -> None:
     assert desktop_self_check() == 0
-    playwright.chromium.launch.return_value.close.assert_called_once_with()
 
-    context.__enter__.side_effect = RuntimeError("browser failed")
+    monkeypatch.setattr(
+        "hdu_sniper.diagnostics._aes_ecb_encrypt_base64",
+        Mock(side_effect=RuntimeError("crypto failed")),
+    )
     assert desktop_self_check() == 11

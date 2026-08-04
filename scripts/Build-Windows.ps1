@@ -1,4 +1,5 @@
 param(
+    # Kept for compatibility; browser download is no longer part of the build.
     [switch]$SkipBrowserDownload,
     [switch]$SkipInstaller,
     [string]$CertificateSha1 = ""
@@ -15,7 +16,6 @@ $PackageVersion = (Select-String -Path (Join-Path $Root "src\hdu_sniper\__init__
 if ($PackageVersion -ne $Version) {
     throw "Version mismatch: release/pyproject version is '$Version' but src/hdu_sniper/__init__.py reports '$PackageVersion'."
 }
-$BrowserDir = Join-Path $Root "packaging\.cache\playwright-browsers"
 $FontDir = Join-Path $Root "assets\fonts"
 $DesktopDir = Join-Path $Root "build\desktop"
 $AppDir = Join-Path $DesktopDir "HDU-Library-Sniper"
@@ -29,34 +29,6 @@ function Invoke-Checked {
     }
 }
 
-function Test-BundledChromium {
-    $env:PLAYWRIGHT_BROWSERS_PATH = $BrowserDir
-    & uv run python -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(headless=True); b.close(); p.stop()"
-    return $LASTEXITCODE -eq 0
-}
-
-function Copy-InstalledChromium {
-    $cache = Join-Path $env:LOCALAPPDATA "ms-playwright"
-    if (-not (Test-Path -LiteralPath $cache -PathType Container)) {
-        return $false
-    }
-    New-Item -ItemType Directory -Path $BrowserDir -Force | Out-Null
-    $headlessShell = Get-ChildItem -LiteralPath $cache -Directory -Filter "chromium_headless_shell-*" |
-        Sort-Object Name -Descending |
-        Select-Object -First 1
-    if (-not $headlessShell) {
-        return $false
-    }
-    Copy-Item -LiteralPath $headlessShell.FullName -Destination $BrowserDir -Recurse
-    $ffmpeg = Get-ChildItem -LiteralPath $cache -Directory -Filter "ffmpeg-*" |
-        Sort-Object Name -Descending |
-        Select-Object -First 1
-    if ($ffmpeg) {
-        Copy-Item -LiteralPath $ffmpeg.FullName -Destination $BrowserDir -Recurse
-    }
-    return (Test-BundledChromium)
-}
-
 Set-Location -Path $Root
 New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 Invoke-Checked "uv" @("sync", "--group", "package")
@@ -65,22 +37,6 @@ Invoke-Checked "uv" @("sync", "--group", "package")
 if (Test-Path -LiteralPath $DesktopDir) {
     Remove-Item -LiteralPath $DesktopDir -Recurse -Force
 }
-if (-not $SkipBrowserDownload) {
-    if (Test-Path -LiteralPath $BrowserDir) {
-        Remove-Item -LiteralPath $BrowserDir -Recurse -Force
-    }
-    if (-not (Copy-InstalledChromium)) {
-        if (Test-Path -LiteralPath $BrowserDir) {
-            Remove-Item -LiteralPath $BrowserDir -Recurse -Force
-        }
-        $env:PLAYWRIGHT_BROWSERS_PATH = $BrowserDir
-        Invoke-Checked "uv" @("run", "playwright", "install", "chromium", "--only-shell")
-    }
-}
-if (-not (Test-Path -LiteralPath $BrowserDir -PathType Container)) {
-    throw "Bundled Chromium not found at $BrowserDir. Run without -SkipBrowserDownload."
-}
-
 $packArgs = @(
     "run", "flet", "pack", "src\desktop.py",
     "--onedir",
@@ -93,10 +49,8 @@ $packArgs = @(
     "--file-version", "$Version.0",
     "--company-name", "HDU Library Sniper Contributors",
     "--copyright", "Copyright (C) 2026 HDU Library Sniper Contributors",
-    "--add-data", "${BrowserDir}:playwright-browsers",
     "--add-data", "${FontDir}:assets/fonts",
     "--add-data", "scripts\AutoSchedule.ps1:scripts",
-    "--hidden-import", "playwright.sync_api",
     "--yes"
 )
 Invoke-Checked "uv" $packArgs

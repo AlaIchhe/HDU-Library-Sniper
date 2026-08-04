@@ -54,7 +54,7 @@ Release 标题默认是标签名（`v1.4.0`）；需要更详细的标题时用 
 
 把生成的文本保存到文件后，用 `-NotesFile` 传给发布脚本即可（发布时加 `-DeleteNotesFile` 可自动清理草稿）。
 
-桌面版本包含 Python 运行时、项目依赖和 Chromium。最终用户不需要安装 Python、运行命令或下载浏览器。
+桌面版本包含 Python 运行时和项目依赖。最终用户不需要安装 Python 或运行命令。
 
 ## Windows
 
@@ -105,9 +105,14 @@ MACOS_CODESIGN_IDENTITY="Developer ID Application: ..." bash scripts/build-macos
 
 面向外部用户发布时，还需要使用 Apple Developer ID 完成签名和 notarization，否则 Gatekeeper 会显示未验证开发者提示。
 
-## 内置浏览器
+## HTTP 登录
 
-两个桌面构建脚本都会把 Playwright Chromium headless shell 下载到临时构建目录并作为应用资源打包。桌面登录不需要完整浏览器 UI；运行时通过冻结应用资源根目录定位 headless shell，因此用户无需执行 `playwright install`。Docker 镜像仍在镜像构建阶段安装自己的 Chromium，不共享桌面资源。
+桌面版和 Docker 镜像都使用 SSO HTTP 直连登录，不再打包 Chromium/Playwright。
+发布前可以用 `scripts/verify-http-login.py` 配合真实凭据验证登录链路：
+
+```powershell
+$env:HDU_STUDENT_ID="学号"; $env:HDU_PASSWORD="密码"; python scripts/verify-http-login.py
+```
 
 ## 自动发布
 
