@@ -1,6 +1,6 @@
 # 慧图图书馆 API 契约
 
-基于真实抓包(2026-07-10,Playwright MCP 驱动浏览器,登录态 CAS)。所有字段来自观测,**不猜**。
+基于真实抓包(2026-07-10,浏览器登录态 CAS)。所有字段来自观测,**不猜**。
 原始抓包在 `fixtures/captures/`(含 uid 等本地值,gitignore);本文档及 `docs/contracts/**` 为脱敏版,可入库。
 
 > 运行期魔法路径与 `MSG_*` 常量单一源在 `src/hdu_sniper/library/responses.py`(纯叶模块);本文档与

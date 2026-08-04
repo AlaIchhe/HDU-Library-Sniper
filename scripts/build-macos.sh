@@ -11,7 +11,6 @@ if [[ "$PACKAGE_VERSION" != "$VERSION" ]]; then
   echo "Version mismatch: release/pyproject version is '$VERSION' but src/hdu_sniper/__init__.py reports '$PACKAGE_VERSION'." >&2
   exit 1
 fi
-BROWSER_DIR="$ROOT/packaging/.cache/playwright-browsers"
 FONT_DIR="$ROOT/assets/fonts"
 DESKTOP_DIR="$ROOT/build/desktop"
 DIST_DIR="$ROOT/dist"
@@ -27,10 +26,8 @@ if [[ ! -f "$ROOT/assets/app-icon.png" ]]; then
   exit 1
 fi
 
-rm -rf "$BROWSER_DIR" "$DESKTOP_DIR" "$ICONSET"
+rm -rf "$DESKTOP_DIR" "$ICONSET"
 mkdir -p "$ICONSET"
-export PLAYWRIGHT_BROWSERS_PATH="$BROWSER_DIR"
-uv run playwright install chromium --only-shell
 
 for size in 16 32 128 256 512; do
   sips -z "$size" "$size" "$ROOT/assets/app-icon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
@@ -49,9 +46,7 @@ args=(
   --company-name "HDU Library Sniper Contributors"
   --copyright "Copyright (C) 2026 HDU Library Sniper Contributors"
   --bundle-id "io.github.alaichhe.hdu-library-sniper"
-  --add-data "$BROWSER_DIR:playwright-browsers"
   --add-data "$FONT_DIR:assets/fonts"
-  --hidden-import playwright.sync_api
   --yes
 )
 if [[ -n "${MACOS_CODESIGN_IDENTITY:-}" ]]; then

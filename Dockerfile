@@ -14,18 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     cron \
     tzdata \
-    # Playwright 浏览器依赖
-    libnss3 \
-    libatk-bridge2.0-0 \
-    libdrm2 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libatspi2.0-0 \
-    libwayland-client0 \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 uv（快速 Python 包管理器）
@@ -41,9 +29,6 @@ COPY assets ./assets
 
 # 安装 Python 依赖
 RUN uv sync --frozen --no-dev
-
-# 安装 Playwright 浏览器（仅 Chromium，减小镜像体积）
-RUN uv run playwright install --with-deps chromium
 
 # 创建容器运行目录
 RUN mkdir -p /var/lib/hdu-sniper/config \
