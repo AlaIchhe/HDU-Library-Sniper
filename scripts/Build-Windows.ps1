@@ -50,8 +50,7 @@ $packArgs = @(
     "--company-name", "HDU Library Sniper Contributors",
     "--copyright", "Copyright (C) 2026 HDU Library Sniper Contributors",
     "--add-data", "${FontDir}:assets/fonts",
-    "--add-data", "scripts\AutoSchedule.ps1:scripts",
-    "--hidden-import", "playwright.sync_api",
+    "--add-data", "scripts\Register-AutoSchedule.ps1:scripts",
     "--yes"
 )
 Invoke-Checked "uv" $packArgs
