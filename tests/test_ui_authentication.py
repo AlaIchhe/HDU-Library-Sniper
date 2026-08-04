@@ -9,12 +9,16 @@ from unittest.mock import Mock
 
 import pytest
 
-from hdu_sniper.booking.models import BookingPlan
-from hdu_sniper.config import Credentials
+from hdu_sniper.dto import (
+    BookingView,
+    FloorView,
+    PlanView,
+    RoomTypeView,
+    SavedCredentialsView,
+    ScheduledTaskView,
+)
 from hdu_sniper.events import ApplicationEvent, EventKind, JobState
-from hdu_sniper.library.rooms import FloorInfo
-from hdu_sniper.scheduler import ScheduledTask
-from hdu_sniper.ui.app import (
+from hdu_sniper.ui.flet_view import (
     ACTIVE_FONT_FAMILY,
     FONT_ASSET,
     FONT_FALLBACK,
@@ -37,6 +41,28 @@ def _application(*, authenticated: bool) -> Mock:
     application.subscribe.return_value = Mock()
     application.list_plans.return_value = []
     return application
+
+
+def _booking_view(**changes) -> BookingView:
+    values = {
+        "booking_id": "1",
+        "room_name": "四楼自习室",
+        "seat_num": "298",
+        "start_text": "2026-08-05 08:00",
+        "duration_text": "1 小时",
+        "status": "0",
+        "state": "pending",
+        "status_label": "待签到",
+        "summary": "四楼自习室 · 座位 298 · 2026-08-05 08:00",
+        "can_cancel": False,
+        "can_check_in": False,
+        "can_sign_out": False,
+        "can_leave": False,
+        "can_renew": False,
+        "show_in_list": True,
+    }
+    values.update(changes)
+    return BookingView(**values)
 
 
 def test_unauthenticated_shell_exposes_only_authentication() -> None:
@@ -126,7 +152,7 @@ def test_schedule_view_renders_managed_task_actions() -> None:
 
     view._render_scheduled_tasks(
         [
-            ScheduledTask(
+            ScheduledTaskView(
                 name="HDU-Library-Sniper-Daily",
                 status="Ready",
                 next_run="tomorrow",
@@ -146,73 +172,42 @@ def test_booking_view_renders_actions_for_each_supported_status() -> None:
 
     view._render_bookings(
         [
-            {
-                "id": "1",
-                "status": "0",
-                "roomName": "四楼自习室",
-                "seatNum": "298",
-                "time": "1785200400",
-                "duration": "3600",
-            },
-            {
-                "id": "3",
-                "status": "0",
-                "roomName": "鍥涙ゼ鑷範瀹?",
-                "seatNum": "299",
-                "time": "1785200400",
-                "duration": "3600",
-                "nowTime": "1785200400",
-                "limitSignAgo": "1800",
-                "limitSignBack": "1800",
-            },
-            {
-                "id": "8",
-                "status": "8",
-                "roomName": "四楼自习室",
-                "seatNum": "299",
-                "time": "1785200400",
-                "duration": "3600",
-            },
-            {
-                "id": "4",
-                "status": "1",
-                "roomName": "鍥涙ゼ鑷範瀹?",
-                "seatNum": "300",
-                "time": "1785200400",
-                "duration": "3600",
-            },
-            {
-                "id": "2",
-                "status": "2",
-                "roomName": "四楼自习室",
-                "seatNum": "300",
-                "time": "1785200400",
-                "duration": "3600",
-            },
-            {
-                "id": "7",
-                "status": "7",
-                "roomName": "四楼自习室",
-                "seatNum": "298",
-                "time": "1785114000",
-                "duration": "3600",
-            },
-            {
-                "id": "5",
-                "status": "3",
-                "roomName": "四楼自习室",
-                "seatNum": "301",
-                "time": "1785114000",
-                "duration": "3600",
-            },
-            {
-                "id": "6",
-                "status": "4",
-                "roomName": "四楼自习室",
-                "seatNum": "302",
-                "time": "1785114000",
-                "duration": "3600",
-            },
+            _booking_view(booking_id="1", can_cancel=True),
+            _booking_view(
+                booking_id="3",
+                seat_num="299",
+                state="check_in",
+                status_label="可签到",
+                can_cancel=True,
+                can_check_in=True,
+            ),
+            _booking_view(
+                booking_id="8",
+                seat_num="299",
+                status="8",
+                status_label="预约待确认",
+                can_cancel=True,
+            ),
+            _booking_view(
+                booking_id="4",
+                seat_num="300",
+                status="1",
+                state="in_use",
+                status_label="签到成功，使用中",
+                can_sign_out=True,
+                can_leave=True,
+            ),
+            _booking_view(
+                booking_id="2",
+                seat_num="300",
+                status="2",
+                state="away",
+                status_label="暂离中",
+                can_renew=True,
+            ),
+            _booking_view(booking_id="7", status="7", show_in_list=False),
+            _booking_view(booking_id="5", status="3", show_in_list=False),
+            _booking_view(booking_id="6", status="4", show_in_list=False),
         ]
     )
 
@@ -249,8 +244,12 @@ def test_misans_font_asset_and_license_are_distributable() -> None:
 
 
 def test_frozen_assets_resolve_from_pyinstaller_bundle(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("hdu_sniper.ui.app.sys.frozen", True, raising=False)
-    monkeypatch.setattr("hdu_sniper.ui.app.sys._MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.setattr("hdu_sniper.ui.flet_view.sys.frozen", True, raising=False)
+    monkeypatch.setattr(
+        "hdu_sniper.ui.flet_view.sys._MEIPASS",
+        str(tmp_path),
+        raising=False,
+    )
 
     assert resolve_assets_dir() == str(tmp_path / "assets")
 
@@ -258,7 +257,7 @@ def test_frozen_assets_resolve_from_pyinstaller_bundle(tmp_path: Path, monkeypat
 def test_cached_credential_without_valid_session_keeps_authentication_form() -> None:
     page = _page()
     application = _application(authenticated=False)
-    application.saved_credentials.return_value = Credentials("2024001", "secret")
+    application.saved_credentials.return_value = SavedCredentialsView("2024001")
 
     view = SniperFletView(page, application)
 
@@ -341,8 +340,8 @@ def test_room_and_floor_loading_updates_controls_and_errors() -> None:
     application = _application(authenticated=True)
     view = SniperFletView(page, application)
     application.list_room_types.return_value = [
-        {"query": "study", "name": "Study Room"},
-        {"query": "", "name": "Ignored"},
+        RoomTypeView(query="study", name="Study Room"),
+        RoomTypeView(query="", name="Ignored"),
     ]
 
     asyncio.run(view._load_room_types())
@@ -351,7 +350,12 @@ def test_room_and_floor_loading_updates_controls_and_errors() -> None:
 
     view.room_type.value = "study"
     application.list_floors.return_value = [
-        FloorInfo("1", "First Floor", 2, ["001", "002"])
+        FloorView(
+            floor_id="1",
+            room_name="First Floor",
+            seat_count=2,
+            seat_titles=["001", "002"],
+        )
     ]
     asyncio.run(view._load_floors(None))
     assert view.floor.disabled is False
@@ -380,7 +384,15 @@ def test_plan_selection_and_creation_validation() -> None:
     view._refresh_plans()
     assert view.plan_list.controls
 
-    plan = BookingPlan(1, 100, "001", 8, 4, plan_id="plan-1")
+    plan = PlanView(
+        plan_id="plan-1",
+        room_name="自习室",
+        seat_num="001",
+        start_hour=8,
+        duration_hours=4,
+        fallback_seats=[],
+        enabled=True,
+    )
     application.list_plans.return_value = [plan]
     view._refresh_plans()
     checkbox = view.plan_list.controls[0].content.controls[0]

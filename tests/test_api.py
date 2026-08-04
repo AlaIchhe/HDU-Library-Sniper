@@ -2,24 +2,28 @@
 
 from __future__ import annotations
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
+from hdu_sniper.dto import BookingView, ScheduledTaskView
 from hdu_sniper.events import JobState
-from hdu_sniper.scheduler import ScheduledTask
-from hdu_sniper.server import app
+from hdu_sniper.server import create_server_app
+
+
+def _server(application: Mock):
+    return create_server_app(application)
 
 
 def test_health_endpoint_precedes_flet_mount() -> None:
-    response = TestClient(app).get("/api/v1/health")
+    response = TestClient(_server(Mock())).get("/api/v1/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
 def test_web_host_serves_bundled_chinese_font() -> None:
-    response = TestClient(app).get("/fonts/MiSansVF.ttf")
+    response = TestClient(_server(Mock())).get("/fonts/MiSansVF.ttf")
 
     assert response.status_code == 200
     assert response.content[:4] == b"\x00\x01\x00\x00"
@@ -31,8 +35,7 @@ def test_status_endpoint_does_not_expose_secrets() -> None:
     application.authenticated = True
     application.list_plans.return_value = [Mock(enabled=True), Mock(enabled=False)]
 
-    with patch("hdu_sniper.server.get_app", return_value=application):
-        response = TestClient(app).get("/api/v1/status")
+    response = TestClient(_server(application)).get("/api/v1/status")
 
     assert response.status_code == 200
     assert response.json() == {
@@ -46,19 +49,17 @@ def test_status_endpoint_does_not_expose_secrets() -> None:
 
 def test_status_requires_authentication_and_api_schema_is_hidden() -> None:
     application = Mock(authenticated=False)
+    client = TestClient(_server(application))
 
-    with patch("hdu_sniper.server.get_app", return_value=application):
-        response = TestClient(app).get("/api/v1/status")
-
-    assert response.status_code == 401
-    assert response.json() == {"detail": "authentication required"}
-    assert TestClient(app).get("/api/docs").status_code == 404
-    assert TestClient(app).get("/api/openapi.json").status_code == 404
+    assert client.get("/api/v1/status").status_code == 401
+    assert client.get("/api/v1/status").json() == {"detail": "authentication required"}
+    assert client.get("/api/docs").status_code == 404
+    assert client.get("/api/openapi.json").status_code == 404
 
 
 def test_schedule_endpoints_list_and_manage_application_tasks() -> None:
     application = Mock(authenticated=True)
-    task = ScheduledTask(
+    task = ScheduledTaskView(
         name="HDU-Library-Sniper-Daily",
         status="Ready",
         next_run="2026-07-26 20:00:00",
@@ -69,11 +70,10 @@ def test_schedule_endpoints_list_and_manage_application_tasks() -> None:
     application.run_scheduled_task.return_value = (True, "started")
     application.delete_scheduled_task.return_value = (True, "deleted")
 
-    with patch("hdu_sniper.server.get_app", return_value=application):
-        client = TestClient(app)
-        list_response = client.get("/api/v1/schedules")
-        run_response = client.post("/api/v1/schedules/HDU-Library-Sniper-Daily/run")
-        delete_response = client.delete("/api/v1/schedules/HDU-Library-Sniper-Daily")
+    client = TestClient(_server(application))
+    list_response = client.get("/api/v1/schedules")
+    run_response = client.post("/api/v1/schedules/HDU-Library-Sniper-Daily/run")
+    delete_response = client.delete("/api/v1/schedules/HDU-Library-Sniper-Daily")
 
     assert list_response.status_code == 200
     assert list_response.json() == {
@@ -96,8 +96,7 @@ def test_schedule_endpoints_list_and_manage_application_tasks() -> None:
 def test_schedule_endpoints_require_authentication() -> None:
     application = Mock(authenticated=False)
 
-    with patch("hdu_sniper.server.get_app", return_value=application):
-        response = TestClient(app).get("/api/v1/schedules")
+    response = TestClient(_server(application)).get("/api/v1/schedules")
 
     assert response.status_code == 401
     assert response.json() == {"detail": "authentication required"}
@@ -107,7 +106,24 @@ def test_booking_endpoints_delegate_account_actions() -> None:
     application = Mock(authenticated=True)
     application.leave_booking.return_value = (True, "已暂离座位")
     application.sign_out_booking.return_value = (True, "已签退，预约结束")
-    application.list_bookings.return_value = [{"id": "1", "status": "0"}]
+    application.list_bookings.return_value = [
+        BookingView(
+            booking_id="1",
+            room_name="四楼自习室",
+            seat_num="298",
+            start_text="2026-08-05 08:00",
+            duration_text="1 小时",
+            status="0",
+            state="pending",
+            status_label="待签到",
+            summary="四楼自习室 · 座位 298 · 2026-08-05 08:00",
+            can_cancel=True,
+            can_check_in=False,
+            can_sign_out=False,
+            can_leave=False,
+            can_renew=False,
+        )
+    ]
     application.get_booking_status.return_value = {"CODE": "ok", "DATA": {"status": "0"}}
     application.get_latest_comeback_time.return_value = {
         "CODE": "ok",
@@ -117,19 +133,20 @@ def test_booking_endpoints_delegate_account_actions() -> None:
     application.check_in_booking.return_value = (True, "签到成功，座位使用中")
     application.come_back_booking.return_value = (True, "已返回座位，座位使用中")
 
-    with patch("hdu_sniper.server.get_app", return_value=application):
-        client = TestClient(app)
-        assert client.get("/api/v1/bookings").json()["bookings"][0]["id"] == "1"
-        assert client.get("/api/v1/bookings/1/status").json()["response"]["CODE"] == "ok"
-        assert (
-            client.get("/api/v1/bookings/1/latest-comeback-time").json()["response"]["CODE"]
-            == "ok"
-        )
-        assert client.delete("/api/v1/bookings/1").status_code == 200
-        assert client.post("/api/v1/bookings/1/check-in").status_code == 200
-        assert client.post("/api/v1/bookings/1/come-back").status_code == 200
-        assert client.post("/api/v1/bookings/1/leave").status_code == 200
-        assert client.post("/api/v1/bookings/1/sign-out").status_code == 200
+    client = TestClient(_server(application))
+    booking_response = client.get("/api/v1/bookings").json()["bookings"][0]
+    assert booking_response["booking_id"] == "1"
+    assert booking_response["status"] == "0"
+    assert client.get("/api/v1/bookings/1/status").json()["response"]["CODE"] == "ok"
+    assert (
+        client.get("/api/v1/bookings/1/latest-comeback-time").json()["response"]["CODE"]
+        == "ok"
+    )
+    assert client.delete("/api/v1/bookings/1").status_code == 200
+    assert client.post("/api/v1/bookings/1/check-in").status_code == 200
+    assert client.post("/api/v1/bookings/1/come-back").status_code == 200
+    assert client.post("/api/v1/bookings/1/leave").status_code == 200
+    assert client.post("/api/v1/bookings/1/sign-out").status_code == 200
 
     application.cancel_remote_booking.assert_called_once_with("1")
     application.get_booking_status.assert_called_once_with("1")
@@ -153,11 +170,10 @@ def test_auto_check_in_status_and_enable_disable_endpoints() -> None:
     application.enable_auto_check_in.return_value = (True, "enabled")
     application.disable_auto_check_in.return_value = (True, "disabled")
 
-    with patch("hdu_sniper.server.get_app", return_value=application):
-        client = TestClient(app)
-        status_response = client.get("/api/v1/auto-check-in")
-        enable_response = client.post("/api/v1/auto-check-in/enable")
-        disable_response = client.post("/api/v1/auto-check-in/disable")
+    client = TestClient(_server(application))
+    status_response = client.get("/api/v1/auto-check-in")
+    enable_response = client.post("/api/v1/auto-check-in/enable")
+    disable_response = client.post("/api/v1/auto-check-in/disable")
 
     assert status_response.status_code == 200
     assert status_response.json()["consent_valid"] is False
@@ -171,8 +187,7 @@ def test_auto_check_in_enable_conflict_reports_message() -> None:
     application = Mock(authenticated=True)
     application.enable_auto_check_in.return_value = (False, "denied")
 
-    with patch("hdu_sniper.server.get_app", return_value=application):
-        response = TestClient(app).post("/api/v1/auto-check-in/enable")
+    response = TestClient(_server(application)).post("/api/v1/auto-check-in/enable")
 
     assert response.status_code == 409
     assert response.json() == {"detail": "denied"}

@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from hdu_sniper.app import (
+from hdu_sniper.application import (
     AuthenticationRequiredError,
     CheckInExitCode,
     DailySchedulerActivation,
@@ -16,8 +16,17 @@ from hdu_sniper.app import (
 )
 from hdu_sniper.booking.models import BookingPlan, BookingResult
 from hdu_sniper.config import CHECK_IN_AGREEMENT_VERSION, Settings
+from hdu_sniper.dto import (
+    FloorView,
+    PlanView,
+    RoomTypeView,
+    ScheduledTaskView,
+    SchedulerStatusView,
+    UpdateInfo,
+)
 from hdu_sniper.events import EventKind, JobState
 from hdu_sniper.library.client import AuthenticationExpiredError
+from hdu_sniper.library.rooms import FloorInfo
 from hdu_sniper.paths import AppPaths
 from hdu_sniper.schedule_policy import SchedulePolicyError
 from hdu_sniper.scheduler import ScheduledTask, TaskStatus
@@ -123,7 +132,15 @@ def test_creating_valid_plan_silently_ensures_daily_scheduler(tmp_path: Path) ->
     )
 
     assert result == (
-        plan,
+        PlanView(
+            plan_id="plan-1",
+            room_name="自习室",
+            seat_num="A001",
+            start_hour=8,
+            duration_hours=4,
+            fallback_seats=[],
+            enabled=True,
+        ),
         [],
         False,
         DailySchedulerActivation(success=True, already_existed=False, message="ok"),
@@ -154,7 +171,7 @@ def test_creating_plan_keeps_plan_and_reports_scheduler_failure(tmp_path: Path) 
 
     result = application.create_plan(room_type_name="自习室")
 
-    assert result[0] is plan
+    assert result[0].plan_id == "plan-1"
     assert result[3] == DailySchedulerActivation(
         success=False,
         already_existed=False,
@@ -169,15 +186,35 @@ def test_creating_plan_keeps_plan_and_reports_scheduler_failure(tmp_path: Path) 
 
 def test_application_delegates_plan_queries_and_mutations(tmp_path: Path) -> None:
     application, dependencies = build_test_application(tmp_path)
-    dependencies["plans"].list_all.return_value = ["plan"]
-    dependencies["plans"].list_room_types.return_value = ["room"]
-    dependencies["plans"].list_floors.return_value = ["floor"]
+    plan = BookingPlan(1, 100, "A001", 8, 4, plan_id="p1")
+    dependencies["plans"].list_all.return_value = [plan]
+    dependencies["plans"].list_room_types.return_value = [{"query": "q", "name": "自习室"}]
+    dependencies["plans"].list_floors.return_value = [
+        FloorInfo(floor_id="1", room_name="Room", seat_count=2, seat_titles=["001", "002"])
+    ]
     dependencies["plans"].delete.return_value = 2
     dependencies["plans"].update_times.return_value = 1
 
-    assert application.list_plans() == ["plan"]
-    assert application.list_room_types() == ["room"]
-    assert application.list_floors("query") == ["floor"]
+    assert application.list_plans() == [
+        PlanView(
+            plan_id="p1",
+            room_name="自习室",
+            seat_num="A001",
+            start_hour=8,
+            duration_hours=4,
+            fallback_seats=[],
+            enabled=True,
+        )
+    ]
+    assert application.list_room_types() == [RoomTypeView(query="q", name="自习室")]
+    assert application.list_floors("query") == [
+        FloorView(
+            floor_id="1",
+            room_name="Room",
+            seat_count=2,
+            seat_titles=["001", "002"],
+        )
+    ]
     assert application.delete_plans(["a", "b"]) == 2
     assert application.modify_plan_times(["a"], start_hour=9) == 1
 
@@ -194,7 +231,11 @@ def test_application_lists_and_cancels_remote_bookings(tmp_path: Path) -> None:
         "DATA": {"result": "success"},
     }
 
-    assert application.list_bookings() == [{"id": "1", "status": "0"}]
+    booking = application.list_bookings()[0]
+    assert booking.booking_id == "1"
+    assert booking.status == "0"
+    assert booking.can_cancel is True
+    assert booking.summary == "未知房间 · 座位 - · 1970-01-01 08:00"
     assert application.cancel_remote_booking("1") == (True, "预约已取消")
     dependencies["client"].cancel_remote_booking.assert_called_once_with("1")
 
@@ -411,11 +452,16 @@ def test_scheduler_health_is_read_only_and_repair_uses_fixed_configuration(
     tmp_path: Path,
 ) -> None:
     application, dependencies = build_test_application(tmp_path)
-    status = Mock(exists=True, next_run="tomorrow")
-    dependencies["scheduler"].get_task_status.return_value = status
+    dependencies["scheduler"].get_task_status.return_value = TaskStatus(
+        exists=True,
+        next_run="tomorrow",
+    )
     dependencies["plans"].list_enabled.return_value = [BookingPlan(1, 100, "A001", 8, 4)]
 
-    assert application.scheduler_status() is status
+    assert application.scheduler_status() == SchedulerStatusView(
+        exists=True,
+        next_run="tomorrow",
+    )
     assert application.repair_daily_scheduler() == (True, "ok")
     dependencies["scheduler"].configure_task.assert_called_once_with(allow_elevated_repair=True)
 
@@ -427,7 +473,9 @@ def test_application_delegates_managed_schedule_operations(tmp_path: Path) -> No
     dependencies["scheduler"].run_task.return_value = (True, "started")
     dependencies["scheduler"].delete_task.return_value = (True, "deleted")
 
-    assert application.list_scheduled_tasks() == [task]
+    assert application.list_scheduled_tasks() == [
+        ScheduledTaskView(name="HDU-Library-Sniper-Daily", status="Ready")
+    ]
     assert application.run_scheduled_task(task.name) == (True, "started")
     assert application.delete_scheduled_task(task.name) == (True, "deleted")
     dependencies["scheduler"].list_tasks.assert_called_once_with()
@@ -452,8 +500,12 @@ def test_schedule_policy_round_trip_through_facade(tmp_path: Path) -> None:
     updated = application.save_schedule_policy(weekdays=[1, 3, 5])
 
     assert updated.weekdays == frozenset({1, 3, 5})
-    assert application.schedule_policy().weekdays == frozenset({1, 3, 5})
-    assert application.schedule_policy().summary_label() == "周一、周三、周五"
+    assert updated.summary_label == "周一、周三、周五"
+    policy = application.schedule_policy()
+    assert policy.weekdays == frozenset({1, 3, 5})
+    assert policy.summary_label == "周一、周三、周五"
+    assert application.schedule_policy_preview([1, 3, 5]) == "周一、周三、周五"
+    assert application.schedule_policy_preview([]) == "未选择"
 
 
 def test_schedule_policy_pause_and_resume_through_facade(tmp_path: Path) -> None:
@@ -481,6 +533,50 @@ def test_run_booking_override_bypasses_policy(tmp_path: Path) -> None:
     assert application.run_booking_override() == 0
 
     dependencies["booking"].run_once.assert_called_once_with(bypass_policy=True)
+
+
+def test_run_daemon_delegates_to_booking_runner(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    dependencies["booking"].run_once.return_value = 2
+
+    assert application.run_daemon("2026-08-05T20:00:00", bypass_policy=True) == 2
+    dependencies["booking"].run_once.assert_called_once_with(
+        execute_at="2026-08-05T20:00:00",
+        bypass_policy=True,
+    )
+
+
+def test_update_facade_delegates_to_update_service(tmp_path: Path) -> None:
+    application, _ = build_test_application(tmp_path)
+    update = UpdateInfo(
+        version="1.2.0",
+        tag_name="v1.2.0",
+        release_url="https://example.test/r",
+        download_url="https://example.test/setup.exe",
+    )
+    service = Mock()
+    service.check_for_update.return_value = update
+    service.install_supported.return_value = True
+    service.download.return_value = Path("C:/Downloads/setup.exe")
+    application.update_service = service
+
+    assert application.check_for_update() is update
+    assert application.update_install_supported(update) is True
+    progress = Mock()
+    cancel = Mock()
+    installer = application.download_update(update, progress=progress, cancel=cancel)
+    assert installer == Path("C:/Downloads/setup.exe")
+    application.launch_installer(installer)
+
+    service.download.assert_called_once_with(update, progress=progress, cancel=cancel)
+    service.launch.assert_called_once_with(Path("C:/Downloads/setup.exe"))
+
+
+def test_booking_day_and_agreement_text_are_stable(tmp_path: Path) -> None:
+    application, _ = build_test_application(tmp_path)
+
+    assert application.booking_day_text()
+    assert "自动签到功能" in application.check_in_agreement_text()
 
 
 def test_enabled_plan_count_uses_enabled_plans(tmp_path: Path) -> None:

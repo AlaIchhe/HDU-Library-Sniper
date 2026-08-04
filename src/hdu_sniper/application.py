@@ -7,13 +7,17 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from threading import RLock
+from typing import Protocol
 
 from hdu_sniper.booking.models import BookingPlan, BookingResult
 from hdu_sniper.booking.plans import BookingPlans
 from hdu_sniper.booking.runner import BookingRunner
+from hdu_sniper.booking.time import BOOKING_DAY_OFFSET, CST
 from hdu_sniper.config import (
+    CHECK_IN_AGREEMENT_TEXT,
     CHECK_IN_AGREEMENT_VERSION,
     Credentials,
     Settings,
@@ -21,17 +25,129 @@ from hdu_sniper.config import (
     save_credentials,
     save_settings,
 )
+from hdu_sniper.dto import (
+    BookingView,
+    DownloadProgress,
+    FloorView,
+    PlanView,
+    RoomTypeView,
+    SavedCredentialsView,
+    ScheduledTaskView,
+    SchedulePolicyView,
+    SchedulerStatusView,
+    UpdateInfo,
+    WeekdayOption,
+)
 from hdu_sniper.events import ApplicationEvent, EventKind, JobState
 from hdu_sniper.library import responses
-from hdu_sniper.library.client import AuthenticationExpiredError, LibraryClient
+from hdu_sniper.library.client import (
+    ROOM_TYPE_MAP,
+    AuthenticationExpiredError,
+    LibraryClient,
+)
 from hdu_sniper.library.login import LibraryLogin
-from hdu_sniper.library.rooms import FloorInfo
 from hdu_sniper.notifier import Notifier
-from hdu_sniper.schedule_policy import SchedulePolicy
-from hdu_sniper.scheduler import ScheduledTask, SchedulerService, TaskStatus
+from hdu_sniper.schedule_policy import ALL_WEEKDAYS, WEEKDAY_NAMES, SchedulePolicy
+from hdu_sniper.scheduler import SchedulerService
+from hdu_sniper.updater import UpdateService
 
 
 EventHandler = Callable[[ApplicationEvent], None]
+
+
+class SniperAppProtocol(Protocol):
+    """UI 与 API 依赖的应用门面接口。"""
+
+    authenticated: bool
+
+    def subscribe(self, handler: EventHandler) -> Callable[[], None]: ...
+
+    def saved_credentials(self) -> SavedCredentialsView | None: ...
+
+    def try_cached_authentication(self) -> bool: ...
+
+    def authenticate(self, student_id: str, password: str) -> tuple[bool, str]: ...
+
+    def list_plans(self) -> list[PlanView]: ...
+
+    def list_room_types(self) -> list[RoomTypeView]: ...
+
+    def list_floors(self, room_query: str) -> list[FloorView]: ...
+
+    def create_plan(
+        self, **values
+    ) -> tuple[PlanView, list[str], bool, DailySchedulerActivation | None]: ...
+
+    def delete_plans(self, plan_ids: list[str]) -> int: ...
+
+    def modify_plan_times(self, plan_ids: list[str], **values) -> int: ...
+
+    def list_bookings(self) -> list[BookingView]: ...
+
+    def cancel_remote_booking(self, booking_id: str | int) -> tuple[bool, str]: ...
+
+    def check_in_booking(self, booking_id: str | int) -> tuple[bool, str]: ...
+
+    def come_back_booking(self, booking_id: str | int) -> tuple[bool, str]: ...
+
+    def renew_booking(self, booking_id: str | int) -> tuple[bool, str]: ...
+
+    def leave_booking(self, booking_id: str | int) -> tuple[bool, str]: ...
+
+    def sign_out_booking(self, booking_id: str | int) -> tuple[bool, str]: ...
+
+    def test_check_in(self, booking_id: str | int) -> tuple[bool, str]: ...
+
+    def check_in_test(self) -> list[dict[str, str | bool]]: ...
+
+    def auto_check_in(self) -> list[dict[str, str | bool]]: ...
+
+    def auto_check_in_status(self) -> dict: ...
+
+    def enable_auto_check_in(self) -> tuple[bool, str]: ...
+
+    def disable_auto_check_in(self) -> tuple[bool, str]: ...
+
+    def schedule_policy(self) -> SchedulePolicyView: ...
+
+    def schedule_policy_preview(self, weekdays: list[int]) -> str: ...
+
+    def save_schedule_policy(
+        self,
+        *,
+        enabled: bool | None = None,
+        weekdays: list[int] | None = None,
+    ) -> SchedulePolicyView: ...
+
+    def scheduler_status(self) -> SchedulerStatusView: ...
+
+    def list_scheduled_tasks(self) -> list[ScheduledTaskView]: ...
+
+    def repair_daily_scheduler(self) -> tuple[bool, str]: ...
+
+    def delete_scheduled_task(self, task_name: str) -> tuple[bool, str]: ...
+
+    def enabled_plan_count(self) -> int: ...
+
+    def run_booking_override(self) -> int: ...
+
+    def booking_day_text(self) -> str: ...
+
+    def check_in_agreement_text(self) -> str: ...
+
+    def check_for_update(self) -> UpdateInfo | None: ...
+
+    def update_install_supported(self, update: UpdateInfo) -> bool: ...
+
+    def download_update(
+        self,
+        update: UpdateInfo,
+        *,
+        progress: Callable[[DownloadProgress], None] | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ) -> Path: ...
+
+    def launch_installer(self, installer: Path) -> None: ...
 
 
 class AuthenticationRequiredError(PermissionError):
@@ -69,6 +185,7 @@ class SniperApp:
         login: LibraryLogin | None = None,
         booking: BookingRunner | None = None,
         scheduler: SchedulerService | None = None,
+        update_service: UpdateService | None = None,
     ) -> None:
         self.settings = settings
         self.client = client
@@ -84,6 +201,7 @@ class SniperApp:
             login=self.login,
         )
         self.scheduler = scheduler or SchedulerService(settings.paths)
+        self.update_service = update_service or UpdateService()
 
         self._lock = RLock()
         self._state = JobState.IDLE
@@ -152,8 +270,11 @@ class SniperApp:
             self._ensure_daily_scheduler()
         return authenticated
 
-    def saved_credentials(self) -> Credentials | None:
-        return load_credentials(self.settings.paths.credentials_file)
+    def saved_credentials(self) -> SavedCredentialsView | None:
+        credentials = load_credentials(self.settings.paths.credentials_file)
+        if credentials is None:
+            return None
+        return SavedCredentialsView(student_id=credentials.student_id)
 
     def _require_authenticated(self) -> None:
         if not self.authenticated:
@@ -198,31 +319,61 @@ class SniperApp:
             self._publish(EventKind.ERROR, message)
             return False, message
 
-    def list_plans(self) -> list[BookingPlan]:
-        return self._authenticated_call(self.plans.list_all)
+    def list_plans(self) -> list[PlanView]:
+        plans = self._authenticated_call(self.plans.list_all)
+        return [self._plan_view(plan) for plan in plans]
 
     def list_enabled_plans(self) -> list[BookingPlan]:
         return self._authenticated_call(self.plans.list_enabled)
 
-    def list_room_types(self) -> list[dict]:
-        return self._authenticated_call(self.plans.list_room_types)
+    def list_room_types(self) -> list[RoomTypeView]:
+        items = self._authenticated_call(self.plans.list_room_types)
+        return [
+            RoomTypeView(
+                query=str(item.get("query", "")),
+                name=str(item.get("name") or item.get("query", "")),
+            )
+            for item in items
+        ]
 
-    def list_floors(self, room_query: str) -> list[FloorInfo]:
-        return self._authenticated_call(self.plans.list_floors, room_query)
+    def list_floors(self, room_query: str) -> list[FloorView]:
+        floors = self._authenticated_call(self.plans.list_floors, room_query)
+        return [
+            FloorView(
+                floor_id=item.floor_id,
+                room_name=item.room_name,
+                seat_count=item.seat_count,
+                seat_titles=list(item.seat_titles),
+            )
+            for item in floors
+        ]
 
     def create_plan(
         self, **values
-    ) -> tuple[BookingPlan, list[str], bool, DailySchedulerActivation | None]:
-        result = self._authenticated_call(self.plans.create, **values)
-        if result[1]:
-            return *result, None
+    ) -> tuple[PlanView, list[str], bool, DailySchedulerActivation | None]:
+        plan, errors, fell_back = self._authenticated_call(self.plans.create, **values)
+        plan_view = self._plan_view(plan)
+        if errors:
+            return plan_view, errors, fell_back, None
         try:
             already_existed = self.scheduler.get_task_status().exists
         except Exception:
             already_existed = False
         success, message = self._configure_daily_scheduler()
         activation = DailySchedulerActivation(success, already_existed, message)
-        return *result, activation
+        return plan_view, errors, fell_back, activation
+
+    @staticmethod
+    def _plan_view(plan: BookingPlan) -> PlanView:
+        return PlanView(
+            plan_id=plan.plan_id,
+            room_name=ROOM_TYPE_MAP.get(str(plan.room_type), f"类型 {plan.room_type}"),
+            seat_num=plan.seat_num,
+            start_hour=plan.start_hour,
+            duration_hours=plan.duration_hours,
+            fallback_seats=list(plan.fallback_seats),
+            enabled=plan.enabled,
+        )
 
     def delete_plans(self, plan_ids: list[str]) -> int:
         return self._authenticated_call(self.plans.delete, plan_ids)
@@ -293,9 +444,77 @@ class SniperApp:
         self._set_state(JobState.CANCELLING, "正在取消任务")
         return self.booking.cancel()
 
-    def list_bookings(self) -> list[dict]:
-        """查询图书馆账户的座位预约记录。"""
+    def list_bookings(self) -> list[BookingView]:
+        """查询图书馆账户的座位预约记录并转换为 UI 展示模型。"""
+        return [self._booking_view(item) for item in self._raw_bookings()]
+
+    def _raw_bookings(self) -> list[dict]:
+        """读取图书馆原始预约记录，仅供应用层内部校验使用。"""
         return self._authenticated_call(self.client.get_bookings)
+
+    @staticmethod
+    def _booking_view(item: dict) -> BookingView:
+        status = responses.booking_status(item)
+        state = responses.booking_state(item)
+        booking_id = responses.booking_id(item)
+        room_name = str(item.get("roomName") or "未知房间")
+        seat_num = str(item.get("seatNum") or "-")
+        try:
+            start_text = datetime.fromtimestamp(
+                responses.booking_begin_ts(item),
+                tz=CST,
+            ).strftime("%Y-%m-%d %H:%M")
+        except (TypeError, ValueError, OSError):
+            start_text = "未知时间"
+        try:
+            duration_hours = int(item.get("duration") or 0) / 3600
+            duration_text = f"{duration_hours:g} 小时" if duration_hours else "时长未知"
+        except (TypeError, ValueError):
+            duration_text = "时长未知"
+
+        status_labels = {
+            "0": "待签到",
+            "1": "使用中",
+            "2": "暂离中",
+            "3": "已结束",
+            "4": "已取消",
+            "5": "未签到结束",
+            "6": "暂离未归结束",
+            "7": "系统签退结束",
+            "8": "预约待确认",
+            "9": "已拒绝",
+        }
+        if state == responses.BOOKING_STATE_CHECK_IN:
+            status_label = "可签到"
+        elif state == responses.BOOKING_STATE_IN_USE:
+            status_label = "签到成功，使用中"
+        else:
+            status_label = status_labels.get(status) or f"状态 {status or '未知'}"
+
+        return BookingView(
+            booking_id=booking_id,
+            room_name=room_name,
+            seat_num=seat_num,
+            start_text=start_text,
+            duration_text=duration_text,
+            status=status,
+            state=state,
+            status_label=status_label,
+            summary=f"{room_name} · 座位 {seat_num} · {start_text}",
+            can_cancel=status in {"0", "8"} and bool(booking_id),
+            can_check_in=(
+                status in {"0", "8"} and state == responses.BOOKING_STATE_CHECK_IN
+            ),
+            can_sign_out=state == responses.BOOKING_STATE_IN_USE and bool(booking_id),
+            can_leave=state == responses.BOOKING_STATE_IN_USE and bool(booking_id),
+            can_renew=state == responses.BOOKING_STATE_AWAY and bool(booking_id),
+            show_in_list=status
+            not in {
+                responses.BOOKING_STATUS_FINISHED,
+                responses.BOOKING_STATUS_CANCELLED,
+                responses.BOOKING_STATUS_SYSTEM_SIGNED_OUT,
+            },
+        )
 
     def get_booking_status(self, booking_id: str | int) -> dict:
         """查询单条预约的服务端状态，不改变预约。"""
@@ -388,7 +607,7 @@ class SniperApp:
         if self.busy:
             return [{"success": False, "message": "当前任务正在运行，请稍后再自动签到"}]
         results: list[dict[str, str | bool]] = []
-        for item in self._authenticated_call(self.client.get_bookings):
+        for item in self._raw_bookings():
             booking_id = responses.booking_id(item)
             if not booking_id or not responses.booking_is_check_in_available(item):
                 continue
@@ -554,7 +773,7 @@ class SniperApp:
     def check_in_test(self) -> list[dict[str, str | bool]]:
         """测试全部预约的签到条件，供界面一次性诊断。"""
         results: list[dict[str, str | bool]] = []
-        for item in self._authenticated_call(self.client.get_bookings):
+        for item in self._raw_bookings():
             booking_id = responses.booking_id(item)
             if not booking_id:
                 continue
@@ -622,7 +841,7 @@ class SniperApp:
         normalized_id = str(booking_id).strip()
         if not normalized_id or not normalized_id.isdigit():
             raise ValueError("预约 ID 必须是数字")
-        bookings = self.list_bookings()
+        bookings = self._raw_bookings()
         item = next(
             (item for item in bookings if responses.booking_id(item) == normalized_id),
             None,
@@ -660,15 +879,30 @@ class SniperApp:
             )
         return True, success_message
 
-    def scheduler_status(self) -> TaskStatus:
+    def scheduler_status(self) -> SchedulerStatusView:
         """返回固定每日任务的只读状态，不暴露调度配置。"""
         self._require_authenticated()
-        return self.scheduler.get_task_status()
+        status = self.scheduler.get_task_status()
+        return SchedulerStatusView(
+            exists=status.exists,
+            execute_time=status.execute_time,
+            wake_to_run=status.wake_to_run,
+            next_run=status.next_run,
+        )
 
-    def list_scheduled_tasks(self) -> list[ScheduledTask]:
+    def list_scheduled_tasks(self) -> list[ScheduledTaskView]:
         """列出由本应用创建并允许管理的系统调度任务。"""
         self._require_authenticated()
-        return self.scheduler.list_tasks()
+        return [
+            ScheduledTaskView(
+                name=task.name,
+                status=task.status,
+                next_run=task.next_run,
+                last_run=task.last_run,
+                last_result=task.last_result,
+            )
+            for task in self.scheduler.list_tasks()
+        ]
 
     def run_scheduled_task(self, task_name: str) -> tuple[bool, str]:
         """请求系统任务计划程序立即运行一个应用托管任务。"""
@@ -687,17 +921,24 @@ class SniperApp:
             return False, "请先创建并启用至少一个预约方案"
         return self._configure_daily_scheduler(allow_elevated_repair=True)
 
-    def schedule_policy(self) -> SchedulePolicy:
-        """返回当前预约日期策略的只读快照。"""
+    def schedule_policy(self) -> SchedulePolicyView:
+        """返回当前预约日期策略的展示快照。"""
         self._require_authenticated()
-        return SchedulePolicy.load(self.settings.paths.schedule_policy_file)
+        policy = SchedulePolicy.load(self.settings.paths.schedule_policy_file)
+        return self._schedule_policy_view(policy)
+
+    def schedule_policy_preview(self, weekdays: list[int]) -> str:
+        """返回星期选择组合的摘要文案，供 UI 实时预览。"""
+        if not weekdays:
+            return "未选择"
+        return SchedulePolicy(enabled=True, weekdays=frozenset(weekdays)).summary_label()
 
     def save_schedule_policy(
         self,
         *,
         enabled: bool | None = None,
         weekdays: list[int] | None = None,
-    ) -> SchedulePolicy:
+    ) -> SchedulePolicyView:
         """保存星期规则或暂停状态，返回更新后的策略。"""
         self._require_authenticated()
         updated = SchedulePolicy.load(self.settings.paths.schedule_policy_file).with_updates(
@@ -705,7 +946,40 @@ class SniperApp:
             weekdays=weekdays,
         )
         updated.save(self.settings.paths.schedule_policy_file)
-        return updated
+        return self._schedule_policy_view(updated)
+
+    def _schedule_policy_view(self, policy: SchedulePolicy) -> SchedulePolicyView:
+        today = datetime.now(CST).date()
+        next_date = policy.next_booking_date(today) if policy.enabled else None
+        next_run_text = None
+        today_excluded = False
+        if next_date is not None:
+            execute_date = next_date - timedelta(days=BOOKING_DAY_OFFSET)
+            execute_label = (
+                "今天"
+                if execute_date == today
+                else f"{execute_date.month} 月 {execute_date.day} 日"
+            )
+            next_run_text = (
+                f"下一次预约 {next_date.month} 月 {next_date.day} 日"
+                f" · {execute_label} 20:00 执行"
+            )
+            today_excluded = (
+                (today + timedelta(days=BOOKING_DAY_OFFSET)).isoweekday()
+                not in policy.weekdays
+            )
+        options = tuple(
+            WeekdayOption(value=day, label=WEEKDAY_NAMES[day]) for day in ALL_WEEKDAYS
+        )
+        return SchedulePolicyView(
+            enabled=policy.enabled,
+            corrupt=policy.corrupt,
+            weekdays=policy.weekdays,
+            summary_label=policy.summary_label() if not policy.corrupt else "待修复",
+            options=options,
+            next_run_text=next_run_text,
+            today_excluded=today_excluded,
+        )
 
     def enabled_plan_count(self) -> int:
         """返回当前启用的预约方案数量。"""
@@ -715,6 +989,50 @@ class SniperApp:
         """人工立即执行：绕过暂停与日期规则，不修改已保存配置。"""
         self._require_authenticated()
         return self.booking.run_once(bypass_policy=True)
+
+    def run_daemon(
+        self,
+        execute_at: str | None = None,
+        *,
+        bypass_policy: bool = False,
+    ) -> int:
+        """后台一次性执行入口，与系统任务调用保持同一路径。"""
+        return self.booking.run_once(execute_at=execute_at, bypass_policy=bypass_policy)
+
+    def booking_day_text(self) -> str:
+        """返回固定预约日期（后天）的展示文案。"""
+        target = datetime.now(CST).date() + timedelta(days=BOOKING_DAY_OFFSET)
+        return f"{target.month} 月 {target.day} 日"
+
+    def check_in_agreement_text(self) -> str:
+        """返回自动签到风险协议的完整文案。"""
+        return CHECK_IN_AGREEMENT_TEXT
+
+    def check_for_update(self) -> UpdateInfo | None:
+        """检查桌面端是否有可用更新。"""
+        return self.update_service.check_for_update()
+
+    def update_install_supported(self, update: UpdateInfo) -> bool:
+        """判断当前环境是否支持应用内下载并启动安装包。"""
+        return self.update_service.install_supported(update)
+
+    def download_update(
+        self,
+        update: UpdateInfo,
+        *,
+        progress: Callable[[DownloadProgress], None] | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ) -> Path:
+        """下载并校验更新安装包。"""
+        return self.update_service.download(
+            update,
+            progress=progress,
+            cancel=cancel,
+        )
+
+    def launch_installer(self, installer: Path) -> None:
+        """启动已下载的安装程序。"""
+        self.update_service.launch(installer)
 
     def _ensure_daily_scheduler(self) -> None:
         """有效方案存在时，静默确保每天 20:00 的系统任务。"""

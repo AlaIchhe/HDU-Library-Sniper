@@ -8,15 +8,15 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
 
-from hdu_sniper.diagnostics import desktop_self_check
-from hdu_sniper.runtime import get_app
-from hdu_sniper.ui.app import run_flet_app
+from hdu_sniper.application import SniperAppProtocol
+from hdu_sniper.ui.flet_view import run_flet_app
 
 
-def main() -> None:
+def main(application: SniperAppProtocol, *, self_check: Callable[[], int]) -> None:
     if "--self-check" in sys.argv[1:]:
-        sys.exit(desktop_self_check())
+        sys.exit(self_check())
 
     if "--daemon" in sys.argv[1:] or "--run-now" in sys.argv[1:]:
         execute_at = os.environ.get("HDU_EXECUTE_AT") or None
@@ -24,10 +24,10 @@ def main() -> None:
             if argument.startswith("--execute-at="):
                 execute_at = argument.split("=", 1)[1]
         bypass_policy = "--override" in sys.argv[1:] or os.environ.get("HDU_BYPASS_POLICY") == "1"
-        sys.exit(get_app().booking.run_once(execute_at=execute_at, bypass_policy=bypass_policy))
+        sys.exit(application.run_daemon(execute_at=execute_at, bypass_policy=bypass_policy))
 
     if "--checkin-run" in sys.argv[1:] or "--checkin-wait" in sys.argv[1:]:
         wait = "--checkin-wait" in sys.argv[1:]
-        sys.exit(get_app().run_checkin(wait=wait))
+        sys.exit(application.run_checkin(wait=wait))
 
-    run_flet_app()
+    run_flet_app(application)
