@@ -35,7 +35,7 @@ class FakeResponse:
             self._offset += len(chunk)
         return chunk
 
-    def __enter__(self) -> "FakeResponse":
+    def __enter__(self) -> FakeResponse:
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -143,9 +143,11 @@ def test_download_update_rejects_checksum_mismatch(tmp_path: Path) -> None:
         sha256=sha256(b"different").hexdigest(),
     )
 
-    with patch("hdu_sniper.updater.urlopen", return_value=FakeResponse(body)):
-        with pytest.raises(UpdateChecksumError):
-            download_update(update, tmp_path)
+    with patch(
+        "hdu_sniper.updater.urlopen",
+        return_value=FakeResponse(body),
+    ), pytest.raises(UpdateChecksumError):
+        download_update(update, tmp_path)
 
     assert not (tmp_path / "setup.exe").exists()
     assert not (tmp_path / ".setup.exe.part").exists()
@@ -165,9 +167,11 @@ def test_download_update_honors_cancel(tmp_path: Path) -> None:
         calls += 1
         return calls > 1
 
-    with patch("hdu_sniper.updater.urlopen", return_value=FakeResponse(b"installer-bytes")):
-        with pytest.raises(UpdateCancelled):
-            download_update(update, tmp_path, cancel=cancel)
+    with patch(
+        "hdu_sniper.updater.urlopen",
+        return_value=FakeResponse(b"installer-bytes"),
+    ), pytest.raises(UpdateCancelled):
+        download_update(update, tmp_path, cancel=cancel)
 
     assert not (tmp_path / ".setup.exe.part").exists()
 
@@ -183,9 +187,8 @@ def test_download_update_rejects_short_body(tmp_path: Path) -> None:
     with patch(
         "hdu_sniper.updater.urlopen",
         return_value=FakeResponse(b"short", content_length=100),
-    ):
-        with pytest.raises(UpdateChecksumError):
-            download_update(update, tmp_path)
+    ), pytest.raises(UpdateChecksumError):
+        download_update(update, tmp_path)
 
     assert not (tmp_path / ".setup.exe.part").exists()
 

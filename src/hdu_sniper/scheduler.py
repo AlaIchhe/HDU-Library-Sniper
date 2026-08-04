@@ -270,10 +270,10 @@ class SchedulerService:
         wake_to_run: bool,
         allow_elevated_repair: bool = False,
     ) -> tuple[bool, str]:
-        """使用 AutoSchedule.ps1 配置 Windows 任务。"""
-        ps_script = self.resource_root / "scripts" / "AutoSchedule.ps1"
+        """使用 Register-AutoSchedule.ps1 配置 Windows 任务。"""
+        ps_script = self.resource_root / "scripts" / "Register-AutoSchedule.ps1"
         if not ps_script.exists():
-            return False, f"未找到 AutoSchedule.ps1: {ps_script}"
+            return False, f"未找到 Register-AutoSchedule.ps1: {ps_script}"
 
         # 设置环境变量
         env = os.environ.copy()

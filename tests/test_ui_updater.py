@@ -6,8 +6,8 @@ import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from hdu_sniper.ui.app import SniperFletView
-from hdu_sniper.updater import UpdateCancelled, UpdateChecksumError, UpdateInfo
+from hdu_sniper.dto import UpdateCancelled, UpdateChecksumError, UpdateInfo
+from hdu_sniper.ui.flet_view import SniperFletView
 
 
 def _page() -> Mock:
@@ -26,6 +26,7 @@ def _application() -> Mock:
     application.try_cached_authentication.return_value = False
     application.subscribe.return_value = Mock()
     application.list_plans.return_value = []
+    application.update_install_supported.return_value = True
     return application
 
 
@@ -38,7 +39,7 @@ def test_update_download_opens_installer_url() -> None:
         download_url="https://example.test/setup.exe",
     )
 
-    with patch("hdu_sniper.ui.app.ft.UrlLauncher") as launcher:
+    with patch("hdu_sniper.ui.flet_view.ft.UrlLauncher") as launcher:
         launcher.return_value.launch_url = AsyncMock()
         asyncio.run(view._open_update_download(None))
 
@@ -57,7 +58,7 @@ def test_update_download_falls_back_to_release_page() -> None:
         download_url=None,
     )
 
-    with patch("hdu_sniper.ui.app.ft.UrlLauncher") as launcher:
+    with patch("hdu_sniper.ui.flet_view.ft.UrlLauncher") as launcher:
         launcher.return_value.launch_url = AsyncMock()
         asyncio.run(view._open_update_download(None))
 
@@ -76,7 +77,7 @@ def test_start_update_download_uses_browser_in_web_mode() -> None:
         download_url="https://example.test/setup.exe",
     )
 
-    with patch("hdu_sniper.ui.app.ft.UrlLauncher") as launcher:
+    with patch("hdu_sniper.ui.flet_view.ft.UrlLauncher") as launcher:
         launcher.return_value.launch_url = AsyncMock()
         asyncio.run(view._start_update_download(None))
 
@@ -87,6 +88,7 @@ def test_start_update_download_uses_browser_in_web_mode() -> None:
 
 def test_start_update_download_uses_browser_for_non_exe_asset() -> None:
     view = SniperFletView(_page(), _application())
+    view.application.update_install_supported.return_value = False
     view.available_update = UpdateInfo(
         version="9.9.9",
         tag_name="v9.9.9",
@@ -94,7 +96,7 @@ def test_start_update_download_uses_browser_for_non_exe_asset() -> None:
         download_url="https://example.test/setup.msi",
     )
 
-    with patch("hdu_sniper.ui.app.ft.UrlLauncher") as launcher:
+    with patch("hdu_sniper.ui.flet_view.ft.UrlLauncher") as launcher:
         launcher.return_value.launch_url = AsyncMock()
         asyncio.run(view._start_update_download(None))
 
@@ -129,19 +131,17 @@ def test_perform_update_download_launches_installer_and_closes() -> None:
         download_url="https://example.test/setup.exe",
     )
     installer = Path("C:/Downloads/setup.exe")
+    view.application.download_update.return_value = installer
 
-    with (
-        patch("hdu_sniper.ui.app.download_update", return_value=installer),
-        patch("hdu_sniper.ui.app.launch_installer") as launch,
-    ):
-        asyncio.run(view._perform_update_download(update))
+    asyncio.run(view._perform_update_download(update))
 
-    launch.assert_called_once_with(installer)
+    view.application.launch_installer.assert_called_once_with(installer)
     view.page.window.close.assert_awaited_once_with()
 
 
 def test_perform_update_download_reports_cancellation() -> None:
     view = SniperFletView(_page(), _application())
+    view.application.download_update.side_effect = UpdateCancelled("cancelled")
     update = UpdateInfo(
         version="9.9.9",
         tag_name="v9.9.9",
@@ -149,17 +149,14 @@ def test_perform_update_download_reports_cancellation() -> None:
         download_url="https://example.test/setup.exe",
     )
 
-    with patch(
-        "hdu_sniper.ui.app.download_update",
-        side_effect=UpdateCancelled("cancelled"),
-    ):
-        asyncio.run(view._perform_update_download(update))
+    asyncio.run(view._perform_update_download(update))
 
     assert "下载已取消" in view._update_status.value
 
 
 def test_perform_update_download_reports_checksum_failure() -> None:
     view = SniperFletView(_page(), _application())
+    view.application.download_update.side_effect = UpdateChecksumError("bad checksum")
     update = UpdateInfo(
         version="9.9.9",
         tag_name="v9.9.9",
@@ -167,10 +164,6 @@ def test_perform_update_download_reports_checksum_failure() -> None:
         download_url="https://example.test/setup.exe",
     )
 
-    with patch(
-        "hdu_sniper.ui.app.download_update",
-        side_effect=UpdateChecksumError("bad checksum"),
-    ):
-        asyncio.run(view._perform_update_download(update))
+    asyncio.run(view._perform_update_download(update))
 
     assert "校验未通过" in view._update_status.value
