@@ -28,7 +28,7 @@
 | 其他失败 | skip 当前方案 |
 | `CODE=ok` | continue |
 
-## 本地 FastAPI 错误映射
+## 本地 API（Ktor）错误映射
 
 | 场景 | HTTP |
 |---|---|

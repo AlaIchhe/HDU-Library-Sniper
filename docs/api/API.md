@@ -1,11 +1,11 @@
-# HDU Library Sniper 本地 API
+# HDU Library Sniper 本地 API（Ktor）
 
 ## 总则
 
-- Base URL：Web 模式下默认 `http://<host>:8000`。
 - 所有 `/api/v1` 业务接口都需要当前进程内有认证状态；未认证返回 `401`。
 - 写操作成功后会从预约列表复核最终状态，因此部分接口返回前会有额外查询。
-- `/api/docs` 和 `/api/openapi.json` 在生产中返回 `404`。
+- 生产构建不注册文档路由：`/api/docs` 和 `/api/openapi.json` 返回 `404`。
+- 该 API 由 `container/server`（Ktor）实现，复用 `core` 中的用例与端口；行为契约与旧版一致。
 
 ## 系统
 

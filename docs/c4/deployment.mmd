@@ -1,39 +1,32 @@
-%%{init: {"theme": "default"}}%%
-C4Deployment
-    title 部署视图 - HDU Library Sniper
+graph TD
+  subgraph DesktopEnv["桌面部署"]
+    DesktopNode["Windows / macOS Desktop"] --> Desktop["Desktop App"]
+    DesktopNode --> CLI["CLI / Daemon"]
+    DesktopNode --> CoreD["KMP Shared Core"]
+    DesktopNode --> StoresD["Local Storage"]
+  end
 
-    Deployment_Node(desktopNode, "Windows / macOS Desktop", "桌面运行环境") {
-        ContainerInstance(desktopInstance, "Flet Desktop App", "桌面界面")
-        ContainerInstance(coreDesktop, "SniperApp Core", "应用核心")
-        ContainerInstance(storageDesktop, "Local Files", "用户目录")
-    }
+  subgraph MobileEnv["移动端部署"]
+    AndroidNode["Android 设备"] --> Android["Android App"]
+    AndroidNode --> CoreA["KMP Shared Core"]
+    AndroidNode --> StoresA["Local Storage"]
 
-    Deployment_Node(serverNode, "Docker / Server", "服务端运行环境") {
-        Deployment_Node(containerNode, "Docker Container", "uvicorn + FastAPI") {
-            ContainerInstance(webInstance, "FastAPI + Flet Web", "Web 服务")
-            ContainerInstance(coreServer, "SniperApp Core", "应用核心")
-            ContainerInstance(storageServer, "Local Files", "HDU_SNIPER_HOME 数据目录")
-        }
-    }
+    IOSNode["iOS 设备"] --> IOS["iOS App"]
+    IOSNode --> CoreI["KMP Shared Core"]
+    IOSNode --> StoresI["Local Storage"]
+  end
 
-    Deployment_Node(osNode, "OS Scheduler", "Windows Task Scheduler / cron") {
-        ContainerInstance(cliInstance, "CLI / Background Runner", "无 UI 后台执行")
-    }
+  subgraph ServerEnv["服务端部署"]
+    ServerNode["Docker / Server"] --> Ktor["Ktor Server + Worker"]
+    Ktor --> Server["Server / Worker"]
+    Ktor --> Web["Web Admin"]
+    Ktor --> CoreS["KMP Shared Core"]
+    Ktor --> StoresS["Local Storage"]
+  end
 
-    System_Ext(huitu, "慧图图书馆平台")
-    System_Ext(sso, "杭电 SSO")
-
-    Rel(coreDesktop, huitu, "HTTP API")
-    Rel(coreDesktop, sso, "CAS 登录")
-    Rel(coreServer, huitu, "HTTP API")
-    Rel(coreServer, sso, "CAS 登录")
-    Rel(cliInstance, huitu, "HTTP API")
-    Rel(cliInstance, sso, "CAS 登录")
-
-    UpdateElementStyle(desktopInstance, $bgColor="#438dd5", $fontColor="#ffffff")
-    UpdateElementStyle(coreDesktop, $bgColor="#85bbf0", $fontColor="#000000")
-    UpdateElementStyle(storageDesktop, $bgColor="#f4f4f4", $fontColor="#000000")
-    UpdateElementStyle(webInstance, $bgColor="#438dd5", $fontColor="#ffffff")
-    UpdateElementStyle(coreServer, $bgColor="#85bbf0", $fontColor="#000000")
-    UpdateElementStyle(storageServer, $bgColor="#f4f4f4", $fontColor="#000000")
-    UpdateElementStyle(cliInstance, $bgColor="#438dd5", $fontColor="#ffffff")
+  CoreD -->|HTTP API| Huitu["慧图图书馆平台"]
+  CoreA -->|HTTP API| Huitu
+  CoreS -->|HTTP API| Huitu
+  CoreD -->|CAS 登录| SSO["杭电 SSO"]
+  CoreA -->|CAS 登录| SSO
+  CoreS -->|CAS 登录| SSO

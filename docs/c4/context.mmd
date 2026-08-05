@@ -1,27 +1,7 @@
-%%{init: {"theme": "default"}}%%
-C4Context
-    title 系统上下文 - HDU Library Sniper
-
-    Person(student, "学生", "使用桌面端或 Web 端配置预约方案、管理预约和自动签到")
-
-    System(sniper, "HDU Library Sniper", "固定后天 20:00 自动抢座，并支持签到、暂离、续座、签退、取消和系统调度")
-
-    System_Ext(huitu, "慧图图书馆平台", "提供登录、房间、座位、预约、签到、取消、状态查询等 HTTP API")
-    System_Ext(sso, "杭电 SSO", "统一身份认证，返回 CAS ticket 与会话 Cookie")
-    System_Ext(wechat, "微信 Webhook", "接收抢座和签到结果通知")
-    System_Ext(github, "GitHub Releases", "发布新版本与安装包")
-    System_Ext(osScheduler, "OS Task Scheduler", "Windows Task Scheduler / cron，按计划触发应用")
-
-    Rel(student, sniper, "使用")
-    Rel(sniper, huitu, "调用 HTTP API")
-    Rel(sniper, sso, "执行统一身份认证")
-    Rel(sniper, wechat, "发送通知")
-    Rel(sniper, github, "检查更新并下载")
-    Rel(sniper, osScheduler, "注册/查询/触发系统任务")
-
-    UpdateRelStyle(student, sniper, $textColor="blue", $lineColor="blue")
-    UpdateRelStyle(sniper, huitu, $textColor="purple", $lineColor="purple")
-    UpdateRelStyle(sniper, sso, $textColor="purple", $lineColor="purple")
-    UpdateRelStyle(sniper, wechat, $textColor="green", $lineColor="green")
-    UpdateRelStyle(sniper, github, $textColor="green", $lineColor="green")
-    UpdateRelStyle(sniper, osScheduler, $textColor="green", $lineColor="green")
+graph LR
+  Student["学生"] -->|使用| Sniper["HDU Library Sniper"]
+  Sniper -->|调用 HTTP API| Huitu["慧图图书馆平台"]
+  Sniper -->|执行统一身份认证| SSO["杭电 SSO"]
+  Sniper -->|发送通知| Wechat["微信 Webhook"]
+  Sniper -->|检查更新并下载| GitHub["GitHub Releases"]
+  Sniper -->|注册/查询/触发系统任务| OS["OS Task Scheduler"]

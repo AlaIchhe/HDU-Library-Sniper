@@ -1,11 +1,12 @@
 # 慧图图书馆 API 契约
 
 基于真实抓包(2026-07-10,浏览器登录态 CAS)。所有字段来自观测,**不猜**。
-原始抓包在 `fixtures/captures/`(含 uid 等本地值,gitignore);本文档及 `docs/contracts/**` 为脱敏版,可入库。
+原始抓包在 `testdata/raw-captures/`(含 uid 等本地值,gitignore);本文档及 `docs/contracts/**` 为脱敏版,可入库。
 
-> 运行期魔法路径与 `MSG_*` 常量单一源在 `src/hdu_sniper/library/responses.py`(纯叶模块);本文档与
-> `schemas.md` 仅作人读规约。`tests/test_contracts.py` 对每条 `responses.*` 访问器在
+> 运行期魔法路径与 `MSG_*` 常量单一源在 `core/library` 的 Kotlin 模块(纯叶模块);本文档与
+> `schemas.md` 仅作人读规约。`core/library` 的 commonTest 契约测试对每条访问器在
 > 样例上断言——服务器改结构 → 样例更新 → 测试非零退出,提醒契约漂移。
+> 旧版 Python 源码(`src/hdu_sniper/...`)仅作为迁移参考,不再作为契约单一源。
 
 ## 通用信封
 
@@ -18,7 +19,7 @@
 - 成功:`CODE="ok"`。
 - 失败:`CODE="ParamError"`(多种错误共用此 CODE,**必须靠 MESSAGE 区分**),或 `CODE="请检查参数设置"`,或整数 `1`(限流)。
 - `DATA` 在失败时常含 `result:"fail"` + `msg:<同 MESSAGE>`,以及用户基本信息(`uid`/`uname`/...)。
-- 成功判定见 `src/hdu_sniper/booking/retry.py:booking_failed`:`code != "ok"` 即失败。
+- 成功判定:核心中 `code != "ok"` 即失败(见 `core/library` 的 `HuituResponses.bookingFailed` / `RetryDecider.kt`)。
 
 ## 认证模型
 
@@ -27,64 +28,64 @@
    ```
    post&/Seat/Index/bookSeats?LAB_JSON=1&api_time{api_time}&beginTime{beginTime}&duration{duration}&is_recommend{is_recommend}&seatBookers[0]{uid}&seats[0]{seat_id}
    ```
-   算法实现在 `src/hdu_sniper/library/signing.py:generate_api_token`,**已对真实服务器验证通过**。`api_time` 为当前秒级时间戳,有轻微时钟偏差容忍。
+   算法实现于 `core/library` 的 `ApiSigning.generateApiToken()`,**已对真实服务器验证通过**。`api_time` 为当前秒级时间戳,有轻微时钟偏差容忍。
 
 ## LAB_JSON 规则(关键)
 
-Session 默认带 `LAB_JSON=1`(`src/hdu_sniper/library/client.py:DEFAULT_SESSION_PARAMS`)。对 `baseInfo` 这类端点:
-- **不带 LAB_JSON** → 干净 `{CODE,MESSAGE,DATA}` 信封(`_debug_info:["没有指定LAB平台模板"]`)。`validate_cookie`/`resolve_uid` 用 `params={"LAB_JSON": None}` 达成(见 `responses.base_info_data`)。
+Session 默认带 `LAB_JSON=1`(`HuituClient.DEFAULT_SESSION_PARAMS`)。对 `baseInfo` 这类端点:
+- **不带 LAB_JSON** → 干净 `{CODE,MESSAGE,DATA}` 信封(`_debug_info:["没有指定LAB平台模板"]`)。`validateCookie`/`resolveUid` 用 `params={"LAB_JSON": null}` 达成(见 `HuituResponses.baseInfoData`)。
 - **带 LAB_JSON=1** → UI 页面树(`com.BackRefreshPage` 等),**不是数据信封**。
 
-代码依赖"不带 LAB_JSON"取干净 DATA,见 `responses.base_info_data` 注释。
+代码依赖"不带 LAB_JSON"取干净 DATA,见 `HuituResponses.baseInfoData` 注释。
 
 ## 端点表
 
 | 端点 | 方法 | 用途 | 代码调用处 | LAB_JSON |
 |---|---|---|---|---|
-| `/Space/Category/list` | GET | 房间类型列表 | `client.get_room_types` → `responses.room_types_from_response` | 1 |
-| `/Seat/Index/searchSeats?{query}` | GET | 单房间详情(取 space_category) | `client.get_room_detail` → `responses.room_detail_from_response` | 1 |
-| `/Seat/Index/searchSeats` | POST | 座位分布图(楼层+座位) | `client.get_seat_map` → `responses.floors_from_response` | 1 |
-| `/User/Center/baseInfo` | GET | 用户信息(uid/is_login) | `client.validate_cookie`/`resolve_uid` → `responses.base_info_data` | **不带** |
-| `/Seat/Index/bookSeats` | POST | 提交预约 | `client.book_seat`(签名 `src/hdu_sniper/library/signing.py`) | 1 |
-| `/Seat/Index/myBookingList?fromType=web` | GET | **今日/近期预约列表(真正的)** | `client.get_todays_bookings` → `responses.bookings_from_response` | 1 |
-| `/Seat/Index/todayUserBookSeat` | GET | 返回字符串 `"todayUserBookSeatAction"`,**不是预约列表** | —(不再引用;原误用,Phase 3 已修) | — |
+| `/Space/Category/list` | GET | 房间类型列表 | `HuituClient.getRoomTypes` → `HuituResponses.roomTypesFromResponse` | 1 |
+| `/Seat/Index/searchSeats?{query}` | GET | 单房间详情(取 space_category) | `HuituClient.getRoomDetail` → `HuituResponses.roomDetailFromResponse` | 1 |
+| `/Seat/Index/searchSeats` | POST | 座位分布图(楼层+座位) | `HuituClient.getSeatMap` → `HuituResponses.floorsFromResponse` | 1 |
+| `/User/Center/baseInfo` | GET | 用户信息(uid/is_login) | `HuituClient.validateCookie`/`resolveUid` → `HuituResponses.baseInfoData` | **不带** |
+| `/Seat/Index/bookSeats` | POST | 提交预约 | `HuituClient.bookSeat`(签名 `ApiSigning.kt`) | 1 |
+| `/Seat/Index/myBookingList?fromType=web` | GET | **今日/近期预约列表(真正的)** | `HuituClient.getTodaysBookings` → `HuituResponses.bookingsFromResponse` | 1 |
+| `/Seat/Index/todayUserBookSeat` | GET | 返回字符串 `"todayUserBookSeatAction"`,**不是预约列表** | —(不再引用;旧版 Phase 3 已修) | — |
 
 ## 魔法路径验证表
 
 | 访问器(单一源) | 路径 | 真实结构 | 验证 |
 |---|---|---|---|
-| `responses.room_types_from_response` | `content.children[1].defaultItems` | `children`=[Ridge, List, null],`[1]`=com.List,`.defaultItems`=房间类型项 | ✅ 正确 |
-| `responses.room_detail_from_response` | `response.data`(小写)→ `data.space_category.{category_id,content_id}` | `data`=com.Raw,含 `space_category`(喂 `get_seat_map`) | ✅ 正确(sample: room_detail.json) |
-| `responses.floors_from_response` | `allContent.children[2].children.children` | `allContent.children`=[,,com.CatCon],`[2].children.children`=楼层数组 | ✅ 正确 |
-| `responses.floor_id` / `floor_seats` / `seat_title` / `seat_id` | `seatMap.info.id` / `seatMap.POIs` / `POI.title` / `POI.id` | 楼层 id + 座位项(座位号=title,预约用 id) | ✅ 正确 |
-| `responses.base_info_data` → `base_info_is_login`/`base_info_uid` | `DATA.is_login` / `DATA.uid` | uid(平台 id,签名用) ≠ user_info.cardno(学号) | ✅ 正确 |
-| `responses.bookings_from_response` + `responses.booking_begin_ts` | `content.defaultItems[]` → `item.time` | order item 真实字段 `seatNum`(座位号,非 seat_id)+ `time`(开始戳)+ `id` | ✅ 正确(Phase 3 已修,原 seat_id/beginTime 多键回退 ❌ 已删) |
+| `HuituResponses.roomTypesFromResponse` | `content.children[1].defaultItems` | `children`=[Ridge, List, null],`[1]`=com.List,`.defaultItems`=房间类型项 | ✅ 正确 |
+| `HuituResponses.roomDetailFromResponse` | `response.data`(小写)→ `data.space_category.{category_id,content_id}` | `data`=com.Raw,含 `space_category`(喂 `getSeatMap`) | ✅ 正确(sample: room_detail.json) |
+| `HuituResponses.floorsFromResponse` | `allContent.children[2].children.children` | `allContent.children`=[,,com.CatCon],`[2].children.children`=楼层数组 | ✅ 正确 |
+| `HuituResponses.floorId` / `floorSeats` / `seatTitle` / `seatId` | `seatMap.info.id` / `seatMap.POIs` / `POI.title` / `POI.id` | 楼层 id + 座位项(座位号=title,预约用 id) | ✅ 正确 |
+| `HuituResponses.baseInfoData` → `baseInfoIsLogin`/`baseInfoUid` | `DATA.is_login` / `DATA.uid` | uid(平台 id,签名用) ≠ user_info.cardno(学号) | ✅ 正确 |
+| `HuituResponses.bookingsFromResponse` + `bookingBeginTs` | `content.defaultItems[]` → `item.time` | order item 真实字段 `seatNum`(座位号,非 seat_id)+ `time`(开始戳)+ `id` | ✅ 正确(旧版 Phase 3 已修,原 seat_id/beginTime 多键回退 ❌ 已删) |
 
 ## 关键发现
 
-1. **`find_confirmed_booking` 已修复(Phase 3)**:端点改 `myBookingList?fromType=web`(原误用 `todayUserBookSeat`,只返回字符串拿不到数据);匹配字段改 `time`(±1s,原 `seat_id`/`beginTime` 多键回退全错——真实字段是 `seatNum`(座位号≠seat_id)+ `time`);弃用的 `seat_id` 形参已移除(`time` 单字段即可唯一识别,因 bookSeats 若真超时此前不应有同 begin_ts 预约,否则会立即返回 duplicate)。见 `responses.bookings_from_response` / `responses.booking_begin_ts` 与 `client.find_confirmed_booking`。
+1. **`findConfirmedBooking` 必须用 `myBookingList?fromType=web`**:旧版曾误用 `todayUserBookSeat`(只返回字符串拿不到数据);匹配字段为 `time`(±1s),真实字段是 `seatNum`(座位号≠seat_id)+ `time`(`time` 单字段即可唯一识别,因 bookSeats 若真超时此前不应有同 begin_ts 预约,否则会立即返回 duplicate)。
 
-2. **子串匹配是必要的,不是偷懒**:`CODE=ParamError` 被 time_out_of_range / past_time / duplicate / seat_unavailable **共用**。无法仅靠 CODE 区分 → `retry.py` 用 MESSAGE 子串判定**正确**。保留子串匹配(用 `responses.MSG_*` 已验证字符串),**不要**改成"只看 CODE"。
+2. **子串匹配是必要的,不是偷懒**:`CODE=ParamError` 被 time_out_of_range / past_time / duplicate / seat_unavailable **共用**。无法仅靠 CODE 区分 → 核心用 MESSAGE 子串判定**正确**。保留子串匹配(用 `HuituResponses.MSG_*` 已验证字符串),**不要**改成"只看 CODE"。
 
-3. **uid ≠ 学号**(`baseInfo.DATA`):`uid="304174"`(平台用户 id,`bookSeats` 签名用它),`user_info.cardno/name="23320116"`(学号)。`resolve_uid` 取 `DATA.uid` **正确**(`responses.base_info_uid`)。原"学号误当 uid"事故的根因现已钉死在契约里。
+3. **uid ≠ 学号**(`baseInfo.DATA`):`uid="304174"`(平台用户 id,`bookSeats` 签名用它),`user_info.cardno/name="23320116"`(学号)。`resolveUid` 取 `DATA.uid` **正确**(`HuituResponses.baseInfoUid`)。原"学号误当 uid"事故的根因现已钉死在契约里。
 
-4. **限流响应**:`CODE=1`(整数!)`MESSAGE="请求太频繁了,请稍后再试"`。`booking_failed` 把它当失败 → `default_retry_decider` 落到 SKIP。可考虑改为退避重试(非必须)。
+4. **限流响应**:`CODE=1`(整数!)`MESSAGE="请求太频繁了,请稍后再试"`。`bookingFailed` 把它当失败 → `defaultRetryDecider` 落到 SKIP。可考虑改为退避重试(非必须)。
 
-5. **seat 对象**:`{id=seat_id, title=座位号, state, x/y/w/h, have_socket, gender, locker}`。`LibraryRooms.find_seat` 用 `title`（`responses.seat_title`）匹配 `seat_num`，返回后用 `id`（`responses.seat_id`）作 `seats[0]`——**正确**。`state` 含义（0/'1'/'3' 哪个=可用）**未完全确定**，只知 '3' 在某查询时刻对应已被占。
+5. **seat 对象**:`{id=seat_id, title=座位号, state, x/y/w/h, have_socket, gender, locker}`。房间解析用 `title`(`HuituResponses.seatTitle`)匹配 `seat_num`,返回后用 `id`(`HuituResponses.seatId`)作 `seats[0]`——**正确**。`state` 含义(0/'1'/'3' 哪个=可用)**未完全确定**,只知 '3' 在某查询时刻对应已被占。
 
 6. **bookSeats success 形状未实抓**:探测的每个时段都撞 duplicate(时段冲突)或 seat_unavailable(被占),**未产生任何真实预约**(无需取消)。`CODE="ok"` 由 baseInfo 信封一致性推断;如需实抓,在 web UI 约一个确实空的座,看 network 响应即可。
 
 ## 文件
 
-- `schemas.md` — 各端点 TypedDict(类型参考,doc-only;不持有 `MSG_*`,运行期常量在 `src/hdu_sniper/library/responses.py`)。
+- `schemas.md` — 各端点 Kotlin data class 形状(类型参考,doc-only;不持有 `MSG_*`,运行期常量在 `core/library`)。
 - `samples/<endpoint>.json` — 脱敏样例(入库,供测试):`room_types`/`room_detail`/`seat_map`/`baseInfo`/`book_seats`/`myBookingList`。
-- `../../src/hdu_sniper/library/responses.py` — 运行期单一契约入口:魔法路径访问器 + `MSG_*`(纯叶模块,被 `client`/`rooms`/`retry` 导入)。
-- `../../tests/test_contracts.py` — 结构断言:对每条 `responses.*` 访问器在样例上校验,服务器改结构即非零退出。
-- `../../fixtures/captures/` — 原始抓包(本地,gitignore,含真实 uid)。
+- `core/library/src/commonMain/kotlin/.../HuituResponses.kt` — 运行期单一契约入口:魔法路径访问器 + `MSG_*`(纯叶模块,被 `HuituClient`/房间解析/重试决策导入)。
+- `core/library/src/commonTest/kotlin/.../HuituContractTest.kt` — 结构断言:对每条访问器在 `docs/contracts/samples/*.json` 上校验,服务器改结构即非零退出。
+- `testdata/raw-captures/` — 原始抓包(本地,gitignore,含真实 uid;由旧 `fixtures/captures/` 迁移)。
 ## 预约记录写操作
 
-以下接口都使用当前慧图 Session Cookie，`bookingId` 是
-`myBookingList.content.defaultItems[].id`，必须为数字。它不是座位 ID，也不是座位号。
+以下接口都使用当前慧图 Session Cookie,`bookingId` 是
+`myBookingList.content.defaultItems[].id`,必须为数字。它不是座位 ID,也不是座位号。
 这些端点不发送 `bookSeats` 使用的一次性 `Api-Token`。
 
 | 功能 | 方法与路径 | 请求体 | 允许的预约状态 | 成功后的状态 |
@@ -93,10 +94,10 @@ Session 默认带 `LAB_JSON=1`(`src/hdu_sniper/library/client.py:DEFAULT_SESSION
 | 签到 | `POST /Seat/Index/checkIn?bookingId=<id>` | 无 | `0` | `1` |
 | 暂离返回 | `POST /Seat/Index/comeBack?bookingId=<id>` | 无 | `2` | `1` |
 
-写操作的已验证成功信封见 `samples/seat_action_success.json`：`CODE == "ok"`
-且 `DATA.result == "success"`。失败原因优先取 `MESSAGE`，其次取
-`DATA.msg`/`DATA.message`。由于 HTTP 200 不等于业务成功，调用方必须同时检查信封，
+写操作的已验证成功信封见 `samples/seat_action_success.json`:`CODE == "ok"`
+且 `DATA.result == "success"`。失败原因优先取 `MESSAGE`,其次取
+`DATA.msg`/`DATA.message`。由于 HTTP 200 不等于业务成功,调用方必须同时检查信封,
 再查询预约列表复核最终状态。
 
-取消操作直接以 `cancelBooking` 的业务信封和操作后预约状态为准，不调用仅返回
+取消操作直接以 `cancelBooking` 的业务信封和操作后预约状态为准,不调用仅返回
 `DATA.tips`、不能提供取消次数或允许状态的 `cancelTimesLimit` 页面提示接口。
