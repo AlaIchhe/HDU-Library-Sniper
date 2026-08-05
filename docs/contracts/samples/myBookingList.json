@@ -1,6 +1,6 @@
 {
   "_endpoint": "GET /Seat/Index/myBookingList?fromType=web&LAB_JSON=1",
-  "_note": "真正的预约列表端点。todayUserBookSeat 返回字符串 'todayUserBookSeatAction'(不是列表)——client.py:295 get_todays_bookings 误用 todayUserBookSeat,导致 find_confirmed_booking 永远拿不到数据。",
+  "_note": "真正的预约列表端点。todayUserBookSeat 返回字符串 'todayUserBookSeatAction'(不是列表)——旧版 getTodaysBookings 曾误用 todayUserBookSeat,导致 findConfirmedBooking 永远拿不到数据。",
   "ui_type": "ht.Seat.OrderListPage",
   "content": {
     "ui_type": "com.List",
@@ -34,7 +34,7 @@
     "id": "预约记录 id(整数)",
     "roomName": "楼层/房间名"
   },
-  "_fix_for_find_confirmed_booking": [
+    "_fix_for_findConfirmedBooking": [
     "端点改 /Seat/Index/myBookingList?fromType=web&LAB_JSON=1(非 todayUserBookSeat)",
     "匹配字段改 seatNum + time(非 seat_id + beginTime)。注意:seatNum 是座位号,需先把 bookSeats 用的 seat_id 映射成座位号(查 seat_map POIs 找 title),或改用 time 单字段匹配(±1s)。"
   ]

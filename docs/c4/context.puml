@@ -1,0 +1,26 @@
+@startuml
+set separator none
+title HDU Library Sniper - System Context
+
+left to right direction
+
+!include <C4/C4>
+!include <C4/C4_Context>
+
+Person(学生, "学生", $descr="使用桌面端、Web 端或移动端配置预约方案、管理预约和自动签到", $tags="", $link="")
+System(HDULibrarySniper, "HDU Library Sniper", $descr="固定后天 20:00 自动抢座，并支持签到、暂离、续座、签退、取消和系统调度", $tags="", $link="")
+System(慧图图书馆平台, "慧图图书馆平台", $descr="提供登录、房间、座位、预约、签到、取消、状态查询等 HTTP API", $tags="", $link="")
+System(杭电SSO, "杭电 SSO", $descr="统一身份认证，返回 CAS ticket 与会话 Cookie", $tags="", $link="")
+System(微信Webhook, "微信 Webhook", $descr="接收抢座和签到结果通知", $tags="", $link="")
+System(GitHubReleases, "GitHub Releases", $descr="发布新版本与安装包", $tags="", $link="")
+System(OSTaskScheduler, "OS Task Scheduler", $descr="Windows Task Scheduler / cron / launchd / AlarmManager / BGTask", $tags="", $link="")
+
+Rel(学生, HDULibrarySniper, "使用", $techn="", $tags="", $link="")
+Rel(HDULibrarySniper, 慧图图书馆平台, "调用 HTTP API", $techn="", $tags="", $link="")
+Rel(HDULibrarySniper, 杭电SSO, "执行统一身份认证", $techn="", $tags="", $link="")
+Rel(HDULibrarySniper, 微信Webhook, "发送通知", $techn="", $tags="", $link="")
+Rel(HDULibrarySniper, GitHubReleases, "检查更新并下载", $techn="", $tags="", $link="")
+Rel(HDULibrarySniper, OSTaskScheduler, "注册/查询/触发系统任务", $techn="", $tags="", $link="")
+
+SHOW_LEGEND(true)
+@enduml

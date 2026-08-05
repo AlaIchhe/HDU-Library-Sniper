@@ -19,5 +19,5 @@
       null
     ]
   },
-  "_note": "client.py:254 data['content']['children'][1]['defaultItems'] 正确。children=[Ridge, List, null],[1]=com.List。每项 name + link.url(含 category_id/content_id)。"
+  "_note": "HuituResponses.roomTypesFromResponse() 取 content.children[1].defaultItems 正确。children=[Ridge, List, null],[1]=com.List。每项 name + link.url(含 category_id/content_id)。"
 }

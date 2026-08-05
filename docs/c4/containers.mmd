@@ -1,35 +1,22 @@
-%%{init: {"theme": "default"}}%%
-C4Container
-    title 容器视图 - HDU Library Sniper
+graph LR
+  Student["学生"] -->|使用| Desktop["Desktop App"]
+  Student -->|使用| Android["Android App"]
+  Student -->|使用| IOS["iOS App"]
+  Student -->|使用| Web["Web Admin"]
 
-    Person(student, "学生")
+  Desktop -->|调用共享核心| Core["KMP Shared Core"]
+  CLI["CLI / Daemon"] -->|调用共享核心| Core
+  Android -->|调用共享核心| Core
+  IOS -->|调用共享核心| Core
+  Server["Server / Worker"] -->|调用共享核心| Core
+  Web -->|浏览管理界面| Server
 
-    Container(desktop, "Flet Desktop App", "Python + Flet", "Windows/macOS 桌面交互界面")
-    Container(web, "FastAPI + Flet Web", "Python + FastAPI + Flet", "Web 模式：API + Flet Web 界面")
-    Container(cli, "CLI / Background Runner", "Python", "无 UI 后台执行、系统任务和容器调用")
-    Container(core, "SniperApp Core", "Python", "认证守卫、应用状态机、领域服务编排和事件发布")
-    ContainerDb(storage, "Local Files", "YAML / JSON / log", "配置、凭证、会话缓存、方案、策略、审计日志")
-
-    System_Ext(huitu, "慧图图书馆平台")
-    System_Ext(sso, "杭电 SSO")
-    System_Ext(wechat, "微信 Webhook")
-    System_Ext(github, "GitHub Releases")
-    System_Ext(osScheduler, "OS Task Scheduler")
-
-    Rel(student, desktop, "使用")
-    Rel(student, web, "使用")
-    Rel(desktop, core, "调用应用门面")
-    Rel(web, core, "调用应用门面")
-    Rel(cli, core, "调用应用门面")
-    Rel(core, storage, "读写配置与状态")
-    Rel(core, huitu, "调用 HTTP API")
-    Rel(core, sso, "执行统一身份认证")
-    Rel(core, wechat, "发送通知")
-    Rel(core, github, "检查更新并下载")
-    Rel(core, osScheduler, "注册/查询/触发系统任务")
-
-    UpdateElementStyle(desktop, $bgColor="#438dd5", $fontColor="#ffffff")
-    UpdateElementStyle(web, $bgColor="#438dd5", $fontColor="#ffffff")
-    UpdateElementStyle(cli, $bgColor="#438dd5", $fontColor="#ffffff")
-    UpdateElementStyle(core, $bgColor="#85bbf0", $fontColor="#000000")
-    UpdateElementStyle(storage, $bgColor="#f4f4f4", $fontColor="#000000")
+  Core -->|读写| Stores["Local Storage<br/>Config / Plan / Credential / Session / Audit Log"]
+  Core -->|调用 HTTP API| Huitu["慧图图书馆平台"]
+  Core -->|CAS 登录| SSO["杭电 SSO"]
+  Core -->|发送通知| Wechat["微信 Webhook"]
+  Core -->|检查更新| GitHub["GitHub Releases"]
+  CLI -->|任务管理| OS["OS Task Scheduler"]
+  Server -->|任务管理| OS
+  Android -->|AlarmManager| OS
+  IOS -->|BGTask / 快捷指令| OS

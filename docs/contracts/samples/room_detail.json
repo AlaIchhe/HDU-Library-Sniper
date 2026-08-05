@@ -24,5 +24,5 @@
     "space_category": { "category_id": "591", "content_id": "3" },
     "skip_data": { "sign_in": { "title": "签到码", "type": "go_to_my_sign_in_code", "url": "/Seat/Index/mySignQRCode" } }
   },
-  "_note": "client.py:get_room_detail 取 response['data'](小写，LAB_JSON=1 页面树顶层键)，再取 data['space_category']['category_id'/'content_id'] 喂给 get_seat_map。见 responses.room_detail_from_response / responses.space_category_id。uid(平台id) ≠ user_info.cardno(学号)，后者不在此端点。"
+  "_note": "HuituResponses.roomDetailFromResponse() 取 response.data(小写，LAB_JSON=1 页面树顶层键)，再取 data.space_category.category_id/content_id 喂给 HuituClient.getSeatMap()。uid(平台id) ≠ user_info.cardno(学号)，后者不在此端点。"
 }

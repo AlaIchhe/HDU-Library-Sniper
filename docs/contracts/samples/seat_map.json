@@ -2,7 +2,7 @@
   "_endpoint": "POST /Seat/Index/searchSeats?LAB_JSON=1",
   "_payload": "beginTime=<ts>&duration=<sec>&num=<int>&space_category[category_id]=<>&space_category[content_id]=<>",
   "_top_level_keys": ["ui_type", "header", "content", "scrollable", "refreshable", "dialogs", "lazyRenderContent", "data", "nowTime", "showGender", "allContent", "isRecommend", "IsImgCode"],
-  "_note": "响应同时含 content(推荐视图,web UI 用)与 allContent(全楼层列表,client.py:get_seat_map 用)。get_seat_map 取 allContent.children[2].children.children — 正确。",
+  "_note": "响应同时含 content(推荐视图,web UI 用)与 allContent(全楼层列表,HuituClient.getSeatMap() 用)。HuituResponses.floorsFromResponse() 取 allContent.children[2].children.children — 正确。",
   "allContent": {
     "ui_type": "com.View",
     "children": [
@@ -40,8 +40,8 @@
     ]
   },
   "_verifies": [
-    "client.py:291 response['allContent']['children'][2]['children']['children']",
-    "rooms.py list_floors: f.seatMap.info.id + f.seatMap.POIs[].title",
-    "rooms.py find_seat: seat.get('title')==seat_num, return seat; book uses seat['id']"
+    "HuituResponses.floorsFromResponse(): allContent.children[2].children.children",
+    "FloorParser.listFloors: f.seatMap.info.id + f.seatMap.POIs[].title",
+    "FloorParser.findSeat: seat.title==seatNum, return seat; book uses seat.id"
   ]
 }

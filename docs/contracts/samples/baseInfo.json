@@ -23,5 +23,5 @@
     }
   },
   "_debug_info": ["没有指定LAB平台模板"],
-  "_note": "uid(平台用户 id,签名用) ≠ user_info.cardno/name(学号)。resolve_uid 取 DATA.uid,正确。带 LAB_JSON=1 时返回 UI 页面树,不是此信封。"
+  "_note": "uid(平台用户 id,签名用) ≠ user_info.cardno/name(学号)。HuituClient.resolveUid() 取 DATA.uid,正确。带 LAB_JSON=1 时返回 UI 页面树,不是此信封。"
 }
