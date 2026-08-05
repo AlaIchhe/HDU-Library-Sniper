@@ -1,7 +1,5 @@
 # HDU Library Sniper — KMP 目标架构
 
-> 状态：架构设计基线（v2）。本目录文档已切换到 **Kotlin Multiplatform（KMP）重构路线**，不再描述旧版 Python + Flet + FastAPI 实现。
-
 ## 技术路线（已决策）
 
 采用 **KMP 共享核心 + 原生调度壳**：
