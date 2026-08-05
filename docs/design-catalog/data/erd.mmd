@@ -1,0 +1,79 @@
+erDiagram
+    USER ||--o{ BOOKING_ORDER : owns
+    USER ||--o{ BOOKING_PLAN : configures
+    ROOM_TYPE ||--o{ FLOOR : contains
+    FLOOR ||--o{ SEAT : contains
+    BOOKING_PLAN ||--o{ FALLBACK_SEAT : has
+    BOOKING_ORDER ||--o| BOOKING_ACTION : undergoes
+
+    USER {
+        string student_id PK
+        string uid
+        string name
+        string password
+    }
+    CREDENTIALS {
+        string student_id PK
+        string password
+        string path
+    }
+    SESSION_CACHE {
+        string cookie_string
+        bool valid
+        string uid
+    }
+    ROOM_TYPE {
+        int code PK
+        string name
+        string query
+    }
+    FLOOR {
+        string floor_id PK
+        string room_name
+        int seat_count
+    }
+    SEAT {
+        string seat_id PK
+        string title
+        string state
+        string floor_id FK
+    }
+    BOOKING_PLAN {
+        string plan_id PK
+        int room_type FK
+        int floor_id FK
+        string seat_num
+        int start_hour
+        int duration_hours
+        string status
+        string room_query
+    }
+    FALLBACK_SEAT {
+        string plan_id FK
+        string seat_num
+    }
+    BOOKING_ORDER {
+        string booking_id PK
+        string seat_num
+        string status
+        string state
+        int begin_ts
+        int duration_seconds
+        string user_id FK
+    }
+    BOOKING_ACTION {
+        string action PK
+        string allowed_status
+        string expected_status
+    }
+    SCHEDULE_POLICY {
+        bool enabled
+        string weekdays
+        bool corrupt
+    }
+    SCHEDULED_TASK {
+        string name PK
+        string status
+        string next_run
+        string last_run
+    }

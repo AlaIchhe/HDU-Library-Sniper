@@ -1,0 +1,21 @@
+flowchart LR
+    classDef event fill:#ff9800,stroke:#e65100,color:#000
+    classDef command fill:#2196f3,stroke:#0d47a1,color:#fff
+    classDef system fill:#9c27b0,stroke:#4a148c,color:#fff
+    classDef decision fill:#eeeeee,stroke:#616161,color:#000
+
+    PlanCreated[预约方案已创建]:::event
+    PlanCreated --> CmdEnsure[确保每日任务存在]:::command
+    CmdEnsure --> OS[Windows Task Scheduler / cron]:::system
+    OS --> Status[任务状态查询]:::command
+    Status --> CmdRun[运行任务]:::command
+    CmdRun --> Daemon[后台执行 --daemon]:::command
+    Daemon --> Policy[星期策略评估]:::command
+    Policy -->|跳过| Exit0[退出 0]:::command
+    Policy -->|执行| RunOnce[BookingRunner.run_once]:::command
+    RunOnce --> ExitCode[退出码 0/1/2/3]:::command
+
+    AutoCheckIn[启用自动签到]:::event
+    AutoCheckIn --> CmdSync[同步签到任务]:::command
+    CmdSync --> LogonTask[登录触发任务]:::system
+    CmdSync --> WindowTask[窗口一次性任务]:::system

@@ -1,0 +1,22 @@
+sequenceDiagram
+    actor S as 系统任务
+    participant R as BookingRunner
+    participant L as LibraryRooms
+    participant H as 慧图平台
+
+    S->>R: 每天 20:00 后台执行
+    R->>R: 评估后天星期策略
+    R->>L: 解析房间 query 与 UID
+    L->>H: GET /Space/Category/list
+    H-->>L: 房间类型
+    L->>H: GET /Seat/Index/searchSeats?query
+    H-->>L: space_category
+    L->>H: POST /Seat/Index/searchSeats
+    H-->>L: 楼层与座位布局
+    R->>R: 目标时刻前 5 秒预温完成
+    R->>H: POST /Seat/Index/bookSeats + Api-Token
+    H-->>R: CODE / MESSAGE / DATA
+    R->>H: GET /Seat/Index/myBookingList?fromType=web
+    H-->>R: 预约列表
+    R->>R: 复核 seatNum/time/duration
+    R-->>S: 成功/失败/退出码

@@ -1,0 +1,49 @@
+%%{init: {"theme": "default"}}%%
+C4Component
+    title 核心组件视图 - HDU Library Sniper
+
+    Container_Boundary(core, "SniperApp Core") {
+        Component(facade, "SniperApp", "应用门面", "认证守卫、状态机、事件发布、预约操作门禁")
+        Component(plans, "BookingPlans", "方案仓储", "方案 CRUD、YAML 持久化、参数校验")
+        Component(runner, "BookingRunner", "抢座执行器", "预温、定时、重试、备用座位、复核、审计")
+        Component(rooms, "LibraryRooms", "场馆目录", "房间类型、楼层、座位定位")
+        Component(client, "LibraryClient", "HTTP 客户端", "慧图 API 调用、Cookie、响应结构翻译")
+        Component(login, "LibraryLogin", "登录服务", "CAS 表单、AES 加密、Cookie 校验")
+        Component(scheduler, "SchedulerService", "系统调度", "Windows/cron 任务配置与管理")
+        Component(notifier, "Notifier", "通知服务", "日志、微信 Webhook、系统通知")
+        Component(update, "UpdateService", "更新服务", "版本检查、下载、SHA-256 校验")
+    }
+
+    Container(storage, "Local Files", "YAML / JSON / log")
+    System_Ext(huitu, "慧图图书馆平台")
+    System_Ext(sso, "杭电 SSO")
+    System_Ext(wechat, "微信 Webhook")
+    System_Ext(github, "GitHub Releases")
+    System_Ext(osScheduler, "OS Task Scheduler")
+
+    Rel(facade, plans, "读取方案")
+    Rel(facade, runner, "执行抢座")
+    Rel(facade, scheduler, "管理调度")
+    Rel(facade, notifier, "发送通知")
+    Rel(facade, update, "检查更新")
+    Rel(runner, rooms, "查询楼层座位")
+    Rel(rooms, client, "调用平台")
+    Rel(runner, client, "提交预约")
+    Rel(login, client, "复用客户端会话")
+    Rel(plans, storage, "读写 plans.yaml")
+    Rel(facade, storage, "读写 settings.yaml")
+    Rel(client, huitu, "HTTP")
+    Rel(login, sso, "CAS 登录")
+    Rel(notifier, wechat, "webhook")
+    Rel(update, github, "Release API")
+    Rel(scheduler, osScheduler, "任务管理")
+
+    UpdateElementStyle(facade, $bgColor="#85bbf0", $fontColor="#000000")
+    UpdateElementStyle(plans, $bgColor="#85bbf0", $fontColor="#000000")
+    UpdateElementStyle(runner, $bgColor="#85bbf0", $fontColor="#000000")
+    UpdateElementStyle(rooms, $bgColor="#85bbf0", $fontColor="#000000")
+    UpdateElementStyle(client, $bgColor="#85bbf0", $fontColor="#000000")
+    UpdateElementStyle(login, $bgColor="#85bbf0", $fontColor="#000000")
+    UpdateElementStyle(scheduler, $bgColor="#85bbf0", $fontColor="#000000")
+    UpdateElementStyle(notifier, $bgColor="#85bbf0", $fontColor="#000000")
+    UpdateElementStyle(update, $bgColor="#85bbf0", $fontColor="#000000")
