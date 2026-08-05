@@ -1,0 +1,31 @@
+flowchart TD
+    classDef event fill:#ff9800,stroke:#e65100,color:#000
+    classDef command fill:#2196f3,stroke:#0d47a1,color:#fff
+    classDef decision fill:#eeeeee,stroke:#616161,color:#000
+    classDef aggregate fill:#4caf50,stroke:#1b5e20,color:#fff
+
+    Start([开始]):::command
+    Start --> CheckEnabled[读取启用方案]:::command
+    CheckEnabled --> CheckPolicy[评估后天日期策略]:::command
+    CheckPolicy -->|跳过| Skip([结束: SUCCESS]):::command
+    CheckPolicy -->|执行| Prewarm[预温 UID 与座位]:::command
+    Prewarm --> LoopPlan{还有方案?}:::decision
+    LoopPlan -->|否| AllFailed([结束: ALL_FAILED]):::command
+    LoopPlan -->|是| LoopSeat{还有候选座位?}:::decision
+    LoopSeat -->|否| LoopPlan
+    LoopSeat -->|是| Attempt{尝试次数 < max_trials?}:::decision
+    Attempt -->|否| LoopSeat
+    Attempt -->|是| Book[调用 bookSeats]:::command
+    Book --> Verify[列表复核]:::command
+    Verify -->|成功| Success([结束: SUCCESS]):::command
+    Verify -->|time_out_of_range| Wait[等待窗口]:::command
+    Wait -->|窗口超时| LoopSeat
+    Wait --> Attempt
+    Verify -->|duplicate/座位不可用| SkipSeat[跳过当前座位]:::command
+    SkipSeat --> LoopSeat
+    Verify -->|非法请求| Stop([结束并通知用户]):::command
+    Verify -->|其他失败| Backoff[指数退避]:::command
+    Backoff --> Attempt
+
+    Agg[BookingResult]:::aggregate
+    Verify -.更新.-> Agg

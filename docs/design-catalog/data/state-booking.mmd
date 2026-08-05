@@ -1,0 +1,17 @@
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> CheckInAvailable : 进入签到窗口
+    CheckInAvailable --> InUse : checkIn
+    Pending --> PendingConfirmation : 预约待确认
+    PendingConfirmation --> CheckInAvailable : 确认
+    Pending --> Cancelled : cancel
+    PendingConfirmation --> Cancelled : cancel
+    InUse --> Away : leave
+    Away --> InUse : comeBack / renew
+    InUse --> Finished : signOut
+    InUse --> SystemSignedOut : 系统签退
+    Away --> AwayExpired : 暂离未归
+    Finished --> [*]
+    Cancelled --> [*]
+    SystemSignedOut --> [*]
+    AwayExpired --> [*]

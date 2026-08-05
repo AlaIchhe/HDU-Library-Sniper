@@ -1,0 +1,39 @@
+%%{init: {"theme": "default"}}%%
+C4Deployment
+    title 部署视图 - HDU Library Sniper
+
+    Deployment_Node(desktopNode, "Windows / macOS Desktop", "桌面运行环境") {
+        ContainerInstance(desktopInstance, "Flet Desktop App", "桌面界面")
+        ContainerInstance(coreDesktop, "SniperApp Core", "应用核心")
+        ContainerInstance(storageDesktop, "Local Files", "用户目录")
+    }
+
+    Deployment_Node(serverNode, "Docker / Server", "服务端运行环境") {
+        Deployment_Node(containerNode, "Docker Container", "uvicorn + FastAPI") {
+            ContainerInstance(webInstance, "FastAPI + Flet Web", "Web 服务")
+            ContainerInstance(coreServer, "SniperApp Core", "应用核心")
+            ContainerInstance(storageServer, "Local Files", "HDU_SNIPER_HOME 数据目录")
+        }
+    }
+
+    Deployment_Node(osNode, "OS Scheduler", "Windows Task Scheduler / cron") {
+        ContainerInstance(cliInstance, "CLI / Background Runner", "无 UI 后台执行")
+    }
+
+    System_Ext(huitu, "慧图图书馆平台")
+    System_Ext(sso, "杭电 SSO")
+
+    Rel(coreDesktop, huitu, "HTTP API")
+    Rel(coreDesktop, sso, "CAS 登录")
+    Rel(coreServer, huitu, "HTTP API")
+    Rel(coreServer, sso, "CAS 登录")
+    Rel(cliInstance, huitu, "HTTP API")
+    Rel(cliInstance, sso, "CAS 登录")
+
+    UpdateElementStyle(desktopInstance, $bgColor="#438dd5", $fontColor="#ffffff")
+    UpdateElementStyle(coreDesktop, $bgColor="#85bbf0", $fontColor="#000000")
+    UpdateElementStyle(storageDesktop, $bgColor="#f4f4f4", $fontColor="#000000")
+    UpdateElementStyle(webInstance, $bgColor="#438dd5", $fontColor="#ffffff")
+    UpdateElementStyle(coreServer, $bgColor="#85bbf0", $fontColor="#000000")
+    UpdateElementStyle(storageServer, $bgColor="#f4f4f4", $fontColor="#000000")
+    UpdateElementStyle(cliInstance, $bgColor="#438dd5", $fontColor="#ffffff")
