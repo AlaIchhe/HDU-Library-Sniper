@@ -114,9 +114,7 @@ class TestSchedulerService(unittest.TestCase):
     def test_checkin_tasks_ready_reflects_logon_task(self):
         from hdu_sniper.scheduler import CHECKIN_LOGON_TASK, ScheduledTask
 
-        self.service.list_tasks = Mock(
-            return_value=[ScheduledTask(name=CHECKIN_LOGON_TASK)]
-        )
+        self.service.list_tasks = Mock(return_value=[ScheduledTask(name=CHECKIN_LOGON_TASK)])
         self.assertTrue(self.service.checkin_tasks_ready())
 
         self.service.list_tasks = Mock(
@@ -286,26 +284,24 @@ class TestSchedulerService(unittest.TestCase):
 
         self.assertFalse(self.service._task_name_occupied_inaccessible("HDU-Library-Sniper-Daily"))
 
-    @patch("subprocess.run")
-    def test_delete_windows_task_elevated_success(self, mock_run):
+    @patch("hdu_sniper.scheduler.SchedulerService._run_elevated_hidden")
+    def test_delete_windows_task_elevated_success(self, mock_elevated):
         self.service.system = "Windows"
-        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+        mock_elevated.return_value = (0, "")
 
         success, _ = self.service._delete_windows_task_elevated("HDU-Library-Sniper-Daily")
 
         self.assertTrue(success)
-        command = mock_run.call_args.args[0]
-        self.assertIn("Start-Process", command[-1])
-        self.assertIn("-Verb RunAs", command[-1])
-        marker = "'-EncodedCommand','"
-        encoded = command[-1].split(marker, 1)[1].split("'", 1)[0]
+        command = mock_elevated.call_args.args[0]
+        marker = "-EncodedCommand"
+        encoded = command[command.index(marker) + 1]
         inner = base64.b64decode(encoded).decode("utf-16-le")
         self.assertIn("schtasks.exe /Delete /TN 'HDU-Library-Sniper-Daily' /F", inner)
 
-    @patch("subprocess.run")
-    def test_delete_windows_task_elevated_cancel(self, mock_run):
+    @patch("hdu_sniper.scheduler.SchedulerService._run_elevated_hidden")
+    def test_delete_windows_task_elevated_cancel(self, mock_elevated):
         self.service.system = "Windows"
-        mock_run.return_value = Mock(returncode=1223, stdout="", stderr="")
+        mock_elevated.return_value = (1223, "已取消管理员授权")
 
         success, message = self.service._delete_windows_task_elevated("HDU-Library-Sniper-Daily")
 
@@ -323,6 +319,27 @@ class TestSchedulerService(unittest.TestCase):
         service._configure_windows_task("20:00:00", wake_to_run=True)
 
         self.assertEqual(mock_run.call_args.kwargs["encoding"], _windows_output_encoding())
+
+    @patch("subprocess.run")
+    def test_windows_configuration_passes_date_plan_days(self, mock_run):
+        from hdu_sniper.scheduler import SchedulerService
+
+        service = SchedulerService(self.paths, Path(__file__).resolve().parents[1])
+        service.system = "Windows"
+        service._task_name_occupied_inaccessible = Mock(return_value=False)
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        success, _message = service._configure_windows_task(
+            "20:00:00",
+            wake_to_run=True,
+            weekdays=frozenset({1, 3, 5}),
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(
+            mock_run.call_args.kwargs["env"]["SNIPER_DAYS_OF_WEEK"],
+            "Monday,Wednesday,Friday",
+        )
 
     def test_windows_output_encoding_is_registered_codec(self):
         import codecs
@@ -356,16 +373,16 @@ class TestSchedulerService(unittest.TestCase):
 
     def test_auto_schedule_script_falls_back_to_unelevated_current_user_task(self):
         script = (
-            Path(__file__).resolve().parents[1]
-            / "scripts"
-            / "Register-AutoSchedule.ps1"
-        ).read_text(
-            encoding="utf-8"
-        )
+            Path(__file__).resolve().parents[1] / "scripts" / "Register-AutoSchedule.ps1"
+        ).read_text(encoding="utf-8")
 
         # 时间先独立校验，避免把任务计划程序的真实错误误报为时间格式无效。
         self.assertIn("[datetime]::TryParse", script)
         self.assertIn("New-ScheduledTaskTrigger -Daily -At $ParsedDailyAt", script)
+        self.assertIn(
+            "New-ScheduledTaskTrigger -Weekly -DaysOfWeek $DaysOfWeek -At $ParsedDailyAt",
+            script,
+        )
         # 注册失败统一由应用侧用短启动脚本回退，脚本内不再拼长 /TR 命令行。
         self.assertNotIn('"/RU", $CurrentUserId', script)
         self.assertNotIn("& schtasks.exe", script)
@@ -441,22 +458,47 @@ class TestSchedulerService(unittest.TestCase):
         )
         self.service._register_windows_checkin_task = Mock(return_value=(True, "ok"))
         self.service._delete_windows_task = Mock(return_value=(True, "deleted"))
-        bookings = [
-            {"id": "10", "status": "0", "time": str(future), "limitSignAgo": 1800}
-        ]
+        bookings = [{"id": "10", "status": "0", "time": str(future), "limitSignAgo": 1800}]
 
         ok, _message = self.service.sync_checkin_tasks(bookings, enabled=True)
 
         self.assertTrue(ok)
         registered = [
-            call.args[0]
-            for call in self.service._register_windows_checkin_task.call_args_list
+            call.args[0] for call in self.service._register_windows_checkin_task.call_args_list
         ]
         self.assertIn(CHECKIN_LOGON_TASK, registered)
         self.assertIn(f"{CHECKIN_WINDOW_PREFIX}10", registered)
-        self.service._delete_windows_task.assert_called_once_with(
-            f"{CHECKIN_WINDOW_PREFIX}stale"
+        self.service._delete_windows_task.assert_called_once_with(f"{CHECKIN_WINDOW_PREFIX}stale")
+
+    def test_sync_windows_checkin_tasks_uses_date_plan(self):
+        from hdu_sniper.booking.models import BookingPlan
+        from hdu_sniper.scheduler import CHECKIN_LOGON_TASK, CHECKIN_WINDOW_PREFIX
+
+        self.service.system = "Windows"
+        self.service._existing_checkin_task_names = Mock(return_value=[])
+        self.service._register_windows_checkin_task = Mock(return_value=(True, "ok"))
+        self.service._delete_windows_task = Mock(return_value=(True, "deleted"))
+        plans = [BookingPlan(1, 100, "A001", 8, 4, plan_id="p1")]
+
+        ok, _message = self.service.sync_checkin_tasks(
+            [],
+            enabled=True,
+            plans=plans,
+            weekdays=frozenset({1, 3, 5}),
         )
+
+        self.assertTrue(ok)
+        calls = self.service._register_windows_checkin_task.call_args_list
+        self.assertEqual(calls[0].args[0], CHECKIN_LOGON_TASK)
+        weekly_calls = [call for call in calls if call.kwargs["trigger"] == "Weekly"]
+        self.assertEqual(len(weekly_calls), 3)
+        self.assertTrue(
+            all(call.args[0].startswith(CHECKIN_WINDOW_PREFIX) for call in weekly_calls)
+        )
+        self.assertTrue(
+            all("weekday" in call.kwargs and "time_str" in call.kwargs for call in weekly_calls)
+        )
+        self.service._delete_windows_task.assert_not_called()
 
     def test_windows_checkin_logon_trigger_limits_to_current_user(self):
         from hdu_sniper.scheduler import CHECKIN_LOGON_TASK
@@ -477,6 +519,31 @@ class TestSchedulerService(unittest.TestCase):
         script = self.service._run_windows_powershell.call_args.args[0]
         self.assertIn("New-ScheduledTaskTrigger -AtLogOn -User 'DESKTOP-X\\zhuhe'", script)
 
+    def test_windows_checkin_weekly_trigger_uses_date_plan_day(self):
+        from hdu_sniper.scheduler import CHECKIN_WINDOW_PREFIX
+
+        self.service.system = "Windows"
+        self.service._write_checkin_runner = Mock(return_value=Path("C:/runner.ps1"))
+        self.service._current_windows_user = Mock(return_value="DESKTOP-X\\zhuhe")
+        result = Mock(returncode=0, stdout="", stderr="")
+        self.service._run_windows_powershell = Mock(return_value=result)
+
+        ok, _message = self.service._register_windows_checkin_task(
+            f"{CHECKIN_WINDOW_PREFIX}1-0731",
+            trigger="Weekly",
+            weekday=1,
+            time_str="07:31",
+            wait=True,
+        )
+
+        self.assertTrue(ok)
+        script = self.service._run_windows_powershell.call_args.args[0]
+        self.assertIn(
+            "New-ScheduledTaskTrigger -Weekly -DaysOfWeek 'Monday' "
+            "-At ([datetime]::Parse('07:31'))",
+            script,
+        )
+
     def test_require_managed_task_allows_checkin_tasks(self):
         from hdu_sniper.scheduler import CHECKIN_LOGON_TASK, CHECKIN_WINDOW_PREFIX
 
@@ -494,9 +561,7 @@ class TestSchedulerService(unittest.TestCase):
         )
 
         self.service.system = "Windows"
-        self.service._existing_checkin_task_names = Mock(
-            return_value=[f"{CHECKIN_WINDOW_PREFIX}9"]
-        )
+        self.service._existing_checkin_task_names = Mock(return_value=[f"{CHECKIN_WINDOW_PREFIX}9"])
         self.service._delete_windows_task = Mock(return_value=(True, "deleted"))
 
         ok, _message = self.service.remove_checkin_tasks()
@@ -533,6 +598,28 @@ class TestSchedulerService(unittest.TestCase):
         self.assertTrue(ok)
         removed_crontab = process.communicate.call_args.kwargs["input"]
         self.assertNotIn("# HDU-Library-Sniper-CheckIn", removed_crontab)
+
+    @patch("subprocess.Popen")
+    @patch("subprocess.run")
+    def test_posix_checkin_weekly_cron(self, mock_run, mock_popen):
+        from hdu_sniper.scheduler import CHECKIN_WINDOW_PREFIX
+
+        self.service.system = "Linux"
+        mock_run.return_value = Mock(returncode=1, stdout="")
+        process = Mock(returncode=0)
+        process.communicate.return_value = ("", "")
+        mock_popen.return_value = process
+
+        ok, _message = self.service._schedule_posix_checkin_weekly(
+            f"{CHECKIN_WINDOW_PREFIX}1-0731",
+            1,
+            "07:31",
+        )
+
+        self.assertTrue(ok)
+        crontab = process.communicate.call_args.kwargs["input"]
+        self.assertIn("31 07 * * 1", crontab)
+        self.assertIn("--checkin-wait", crontab)
 
 
 class TestSettingsPaths(unittest.TestCase):

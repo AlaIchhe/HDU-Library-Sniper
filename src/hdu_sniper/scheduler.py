@@ -14,11 +14,11 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from hdu_sniper.library import responses
 from hdu_sniper.paths import APP_HOME_ENV, AppPaths
+from hdu_sniper.schedule_policy import ALL_WEEKDAYS
 
 
 TASK_MARKER = "HDU-Library-Sniper"
@@ -28,7 +28,55 @@ CHECKIN_WINDOW_PREFIX = "HDU-Library-Sniper-CheckIn-"
 CHECKIN_MARKER = "HDU-Library-Sniper-CheckIn"
 CHECKIN_START_OFFSET_SECONDS = 60
 CHECKIN_DEFAULT_SIGN_AGO = 1800
+CHECKIN_WINDOW_OFFSET_SECONDS = CHECKIN_DEFAULT_SIGN_AGO - CHECKIN_START_OFFSET_SECONDS
+BOOKING_STATUS_PENDING = "0"
 WINDOWS_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+WEEKDAY_FULL_NAMES = {
+    1: "Monday",
+    2: "Tuesday",
+    3: "Wednesday",
+    4: "Thursday",
+    5: "Friday",
+    6: "Saturday",
+    7: "Sunday",
+}
+WEEKDAY_SHORT_NAMES = {
+    1: "MON",
+    2: "TUE",
+    3: "WED",
+    4: "THU",
+    5: "FRI",
+    6: "SAT",
+    7: "SUN",
+}
+SEE_MASK_NOCLOSEPROCESS = 0x00000040
+SEE_MASK_NOASYNC = 0x00000080
+SEE_MASK_UNICODE = 0x00004000
+SW_HIDE = 0
+WAIT_TIMEOUT = 0x00000102
+ERROR_CANCELLED = 1223
+
+
+class _ShellExecuteInfoW(ctypes.Structure):
+    """SHELLEXECUTEINFOW 的最小布局，用于隐藏窗口提权执行。"""
+
+    _fields_ = [
+        ("cbSize", ctypes.c_ulong),
+        ("fMask", ctypes.c_ulong),
+        ("hwnd", ctypes.c_void_p),
+        ("lpVerb", ctypes.c_wchar_p),
+        ("lpFile", ctypes.c_wchar_p),
+        ("lpParameters", ctypes.c_wchar_p),
+        ("lpDirectory", ctypes.c_wchar_p),
+        ("nShow", ctypes.c_int),
+        ("hInstApp", ctypes.c_void_p),
+        ("lpIDList", ctypes.c_void_p),
+        ("lpClass", ctypes.c_wchar_p),
+        ("hkeyClass", ctypes.c_void_p),
+        ("dwHotKey", ctypes.c_ulong),
+        ("hIcon", ctypes.c_void_p),
+        ("hProcess", ctypes.c_void_p),
+    ]
 
 
 def _windows_output_encoding() -> str:
@@ -107,13 +155,23 @@ class SchedulerService:
         return [str(executable), "-m", "hdu_sniper"]
 
     def configure_task(
-        self, wake_to_run: bool = True, *, allow_elevated_repair: bool = False
+        self,
+        wake_to_run: bool = True,
+        *,
+        weekdays: frozenset[int] | None = None,
+        allow_elevated_repair: bool = False,
     ) -> tuple[bool, str]:
-        """配置固定为每天 20:00 的系统任务。"""
+        """按日期方案配置系统任务；未指定时保持每天 20:00。"""
+        selected = weekdays or frozenset(ALL_WEEKDAYS)
         if self.system == "Windows":
-            return self._configure_windows_task(DAILY_RUN_TIME, wake_to_run, allow_elevated_repair)
-        if self.system == "Linux" or self.system == "Darwin":
-            return self._configure_linux_cron(DAILY_RUN_TIME)
+            return self._configure_windows_task(
+                DAILY_RUN_TIME,
+                wake_to_run,
+                weekdays=selected,
+                allow_elevated_repair=allow_elevated_repair,
+            )
+        if self.system in ("Linux", "Darwin"):
+            return self._configure_linux_cron(DAILY_RUN_TIME, weekdays=selected)
         return False, f"不支持的操作系统: {self.system}"
 
     def remove_task(self) -> tuple[bool, str]:
@@ -133,19 +191,21 @@ class SchedulerService:
         bookings: list[dict],
         *,
         enabled: bool = True,
+        plans: list | None = None,
+        weekdays: frozenset[int] | None = None,
     ) -> tuple[bool, str]:
-        """按当前预约同步自动签到系统任务。
+        """按日期方案或当前预约同步自动签到系统任务。
 
-        启用时创建“登录触发”兜底任务，并为每个仍待签到且窗口尚未开启的
-        预约创建一个窗口开启时执行的一次性任务；同时清理已过期的窗口任务。
+        启用时创建“登录触发”兜底任务；提供日期方案和启用方案时创建对应的
+        每周窗口任务，否则为每个仍待签到且窗口尚未开启的预约创建一次性任务。
         关闭时移除全部自动签到任务。
         """
         if not enabled:
             return self.remove_checkin_tasks()
         if self.system == "Windows":
-            return self._sync_windows_checkin_tasks(bookings)
+            return self._sync_windows_checkin_tasks(bookings, plans=plans, weekdays=weekdays)
         if self.system in ("Linux", "Darwin"):
-            return self._sync_posix_checkin_tasks(bookings)
+            return self._sync_posix_checkin_tasks(bookings, plans=plans, weekdays=weekdays)
         return False, f"不支持的操作系统: {self.system}"
 
     def remove_checkin_tasks(self) -> tuple[bool, str]:
@@ -268,9 +328,11 @@ class SchedulerService:
         self,
         execute_time: str,
         wake_to_run: bool,
+        weekdays: frozenset[int] | None = None,
         allow_elevated_repair: bool = False,
     ) -> tuple[bool, str]:
         """使用 Register-AutoSchedule.ps1 配置 Windows 任务。"""
+        selected = tuple(sorted(weekdays or frozenset(ALL_WEEKDAYS)))
         ps_script = self.resource_root / "scripts" / "Register-AutoSchedule.ps1"
         if not ps_script.exists():
             return False, f"未找到 Register-AutoSchedule.ps1: {ps_script}"
@@ -283,6 +345,7 @@ class SchedulerService:
         env["SNIPER_DAILY_AT"] = execute_time
         env["SNIPER_TASK_NAME"] = self.task_name
         env["SNIPER_WAKE_TO_RUN"] = "1" if wake_to_run else "0"
+        env["SNIPER_DAYS_OF_WEEK"] = ",".join(WEEKDAY_FULL_NAMES[day] for day in selected)
         env["SNIPER_FROZEN"] = "1" if getattr(sys, "frozen", False) else "0"
 
         def run_script() -> subprocess.CompletedProcess[str]:
@@ -302,7 +365,8 @@ class SchedulerService:
         try:
             result = run_script()
             if result.returncode == 0:
-                return True, f"定时任务配置成功！\n每天 {execute_time} 自动执行"
+                summary = "每天" if set(selected) == set(ALL_WEEKDAYS) else "按日期方案"
+                return True, f"定时任务配置成功！\n{summary} {execute_time} 自动执行"
 
             error = self._command_error(result)
             if not self._is_windows_task_access_denied(error):
@@ -323,16 +387,19 @@ class SchedulerService:
 
                 retry = run_script()
                 if retry.returncode == 0:
+                    summary = (
+                        "每天" if set(selected) == set(ALL_WEEKDAYS) else "按日期方案"
+                    )
                     return (
                         True,
-                        f"定时任务配置成功！\n每天 {execute_time} 自动执行\n"
+                        f"定时任务配置成功！\n{summary} {execute_time} 自动执行\n"
                         "已自动清理占用的同名旧任务并重新创建。",
                     )
                 retry_error = self._command_error(retry)
                 return False, f"已清理占用的旧任务，但重新创建失败:\n{retry_error}"
 
             # 通用权限拒绝（没有同名占坑任务）时保留 schtasks 当前用户兼容回退
-            return self._configure_windows_task_with_schtasks(execute_time)
+            return self._configure_windows_task_with_schtasks(execute_time, selected)
         except subprocess.TimeoutExpired:
             return False, "PowerShell 脚本执行超时"
         except Exception as e:
@@ -356,6 +423,44 @@ class SchedulerService:
             return False
         return self._is_windows_task_access_denied(self._command_error(result))
 
+    def _run_elevated_hidden(
+        self,
+        command: list[str],
+        *,
+        timeout_ms: int = 120_000,
+    ) -> tuple[int, str]:
+        """通过 ShellExecuteEx 提权启动隐藏 PowerShell，返回退出码与错误详情。"""
+        system_root = os.environ.get("SYSTEMROOT", "")
+        powershell = (
+            Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        )
+        info = _ShellExecuteInfoW()
+        info.cbSize = ctypes.sizeof(info)
+        info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC | SEE_MASK_UNICODE
+        info.lpVerb = "runas"
+        info.lpFile = str(powershell)
+        info.lpParameters = subprocess.list2cmdline(command)
+        info.lpDirectory = str(self.install_root)
+        info.nShow = SW_HIDE
+
+        started = ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(info))
+        if not started:
+            error = ctypes.windll.kernel32.GetLastError()
+            if error == ERROR_CANCELLED:
+                return ERROR_CANCELLED, "已取消管理员授权"
+            return 1, f"提权启动失败 (错误 {error})"
+
+        wait_result = ctypes.windll.kernel32.WaitForSingleObject(info.hProcess, timeout_ms)
+        if wait_result == WAIT_TIMEOUT:
+            ctypes.windll.kernel32.TerminateProcess(info.hProcess, 1)
+            ctypes.windll.kernel32.CloseHandle(info.hProcess)
+            return 1, "等待管理员授权超时"
+
+        exit_code = ctypes.c_ulong(1)
+        ctypes.windll.kernel32.GetExitCodeProcess(info.hProcess, ctypes.byref(exit_code))
+        ctypes.windll.kernel32.CloseHandle(info.hProcess)
+        return int(exit_code.value), ""
+
     def _delete_windows_task_elevated(self, task_name: str) -> tuple[bool, str]:
         """通过 UAC 提权删除当前用户无法访问的同名旧任务。"""
         out_fd, out_path = tempfile.mkstemp(prefix="hdu-sniper-del-", suffix=".log")
@@ -366,25 +471,17 @@ class SchedulerService:
                 f"*> {self._powershell_quote(out_path)}; exit $LASTEXITCODE"
             )
             encoded = base64.b64encode(inner.encode("utf-16-le")).decode("ascii")
-            outer = (
-                "$ErrorActionPreference = 'Stop'; "
-                "try { "
-                "$p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru "
-                "-WindowStyle Hidden -ArgumentList @('-NoProfile','-NonInteractive',"
-                "'-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-EncodedCommand','"
-                + encoded
-                + "'); exit $p.ExitCode "
-                "} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1223 }"
-            )
-            result = subprocess.run(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", outer],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                encoding=_windows_output_encoding(),
-                errors="replace",
-                creationflags=WINDOWS_NO_WINDOW,
-            )
+            command = [
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-EncodedCommand",
+                encoded,
+            ]
+            exit_code, launch_error = self._run_elevated_hidden(command)
             details = ""
             try:
                 details = (
@@ -394,16 +491,14 @@ class SchedulerService:
                 )
             except OSError:
                 pass
-            if result.returncode == 0 or self._task_is_missing(details):
+            if exit_code == 0 or self._task_is_missing(details):
                 return True, "已通过管理员授权删除占用的旧任务"
-            if result.returncode == 1223:
+            if exit_code == 1223:
                 return (
                     False,
                     "已取消管理员授权，未删除占用的旧任务；请再次点击“检查并修复”并允许授权",
                 )
-            return False, f"提权删除旧任务失败:\n{details or self._command_error(result)}"
-        except subprocess.TimeoutExpired:
-            return False, "等待管理员授权超时，未删除占用的旧任务"
+            return False, f"提权删除旧任务失败:\n{details or launch_error}"
         except Exception as exc:
             return False, f"提权删除旧任务时出错: {exc}"
         finally:
@@ -412,7 +507,11 @@ class SchedulerService:
             except OSError:
                 pass
 
-    def _configure_windows_task_with_schtasks(self, execute_time: str) -> tuple[bool, str]:
+    def _configure_windows_task_with_schtasks(
+        self,
+        execute_time: str,
+        weekdays: tuple[int, ...],
+    ) -> tuple[bool, str]:
         """在 ScheduledTasks 模块被拒绝时，用 schtasks 创建当前用户交互任务。"""
         current_user = self._current_windows_user()
         if not current_user:
@@ -430,6 +529,16 @@ class SchedulerService:
             "-File",
             str(runner_path),
         ]
+        schedule_args = (
+            ["/SC", "DAILY"]
+            if set(weekdays) == set(ALL_WEEKDAYS)
+            else [
+                "/SC",
+                "WEEKLY",
+                "/D",
+                ",".join(WEEKDAY_SHORT_NAMES[day] for day in weekdays),
+            ]
+        )
 
         try:
             result = subprocess.run(
@@ -440,8 +549,7 @@ class SchedulerService:
                     self.task_name,
                     "/TR",
                     subprocess.list2cmdline(command),
-                    "/SC",
-                    "DAILY",
+                    *schedule_args,
                     "/ST",
                     execute_time[:5],
                     "/RU",
@@ -465,9 +573,10 @@ class SchedulerService:
             return False, f"调用 schtasks 创建任务时出错: {exc}"
 
         if result.returncode == 0:
+            summary = "每天" if set(weekdays) == set(ALL_WEEKDAYS) else "按日期方案"
             return (
                 True,
-                f"定时任务配置成功！\n每天 {execute_time} 自动执行\n"
+                f"定时任务配置成功！\n{summary} {execute_time} 自动执行\n"
                 f"当前环境使用 schtasks 当前用户兼容模式；已创建仅限 {current_user} "
                 "登录时运行的任务，睡眠唤醒不可用。",
             )
@@ -520,12 +629,12 @@ class SchedulerService:
             if not isinstance(item, dict):
                 continue
             try:
-                booking_id = responses.booking_id(item)
-                status = responses.booking_status(item)
-                begin_ts = responses.booking_begin_ts(item)
+                booking_id = str(item.get("id") or "")
+                status = str(item.get("status") or "")
+                begin_ts = int(item.get("time") or 0)
             except (TypeError, ValueError):
                 continue
-            if not booking_id or status != responses.BOOKING_STATUS_PENDING:
+            if not booking_id or status != BOOKING_STATUS_PENDING:
                 continue
             try:
                 sign_ago = int(item.get("limitSignAgo") or CHECKIN_DEFAULT_SIGN_AGO)
@@ -542,6 +651,40 @@ class SchedulerService:
             planned.append((f"{CHECKIN_WINDOW_PREFIX}{booking_id}", start_str))
         return planned
 
+    def _plan_checkin_weekday_tasks(
+        self,
+        plans: list,
+        weekdays: frozenset[int],
+    ) -> list[tuple[str, int, str]]:
+        """按日期方案生成每周窗口任务，返回 (任务名, 星期, 开始时间)。"""
+        planned: list[tuple[str, int, str]] = []
+        seen: set[tuple[int, str]] = set()
+        anchor = datetime(2026, 8, 3, 0, 0, 0, tzinfo=UTC)
+        for weekday in sorted(weekdays):
+            booking_date = anchor + timedelta(days=weekday - 1)
+            for plan in plans or []:
+                start_hour = int(getattr(plan, "start_hour", 0))
+                open_at = booking_date.replace(
+                    hour=start_hour,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                ) - timedelta(seconds=CHECKIN_WINDOW_OFFSET_SECONDS)
+                task_weekday = open_at.isoweekday()
+                time_str = open_at.strftime("%H:%M")
+                key = (task_weekday, time_str)
+                if key in seen:
+                    continue
+                seen.add(key)
+                planned.append(
+                    (
+                        f"{CHECKIN_WINDOW_PREFIX}{task_weekday}-{open_at.strftime('%H%M')}",
+                        task_weekday,
+                        time_str,
+                    )
+                )
+        return planned
+
     def _existing_checkin_task_names(self) -> list[str]:
         """返回已注册的登录触发任务与窗口任务名称（查询失败时按空处理）。"""
         try:
@@ -554,8 +697,19 @@ class SchedulerService:
             if task.name == CHECKIN_LOGON_TASK or task.name.startswith(CHECKIN_WINDOW_PREFIX)
         ]
 
-    def _sync_windows_checkin_tasks(self, bookings: list[dict]) -> tuple[bool, str]:
-        planned = self._plan_checkin_tasks(bookings)
+    def _sync_windows_checkin_tasks(
+        self,
+        bookings: list[dict],
+        *,
+        plans: list | None = None,
+        weekdays: frozenset[int] | None = None,
+    ) -> tuple[bool, str]:
+        if plans is not None and weekdays:
+            planned = self._plan_checkin_weekday_tasks(plans, weekdays)
+            weekly_mode = True
+        else:
+            planned = self._plan_checkin_tasks(bookings)
+            weekly_mode = False
         existing = self._existing_checkin_task_names()
         messages: list[str] = []
         ok = True
@@ -571,16 +725,26 @@ class SchedulerService:
         else:
             messages.append("登录触发签到任务已存在")
 
-        desired = {name for name, _start in planned}
-        for task_name, start_str in planned:
+        desired = {name for name, *_rest in planned}
+        for item in planned:
+            task_name = item[0]
             if task_name in existing:
                 continue
-            success, message = self._register_windows_checkin_task(
-                task_name,
-                trigger="Once",
-                start_str=start_str,
-                wait=True,
-            )
+            if weekly_mode:
+                success, message = self._register_windows_checkin_task(
+                    task_name,
+                    trigger="Weekly",
+                    weekday=item[1],
+                    time_str=item[2],
+                    wait=True,
+                )
+            else:
+                success, message = self._register_windows_checkin_task(
+                    task_name,
+                    trigger="Once",
+                    start_str=item[1],
+                    wait=True,
+                )
             ok = ok and success
             messages.append(message)
 
@@ -595,7 +759,10 @@ class SchedulerService:
             messages.append(message)
 
         if not planned:
-            messages.append("当前没有需要创建窗口任务的待签到预约")
+            if weekly_mode:
+                messages.append("日期方案中没有需要创建窗口任务的启用方案")
+            else:
+                messages.append("当前没有需要创建窗口任务的待签到预约")
         return ok, "\n".join(messages)
 
     def _register_windows_checkin_task(
@@ -604,6 +771,8 @@ class SchedulerService:
         *,
         trigger: str,
         start_str: str = "",
+        weekday: int | None = None,
+        time_str: str = "",
         wait: bool,
     ) -> tuple[bool, str]:
         """注册一个自动签到系统任务（登录触发或一次性窗口触发）。"""
@@ -629,6 +798,12 @@ class SchedulerService:
             trigger_expr = (
                 "New-ScheduledTaskTrigger -AtLogOn "
                 f"-User {self._powershell_quote(current_user)}"
+            )
+        elif trigger == "Weekly":
+            trigger_expr = (
+                "New-ScheduledTaskTrigger -Weekly "
+                f"-DaysOfWeek {self._powershell_quote(WEEKDAY_FULL_NAMES[weekday or 1])} "
+                f"-At ([datetime]::Parse({self._powershell_quote(time_str)}))"
             )
         else:
             trigger_expr = (
@@ -666,7 +841,12 @@ class SchedulerService:
             return False, f"注册签到任务失败: {exc}"
 
         if result.returncode == 0:
-            mode = "登录触发" if trigger == "Logon" else "窗口触发"
+            if trigger == "Logon":
+                mode = "登录触发"
+            elif trigger == "Weekly":
+                mode = "日期方案窗口"
+            else:
+                mode = "窗口触发"
             return True, f"已创建{mode}签到任务 {task_name}"
         error = self._command_error(result)
         if not self._is_windows_task_access_denied(error):
@@ -675,6 +855,8 @@ class SchedulerService:
             task_name,
             trigger,
             start_str,
+            weekday,
+            time_str,
             runner_path,
             current_user,
         )
@@ -684,6 +866,8 @@ class SchedulerService:
         task_name: str,
         trigger: str,
         start_str: str,
+        weekday: int | None,
+        time_str: str,
         runner_path: Path,
         current_user: str,
     ) -> tuple[bool, str]:
@@ -715,6 +899,15 @@ class SchedulerService:
         ]
         if trigger == "Logon":
             args += ["/SC", "ONLOGON"]
+        elif trigger == "Weekly":
+            args += [
+                "/SC",
+                "WEEKLY",
+                "/D",
+                WEEKDAY_SHORT_NAMES[weekday or 1],
+                "/ST",
+                time_str,
+            ]
         else:
             try:
                 parsed = datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S")
@@ -742,7 +935,12 @@ class SchedulerService:
         except Exception as exc:
             return False, f"调用 schtasks 创建签到任务时出错: {exc}"
         if result.returncode == 0:
-            mode = "登录触发" if trigger == "Logon" else "窗口触发"
+            if trigger == "Logon":
+                mode = "登录触发"
+            elif trigger == "Weekly":
+                mode = "日期方案窗口"
+            else:
+                mode = "窗口触发"
             return (
                 True,
                 f"已通过 schtasks 创建{mode}签到任务 {task_name}"
@@ -1061,7 +1259,11 @@ try {{
 
     # Linux/macOS 实现
 
-    def _configure_linux_cron(self, execute_time: str) -> tuple[bool, str]:
+    def _configure_linux_cron(
+        self,
+        execute_time: str,
+        weekdays: frozenset[int] | None = None,
+    ) -> tuple[bool, str]:
         """配置 Linux crontab。"""
         # 解析时间
         parts = execute_time.split(":")
@@ -1071,7 +1273,12 @@ try {{
         hour, minute, second = parts
 
         # cron 不支持秒级精度，忽略秒
-        cron_time = f"{minute} {hour} * * *"
+        selected = tuple(sorted(weekdays or frozenset(ALL_WEEKDAYS)))
+        if set(selected) == set(ALL_WEEKDAYS):
+            cron_days = "*"
+        else:
+            cron_days = ",".join("0" if day == 7 else str(day) for day in selected)
+        cron_time = f"{minute} {hour} * * {cron_days}"
 
         # 构造 cron 命令
         command = shlex.join([*self._launcher_command(), "--daemon"])
@@ -1114,9 +1321,11 @@ try {{
             stdout, stderr = process.communicate(input=new_crontab)
 
             if process.returncode == 0:
+                summary = "每天" if cron_days == "*" else "按日期方案"
                 return (
                     True,
-                    f"定时任务配置成功！\n每天 {hour}:{minute} 自动执行\n\n注意: cron 不支持秒级精度，已忽略秒数",
+                    f"定时任务配置成功！\n{summary} {hour}:{minute} 自动执行\n\n"
+                    "注意: cron 不支持秒级精度，已忽略秒数",
                 )
             return False, f"配置失败:\n{stderr}"
         except Exception as e:
@@ -1157,9 +1366,29 @@ try {{
         except Exception as e:
             return False, f"移除任务出错: {e}"
 
-    def _sync_posix_checkin_tasks(self, bookings: list[dict]) -> tuple[bool, str]:
+    def _sync_posix_checkin_tasks(
+        self,
+        bookings: list[dict],
+        *,
+        plans: list | None = None,
+        weekdays: frozenset[int] | None = None,
+    ) -> tuple[bool, str]:
         ok, message = self._configure_posix_checkin_cron()
         messages = [message]
+        if plans is not None and weekdays:
+            planned = self._plan_checkin_weekday_tasks(plans, weekdays)
+            for task_name, task_weekday, time_str in planned:
+                success, item_message = self._schedule_posix_checkin_weekly(
+                    task_name,
+                    task_weekday,
+                    time_str,
+                )
+                ok = ok and success
+                messages.append(item_message)
+            if not planned:
+                messages.append("日期方案中没有需要创建窗口任务的启用方案")
+            return ok, "\n".join(messages)
+
         planned = self._plan_checkin_tasks(bookings)
         for _task_name, start_str in planned:
             success, item_message = self._schedule_posix_checkin_once(start_str)
@@ -1258,6 +1487,48 @@ try {{
         if result.returncode == 0:
             return True, f"已通过 at 创建窗口签到任务 {time_expr}"
         return False, f"at 创建签到任务失败:\n{result.stderr or result.stdout}"
+
+    def _schedule_posix_checkin_weekly(
+        self,
+        task_name: str,
+        task_weekday: int,
+        time_str: str,
+    ) -> tuple[bool, str]:
+        """按日期方案写入 crontab 每周签到行。"""
+        command = shlex.join([*self._launcher_command(), "--checkin-wait"])
+        home = os.environ.get(APP_HOME_ENV, "").strip()
+        home_prefix = f"{APP_HOME_ENV}={shlex.quote(home)} " if home else ""
+        try:
+            hour, minute = time_str.split(":", 1)
+        except ValueError:
+            return False, f"无效的签到任务时间: {time_str}"
+        cron_day = "0" if task_weekday == 7 else str(task_weekday)
+        marker = f"{CHECKIN_MARKER}-Weekly-{task_name.rsplit('-', 1)[-1]}"
+        cron_command = (
+            f"{minute} {hour} * * {cron_day} {home_prefix}{command} "
+            f">> {shlex.quote(str(self.paths.task_log))} 2>&1 # {marker}"
+        )
+        try:
+            result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+            existing = result.stdout if result.returncode == 0 else ""
+        except Exception:
+            existing = ""
+        lines = [line for line in existing.split("\n") if marker not in line]
+        lines.append(cron_command)
+        try:
+            process = subprocess.Popen(
+                ["crontab", "-"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            stdout, stderr = process.communicate(input="\n".join(lines) + "\n")
+            if process.returncode == 0:
+                return True, f"已通过 cron 创建日期方案签到任务 {task_name}"
+            return False, f"cron 创建签到任务失败:\n{stderr or stdout}"
+        except Exception as exc:
+            return False, f"cron 创建签到任务失败: {exc}"
 
     def _get_linux_cron_status(self) -> TaskStatus:
         """获取 Linux cron 任务状态。"""

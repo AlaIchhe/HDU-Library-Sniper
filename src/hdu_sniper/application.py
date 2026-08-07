@@ -361,6 +361,7 @@ class SniperApp:
             already_existed = False
         success, message = self._configure_daily_scheduler()
         activation = DailySchedulerActivation(success, already_existed, message)
+        self._sync_auto_checkin_for_current_policy()
         return plan_view, errors, fell_back, activation
 
     @staticmethod
@@ -376,10 +377,14 @@ class SniperApp:
         )
 
     def delete_plans(self, plan_ids: list[str]) -> int:
-        return self._authenticated_call(self.plans.delete, plan_ids)
+        removed = self._authenticated_call(self.plans.delete, plan_ids)
+        self._sync_auto_checkin_for_current_policy()
+        return removed
 
     def modify_plan_times(self, plan_ids: list[str], **values) -> int:
-        return self._authenticated_call(self.plans.update_times, plan_ids, **values)
+        modified = self._authenticated_call(self.plans.update_times, plan_ids, **values)
+        self._sync_auto_checkin_for_current_policy()
+        return modified
 
     def run_booking(self, execute_at=None) -> list[BookingResult]:
         self._require_authenticated()
@@ -650,7 +655,21 @@ class SniperApp:
 
         try:
             bookings = self._authenticated_call(self.client.get_bookings)
-            success, message = self.scheduler.sync_checkin_tasks(bookings, enabled=True)
+            plans = self.plans.list_enabled()
+            policy = SchedulePolicy.load(self.settings.paths.schedule_policy_file)
+            weekdays = policy.weekdays if policy.enabled and not policy.corrupt else None
+            if plans:
+                success, message = self.scheduler.sync_checkin_tasks(
+                    bookings,
+                    enabled=True,
+                    plans=plans,
+                    weekdays=weekdays,
+                )
+            else:
+                success, message = self.scheduler.sync_checkin_tasks(
+                    bookings,
+                    enabled=True,
+                )
         except AuthenticationExpiredError:
             self._expire_authentication()
             return self._fail_checkin_enable("登录态已失效，未能同步自动签到系统任务")
@@ -663,7 +682,7 @@ class SniperApp:
             return self._fail_checkin_enable(f"调度配置失败: {exc}")
         if not success:
             return self._fail_checkin_enable(message)
-        return True, "自动签到已启用，登录触发与窗口签到任务已同步"
+        return True, "自动签到已启用，登录触发与日期方案签到任务已同步"
 
     def _fail_checkin_enable(
         self,
@@ -751,6 +770,28 @@ class SniperApp:
             self.settings.auto_check_in_enabled
             and self.settings.auto_check_in_agreement_version == CHECK_IN_AGREEMENT_VERSION
         )
+
+    def _sync_auto_checkin_for_current_policy(self) -> None:
+        """启用自动签到时按当前日期方案重新同步窗口任务。"""
+        if not self._auto_check_in_consented():
+            return
+        try:
+            bookings = self.client.get_bookings()
+            plans = self.plans.list_enabled()
+            if not plans:
+                return
+            policy = SchedulePolicy.load(self.settings.paths.schedule_policy_file)
+            weekdays = policy.weekdays if policy.enabled and not policy.corrupt else None
+            success, message = self.scheduler.sync_checkin_tasks(
+                bookings,
+                enabled=True,
+                plans=plans,
+                weekdays=weekdays,
+            )
+            if not success:
+                self.notifier.send("自动签到调度同步失败", message, success=False)
+        except Exception:
+            pass
 
     def _checkin_window_deadline(self) -> float | None:
         """返回待签到预约中最晚的窗口关闭时间戳；没有待签到预约时返回 None。"""
@@ -915,7 +956,7 @@ class SniperApp:
         return self.scheduler.delete_task(task_name)
 
     def repair_daily_scheduler(self) -> tuple[bool, str]:
-        """检查前置条件并重新确保每日 20:00 系统任务。"""
+        """检查前置条件并重新确保按日期方案配置系统任务。"""
         self._require_authenticated()
         if not self.plans.list_enabled():
             return False, "请先创建并启用至少一个预约方案"
@@ -946,6 +987,9 @@ class SniperApp:
             weekdays=weekdays,
         )
         updated.save(self.settings.paths.schedule_policy_file)
+        if self.plans.list_enabled():
+            self._configure_daily_scheduler()
+        self._sync_auto_checkin_for_current_policy()
         return self._schedule_policy_view(updated)
 
     def _schedule_policy_view(self, policy: SchedulePolicy) -> SchedulePolicyView:
@@ -1044,10 +1088,15 @@ class SniperApp:
         self, *, allow_elevated_repair: bool = False
     ) -> tuple[bool, str]:
         try:
+            policy = SchedulePolicy.load(self.settings.paths.schedule_policy_file)
+            weekdays = policy.execution_weekdays() if not policy.corrupt else None
             if allow_elevated_repair:
-                success, message = self.scheduler.configure_task(allow_elevated_repair=True)
+                success, message = self.scheduler.configure_task(
+                    weekdays=weekdays,
+                    allow_elevated_repair=True,
+                )
             else:
-                success, message = self.scheduler.configure_task()
+                success, message = self.scheduler.configure_task(weekdays=weekdays)
         except Exception as exc:
             message = str(exc)
             self.notifier.send("自动调度配置失败", message, success=False)

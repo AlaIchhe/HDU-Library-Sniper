@@ -61,6 +61,12 @@ def test_next_booking_date_respects_two_day_offset() -> None:
     assert _policy(1).next_booking_date(date(2026, 8, 1)) == date(2026, 8, 3)
 
 
+def test_execution_weekdays_are_two_days_before_booking_days() -> None:
+    # 周一/周三/周五预约，需要在周六/周一/周三 20:00 执行。
+    assert _policy(1, 3, 5).execution_weekdays() == frozenset({6, 1, 3})
+    assert _policy(7).execution_weekdays() == frozenset({5})
+
+
 def test_next_booking_date_paused_returns_none() -> None:
     assert _policy(1, enabled=False).next_booking_date(date(2026, 8, 1)) is None
 

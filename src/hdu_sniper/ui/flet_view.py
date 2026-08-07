@@ -1292,9 +1292,9 @@ class SniperFletView:
             message += "，房间类型已回退为自习室"
         if scheduler and scheduler.success:
             scheduler_message = (
-                "每日 20:00 自动调度已经存在并已确认可用。"
+                "按日期方案 20:00 自动调度已经存在并已确认可用。"
                 if scheduler.already_existed
-                else "每日 20:00 自动调度已创建，系统将自动预约后天座位。"
+                else "按日期方案 20:00 自动调度已创建，系统将自动预约后天座位。"
             )
             self._show_plan_creation_dialog(
                 "方案和自动调度已就绪",
@@ -1786,7 +1786,7 @@ class SniperFletView:
         elif enabled:
             agreed_at = status.get("agreed_at") or "未知时间"
             self.checkin_agreed_text.value = (
-                f"已同意风险协议（{agreed_at}）；登录触发与窗口开启时自动签到。"
+                f"已同意风险协议（{agreed_at}）；登录触发与日期方案窗口开启时自动签到。"
             )
         else:
             self.checkin_agreed_text.value = "默认关闭；启用需阅读并同意风险协议。"
