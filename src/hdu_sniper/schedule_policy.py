@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from hdu_sniper.booking.time import BOOKING_DAY_OFFSET, CST
+from hdu_sniper.time_constants import BOOKING_DAY_OFFSET, CST
 
 
 SCHEMA_VERSION = 1
@@ -86,6 +86,10 @@ class SchedulePolicy:
             if candidate.isoweekday() in self.weekdays:
                 return candidate
         return None
+
+    def execution_weekdays(self) -> frozenset[int]:
+        """返回需要触发系统调度的星期（预约日前两天）。"""
+        return frozenset((day - BOOKING_DAY_OFFSET - 1) % 7 + 1 for day in self.weekdays)
 
     def to_mapping(self) -> dict[str, object]:
         """转换为可持久化的字典。"""

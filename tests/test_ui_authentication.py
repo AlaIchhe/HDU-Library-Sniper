@@ -137,7 +137,7 @@ def test_plan_creation_result_uses_confirmation_dialog() -> None:
 
     view._show_plan_creation_dialog(
         "方案和自动调度已就绪",
-        "每日 20:00 自动调度已创建",
+        "按日期方案 20:00 自动调度已创建",
     )
 
     dialog = page.show_dialog.call_args.args[0]

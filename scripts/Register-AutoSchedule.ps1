@@ -86,7 +86,16 @@ if (-not $TimeParsed) {
     Write-Error "Invalid scheduled time: '$DailyAt'."
     Exit 4
 }
-$Trigger = New-ScheduledTaskTrigger -Daily -At $ParsedDailyAt
+$DaysOfWeek = if ($env:SNIPER_DAYS_OF_WEEK) {
+    @($env:SNIPER_DAYS_OF_WEEK -split ',' | Where-Object { $_ })
+} else {
+    @('Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')
+}
+if ($DaysOfWeek.Count -ge 7) {
+    $Trigger = New-ScheduledTaskTrigger -Daily -At $ParsedDailyAt
+} else {
+    $Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $DaysOfWeek -At $ParsedDailyAt
+}
 
 if (-not (Test-Path -Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
@@ -123,7 +132,7 @@ if ($WakeToRun) {
     $SettingsParams.WakeToRun = $true
 }
 $TaskSettings = New-ScheduledTaskSettingsSet @SettingsParams
-$Description = "Run HDU-Library-Sniper daily at $DailyAt"
+$Description = "Run HDU-Library-Sniper at $DailyAt on $($DaysOfWeek -join ', ')"
 
 # Registration failures (e.g. access denied) propagate to the caller. The
 # application then retries with schtasks.exe using a short runner script;

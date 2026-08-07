@@ -28,7 +28,7 @@ from hdu_sniper.events import EventKind, JobState
 from hdu_sniper.library.client import AuthenticationExpiredError
 from hdu_sniper.library.rooms import FloorInfo
 from hdu_sniper.paths import AppPaths
-from hdu_sniper.schedule_policy import SchedulePolicyError
+from hdu_sniper.schedule_policy import ALL_WEEKDAYS, SchedulePolicyError
 from hdu_sniper.scheduler import ScheduledTask, TaskStatus
 
 
@@ -145,7 +145,9 @@ def test_creating_valid_plan_silently_ensures_daily_scheduler(tmp_path: Path) ->
         False,
         DailySchedulerActivation(success=True, already_existed=False, message="ok"),
     )
-    dependencies["scheduler"].configure_task.assert_called_once_with()
+    dependencies["scheduler"].configure_task.assert_called_once_with(
+        weekdays=frozenset({1, 2, 3, 4, 5, 6, 7})
+    )
 
 
 def test_creating_plan_reports_existing_scheduler(tmp_path: Path) -> None:
@@ -349,7 +351,9 @@ def test_cached_authentication_and_unsubscribe(tmp_path: Path) -> None:
     assert application.try_cached_authentication() is True
     assert application.authenticated is True
     assert events[-1].kind == EventKind.AUTH
-    dependencies["scheduler"].configure_task.assert_called_once_with()
+    dependencies["scheduler"].configure_task.assert_called_once_with(
+        weekdays=frozenset({1, 2, 3, 4, 5, 6, 7})
+    )
 
     unsubscribe()
     application._publish(EventKind.ERROR, "ignored")
@@ -463,7 +467,10 @@ def test_scheduler_health_is_read_only_and_repair_uses_fixed_configuration(
         next_run="tomorrow",
     )
     assert application.repair_daily_scheduler() == (True, "ok")
-    dependencies["scheduler"].configure_task.assert_called_once_with(allow_elevated_repair=True)
+    dependencies["scheduler"].configure_task.assert_called_once_with(
+        weekdays=frozenset({1, 2, 3, 4, 5, 6, 7}),
+        allow_elevated_repair=True,
+    )
 
 
 def test_application_delegates_managed_schedule_operations(tmp_path: Path) -> None:
@@ -506,6 +513,19 @@ def test_schedule_policy_round_trip_through_facade(tmp_path: Path) -> None:
     assert policy.summary_label == "周一、周三、周五"
     assert application.schedule_policy_preview([1, 3, 5]) == "周一、周三、周五"
     assert application.schedule_policy_preview([]) == "未选择"
+
+
+def test_saving_schedule_policy_recreates_daily_task_with_execution_days(
+    tmp_path: Path,
+) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    dependencies["plans"].list_enabled.return_value = [
+        BookingPlan(1, 100, "A001", 8, 4, plan_id="p1")
+    ]
+
+    application.save_schedule_policy(weekdays=[1, 3, 5])
+
+    dependencies["scheduler"].configure_task.assert_called_once_with(weekdays=frozenset({6, 1, 3}))
 
 
 def test_schedule_policy_pause_and_resume_through_facade(tmp_path: Path) -> None:
@@ -660,6 +680,49 @@ def test_enable_auto_check_in_persists_consent_and_syncs_tasks(tmp_path: Path) -
     dependencies["scheduler"].sync_checkin_tasks.assert_called_once_with(
         bookings,
         enabled=True,
+    )
+
+
+def test_enable_auto_check_in_uses_date_plan_when_plans_exist(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    application.save_schedule_policy(weekdays=[1, 3, 5])
+    plan = BookingPlan(1, 100, "A001", 8, 4, plan_id="p1")
+    dependencies["plans"].list_enabled.return_value = [plan]
+    bookings = [{"id": "1", "status": "0"}]
+    dependencies["client"].get_bookings.return_value = bookings
+    dependencies["scheduler"].sync_checkin_tasks.return_value = (True, "ok")
+
+    success, _message = application.enable_auto_check_in()
+
+    assert success is True
+    dependencies["scheduler"].sync_checkin_tasks.assert_called_once_with(
+        bookings,
+        enabled=True,
+        plans=[plan],
+        weekdays=frozenset({1, 3, 5}),
+    )
+
+
+def test_plan_changes_resync_auto_checkin_with_date_plan(tmp_path: Path) -> None:
+    application, dependencies = build_test_application(tmp_path)
+    application.settings = replace(
+        application.settings,
+        auto_check_in_enabled=True,
+        auto_check_in_agreement_version=CHECK_IN_AGREEMENT_VERSION,
+    )
+    plan = BookingPlan(1, 100, "A001", 8, 4, plan_id="p1")
+    dependencies["plans"].list_enabled.return_value = [plan]
+    dependencies["plans"].update_times.return_value = 1
+    dependencies["client"].get_bookings.return_value = []
+    dependencies["scheduler"].sync_checkin_tasks.return_value = (True, "ok")
+
+    assert application.modify_plan_times(["p1"], start_hour=9) == 1
+
+    dependencies["scheduler"].sync_checkin_tasks.assert_called_once_with(
+        [],
+        enabled=True,
+        plans=[plan],
+        weekdays=frozenset(ALL_WEEKDAYS),
     )
 
 

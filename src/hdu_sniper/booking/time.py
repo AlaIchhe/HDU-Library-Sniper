@@ -4,12 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any
-from zoneinfo import ZoneInfo
 
-
-CST = ZoneInfo("Asia/Shanghai")
-BOOKING_DAY_OFFSET = 2
-PLANNING_LOOKAHEAD_DAYS = (0, 1, 2)
+from hdu_sniper.time_constants import BOOKING_DAY_OFFSET, CST, PLANNING_LOOKAHEAD_DAYS
 
 
 def now_cst() -> datetime:
