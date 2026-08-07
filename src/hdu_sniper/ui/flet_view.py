@@ -1786,7 +1786,7 @@ class SniperFletView:
         elif enabled:
             agreed_at = status.get("agreed_at") or "未知时间"
             self.checkin_agreed_text.value = (
-                f"已同意风险协议（{agreed_at}）；登录触发与日期方案窗口开启时自动签到。"
+                f"已同意风险协议（{agreed_at}）；登录触发与每日窗口开启时自动签到。"
             )
         else:
             self.checkin_agreed_text.value = "默认关闭；启用需阅读并同意风险协议。"

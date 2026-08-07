@@ -28,7 +28,7 @@ from hdu_sniper.events import EventKind, JobState
 from hdu_sniper.library.client import AuthenticationExpiredError
 from hdu_sniper.library.rooms import FloorInfo
 from hdu_sniper.paths import AppPaths
-from hdu_sniper.schedule_policy import ALL_WEEKDAYS, SchedulePolicyError
+from hdu_sniper.schedule_policy import SchedulePolicyError
 from hdu_sniper.scheduler import ScheduledTask, TaskStatus
 
 
@@ -683,9 +683,8 @@ def test_enable_auto_check_in_persists_consent_and_syncs_tasks(tmp_path: Path) -
     )
 
 
-def test_enable_auto_check_in_uses_date_plan_when_plans_exist(tmp_path: Path) -> None:
+def test_enable_auto_check_in_creates_daily_tasks_when_plans_exist(tmp_path: Path) -> None:
     application, dependencies = build_test_application(tmp_path)
-    application.save_schedule_policy(weekdays=[1, 3, 5])
     plan = BookingPlan(1, 100, "A001", 8, 4, plan_id="p1")
     dependencies["plans"].list_enabled.return_value = [plan]
     bookings = [{"id": "1", "status": "0"}]
@@ -699,11 +698,10 @@ def test_enable_auto_check_in_uses_date_plan_when_plans_exist(tmp_path: Path) ->
         bookings,
         enabled=True,
         plans=[plan],
-        weekdays=frozenset({1, 3, 5}),
     )
 
 
-def test_plan_changes_resync_auto_checkin_with_date_plan(tmp_path: Path) -> None:
+def test_plan_changes_resync_auto_checkin_daily_tasks(tmp_path: Path) -> None:
     application, dependencies = build_test_application(tmp_path)
     application.settings = replace(
         application.settings,
@@ -722,7 +720,6 @@ def test_plan_changes_resync_auto_checkin_with_date_plan(tmp_path: Path) -> None
         [],
         enabled=True,
         plans=[plan],
-        weekdays=frozenset(ALL_WEEKDAYS),
     )
 
 

@@ -192,20 +192,19 @@ class SchedulerService:
         *,
         enabled: bool = True,
         plans: list | None = None,
-        weekdays: frozenset[int] | None = None,
     ) -> tuple[bool, str]:
-        """按日期方案或当前预约同步自动签到系统任务。
+        """按启用方案或当前预约同步自动签到系统任务。
 
-        启用时创建“登录触发”兜底任务；提供日期方案和启用方案时创建对应的
-        每周窗口任务，否则为每个仍待签到且窗口尚未开启的预约创建一次性任务。
+        启用时创建“登录触发”兜底任务；提供启用方案时为每个窗口时间创建
+        每天执行的签到任务，否则为每个仍待签到且窗口尚未开启的预约创建一次性任务。
         关闭时移除全部自动签到任务。
         """
         if not enabled:
             return self.remove_checkin_tasks()
         if self.system == "Windows":
-            return self._sync_windows_checkin_tasks(bookings, plans=plans, weekdays=weekdays)
+            return self._sync_windows_checkin_tasks(bookings, plans=plans)
         if self.system in ("Linux", "Darwin"):
-            return self._sync_posix_checkin_tasks(bookings, plans=plans, weekdays=weekdays)
+            return self._sync_posix_checkin_tasks(bookings, plans=plans)
         return False, f"不支持的操作系统: {self.system}"
 
     def remove_checkin_tasks(self) -> tuple[bool, str]:
@@ -651,38 +650,29 @@ class SchedulerService:
             planned.append((f"{CHECKIN_WINDOW_PREFIX}{booking_id}", start_str))
         return planned
 
-    def _plan_checkin_weekday_tasks(
-        self,
-        plans: list,
-        weekdays: frozenset[int],
-    ) -> list[tuple[str, int, str]]:
-        """按日期方案生成每周窗口任务，返回 (任务名, 星期, 开始时间)。"""
-        planned: list[tuple[str, int, str]] = []
-        seen: set[tuple[int, str]] = set()
+    def _plan_checkin_daily_tasks(self, plans: list) -> list[tuple[str, str]]:
+        """按启用方案生成每天窗口任务，返回 (任务名, 开始时间)。"""
+        planned: list[tuple[str, str]] = []
+        seen: set[str] = set()
         anchor = datetime(2026, 8, 3, 0, 0, 0, tzinfo=UTC)
-        for weekday in sorted(weekdays):
-            booking_date = anchor + timedelta(days=weekday - 1)
-            for plan in plans or []:
-                start_hour = int(getattr(plan, "start_hour", 0))
-                open_at = booking_date.replace(
-                    hour=start_hour,
-                    minute=0,
-                    second=0,
-                    microsecond=0,
-                ) - timedelta(seconds=CHECKIN_WINDOW_OFFSET_SECONDS)
-                task_weekday = open_at.isoweekday()
-                time_str = open_at.strftime("%H:%M")
-                key = (task_weekday, time_str)
-                if key in seen:
-                    continue
-                seen.add(key)
-                planned.append(
-                    (
-                        f"{CHECKIN_WINDOW_PREFIX}{task_weekday}-{open_at.strftime('%H%M')}",
-                        task_weekday,
-                        time_str,
-                    )
+        for plan in plans or []:
+            start_hour = int(getattr(plan, "start_hour", 0))
+            open_at = anchor.replace(
+                hour=start_hour,
+                minute=0,
+                second=0,
+                microsecond=0,
+            ) - timedelta(seconds=CHECKIN_WINDOW_OFFSET_SECONDS)
+            time_str = open_at.strftime("%H:%M")
+            if time_str in seen:
+                continue
+            seen.add(time_str)
+            planned.append(
+                (
+                    f"{CHECKIN_WINDOW_PREFIX}{open_at.strftime('%H%M')}",
+                    time_str,
                 )
+            )
         return planned
 
     def _existing_checkin_task_names(self) -> list[str]:
@@ -702,14 +692,13 @@ class SchedulerService:
         bookings: list[dict],
         *,
         plans: list | None = None,
-        weekdays: frozenset[int] | None = None,
     ) -> tuple[bool, str]:
-        if plans is not None and weekdays:
-            planned = self._plan_checkin_weekday_tasks(plans, weekdays)
-            weekly_mode = True
+        if plans is not None:
+            planned = self._plan_checkin_daily_tasks(plans)
+            daily_mode = True
         else:
             planned = self._plan_checkin_tasks(bookings)
-            weekly_mode = False
+            daily_mode = False
         existing = self._existing_checkin_task_names()
         messages: list[str] = []
         ok = True
@@ -730,12 +719,11 @@ class SchedulerService:
             task_name = item[0]
             if task_name in existing:
                 continue
-            if weekly_mode:
+            if daily_mode:
                 success, message = self._register_windows_checkin_task(
                     task_name,
-                    trigger="Weekly",
-                    weekday=item[1],
-                    time_str=item[2],
+                    trigger="Daily",
+                    time_str=item[1],
                     wait=True,
                 )
             else:
@@ -759,8 +747,8 @@ class SchedulerService:
             messages.append(message)
 
         if not planned:
-            if weekly_mode:
-                messages.append("日期方案中没有需要创建窗口任务的启用方案")
+            if daily_mode:
+                messages.append("当前启用方案中没有需要创建窗口任务的时段")
             else:
                 messages.append("当前没有需要创建窗口任务的待签到预约")
         return ok, "\n".join(messages)
@@ -771,11 +759,10 @@ class SchedulerService:
         *,
         trigger: str,
         start_str: str = "",
-        weekday: int | None = None,
         time_str: str = "",
         wait: bool,
     ) -> tuple[bool, str]:
-        """注册一个自动签到系统任务（登录触发或一次性窗口触发）。"""
+        """注册一个自动签到系统任务（登录触发、每日窗口或一次性窗口触发）。"""
         runner_path = self._write_checkin_runner(wait=wait)
         current_user = self._current_windows_user()
         if not current_user:
@@ -799,10 +786,9 @@ class SchedulerService:
                 "New-ScheduledTaskTrigger -AtLogOn "
                 f"-User {self._powershell_quote(current_user)}"
             )
-        elif trigger == "Weekly":
+        elif trigger == "Daily":
             trigger_expr = (
-                "New-ScheduledTaskTrigger -Weekly "
-                f"-DaysOfWeek {self._powershell_quote(WEEKDAY_FULL_NAMES[weekday or 1])} "
+                "New-ScheduledTaskTrigger -Daily "
                 f"-At ([datetime]::Parse({self._powershell_quote(time_str)}))"
             )
         else:
@@ -843,8 +829,8 @@ class SchedulerService:
         if result.returncode == 0:
             if trigger == "Logon":
                 mode = "登录触发"
-            elif trigger == "Weekly":
-                mode = "日期方案窗口"
+            elif trigger == "Daily":
+                mode = "每日窗口"
             else:
                 mode = "窗口触发"
             return True, f"已创建{mode}签到任务 {task_name}"
@@ -855,7 +841,6 @@ class SchedulerService:
             task_name,
             trigger,
             start_str,
-            weekday,
             time_str,
             runner_path,
             current_user,
@@ -866,7 +851,6 @@ class SchedulerService:
         task_name: str,
         trigger: str,
         start_str: str,
-        weekday: int | None,
         time_str: str,
         runner_path: Path,
         current_user: str,
@@ -899,12 +883,10 @@ class SchedulerService:
         ]
         if trigger == "Logon":
             args += ["/SC", "ONLOGON"]
-        elif trigger == "Weekly":
+        elif trigger == "Daily":
             args += [
                 "/SC",
-                "WEEKLY",
-                "/D",
-                WEEKDAY_SHORT_NAMES[weekday or 1],
+                "DAILY",
                 "/ST",
                 time_str,
             ]
@@ -937,8 +919,8 @@ class SchedulerService:
         if result.returncode == 0:
             if trigger == "Logon":
                 mode = "登录触发"
-            elif trigger == "Weekly":
-                mode = "日期方案窗口"
+            elif trigger == "Daily":
+                mode = "每日窗口"
             else:
                 mode = "窗口触发"
             return (
@@ -1371,22 +1353,20 @@ try {{
         bookings: list[dict],
         *,
         plans: list | None = None,
-        weekdays: frozenset[int] | None = None,
     ) -> tuple[bool, str]:
         ok, message = self._configure_posix_checkin_cron()
         messages = [message]
-        if plans is not None and weekdays:
-            planned = self._plan_checkin_weekday_tasks(plans, weekdays)
-            for task_name, task_weekday, time_str in planned:
-                success, item_message = self._schedule_posix_checkin_weekly(
+        if plans is not None:
+            planned = self._plan_checkin_daily_tasks(plans)
+            for task_name, time_str in planned:
+                success, item_message = self._schedule_posix_checkin_daily(
                     task_name,
-                    task_weekday,
                     time_str,
                 )
                 ok = ok and success
                 messages.append(item_message)
             if not planned:
-                messages.append("日期方案中没有需要创建窗口任务的启用方案")
+                messages.append("当前启用方案中没有需要创建窗口任务的时段")
             return ok, "\n".join(messages)
 
         planned = self._plan_checkin_tasks(bookings)
@@ -1488,13 +1468,12 @@ try {{
             return True, f"已通过 at 创建窗口签到任务 {time_expr}"
         return False, f"at 创建签到任务失败:\n{result.stderr or result.stdout}"
 
-    def _schedule_posix_checkin_weekly(
+    def _schedule_posix_checkin_daily(
         self,
         task_name: str,
-        task_weekday: int,
         time_str: str,
     ) -> tuple[bool, str]:
-        """按日期方案写入 crontab 每周签到行。"""
+        """写入 crontab 每天签到行。"""
         command = shlex.join([*self._launcher_command(), "--checkin-wait"])
         home = os.environ.get(APP_HOME_ENV, "").strip()
         home_prefix = f"{APP_HOME_ENV}={shlex.quote(home)} " if home else ""
@@ -1502,10 +1481,9 @@ try {{
             hour, minute = time_str.split(":", 1)
         except ValueError:
             return False, f"无效的签到任务时间: {time_str}"
-        cron_day = "0" if task_weekday == 7 else str(task_weekday)
-        marker = f"{CHECKIN_MARKER}-Weekly-{task_name.rsplit('-', 1)[-1]}"
+        marker = f"{CHECKIN_MARKER}-Daily-{task_name.rsplit('-', 1)[-1]}"
         cron_command = (
-            f"{minute} {hour} * * {cron_day} {home_prefix}{command} "
+            f"{minute} {hour} * * * {home_prefix}{command} "
             f">> {shlex.quote(str(self.paths.task_log))} 2>&1 # {marker}"
         )
         try:
@@ -1525,7 +1503,7 @@ try {{
             )
             stdout, stderr = process.communicate(input="\n".join(lines) + "\n")
             if process.returncode == 0:
-                return True, f"已通过 cron 创建日期方案签到任务 {task_name}"
+                return True, f"已通过 cron 创建每日签到任务 {task_name}"
             return False, f"cron 创建签到任务失败:\n{stderr or stdout}"
         except Exception as exc:
             return False, f"cron 创建签到任务失败: {exc}"
