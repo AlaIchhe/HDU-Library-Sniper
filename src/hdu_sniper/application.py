@@ -656,14 +656,11 @@ class SniperApp:
         try:
             bookings = self._authenticated_call(self.client.get_bookings)
             plans = self.plans.list_enabled()
-            policy = SchedulePolicy.load(self.settings.paths.schedule_policy_file)
-            weekdays = policy.weekdays if policy.enabled and not policy.corrupt else None
             if plans:
                 success, message = self.scheduler.sync_checkin_tasks(
                     bookings,
                     enabled=True,
                     plans=plans,
-                    weekdays=weekdays,
                 )
             else:
                 success, message = self.scheduler.sync_checkin_tasks(
@@ -682,7 +679,7 @@ class SniperApp:
             return self._fail_checkin_enable(f"调度配置失败: {exc}")
         if not success:
             return self._fail_checkin_enable(message)
-        return True, "自动签到已启用，登录触发与日期方案签到任务已同步"
+        return True, "自动签到已启用，登录触发与每日签到任务已同步"
 
     def _fail_checkin_enable(
         self,
@@ -772,7 +769,7 @@ class SniperApp:
         )
 
     def _sync_auto_checkin_for_current_policy(self) -> None:
-        """启用自动签到时按当前日期方案重新同步窗口任务。"""
+        """启用自动签到时按当前启用方案重新同步每日窗口任务。"""
         if not self._auto_check_in_consented():
             return
         try:
@@ -780,13 +777,10 @@ class SniperApp:
             plans = self.plans.list_enabled()
             if not plans:
                 return
-            policy = SchedulePolicy.load(self.settings.paths.schedule_policy_file)
-            weekdays = policy.weekdays if policy.enabled and not policy.corrupt else None
             success, message = self.scheduler.sync_checkin_tasks(
                 bookings,
                 enabled=True,
                 plans=plans,
-                weekdays=weekdays,
             )
             if not success:
                 self.notifier.send("自动签到调度同步失败", message, success=False)

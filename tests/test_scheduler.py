@@ -470,7 +470,7 @@ class TestSchedulerService(unittest.TestCase):
         self.assertIn(f"{CHECKIN_WINDOW_PREFIX}10", registered)
         self.service._delete_windows_task.assert_called_once_with(f"{CHECKIN_WINDOW_PREFIX}stale")
 
-    def test_sync_windows_checkin_tasks_uses_date_plan(self):
+    def test_sync_windows_checkin_tasks_creates_daily_tasks(self):
         from hdu_sniper.booking.models import BookingPlan
         from hdu_sniper.scheduler import CHECKIN_LOGON_TASK, CHECKIN_WINDOW_PREFIX
 
@@ -480,24 +480,18 @@ class TestSchedulerService(unittest.TestCase):
         self.service._delete_windows_task = Mock(return_value=(True, "deleted"))
         plans = [BookingPlan(1, 100, "A001", 8, 4, plan_id="p1")]
 
-        ok, _message = self.service.sync_checkin_tasks(
-            [],
-            enabled=True,
-            plans=plans,
-            weekdays=frozenset({1, 3, 5}),
-        )
+        ok, _message = self.service.sync_checkin_tasks([], enabled=True, plans=plans)
 
         self.assertTrue(ok)
         calls = self.service._register_windows_checkin_task.call_args_list
         self.assertEqual(calls[0].args[0], CHECKIN_LOGON_TASK)
-        weekly_calls = [call for call in calls if call.kwargs["trigger"] == "Weekly"]
-        self.assertEqual(len(weekly_calls), 3)
+        daily_calls = [call for call in calls if call.kwargs["trigger"] == "Daily"]
+        self.assertEqual(len(daily_calls), 1)
         self.assertTrue(
-            all(call.args[0].startswith(CHECKIN_WINDOW_PREFIX) for call in weekly_calls)
+            all(call.args[0].startswith(CHECKIN_WINDOW_PREFIX) for call in daily_calls)
         )
-        self.assertTrue(
-            all("weekday" in call.kwargs and "time_str" in call.kwargs for call in weekly_calls)
-        )
+        self.assertEqual(daily_calls[0].args[0], f"{CHECKIN_WINDOW_PREFIX}0731")
+        self.assertEqual(daily_calls[0].kwargs["time_str"], "07:31")
         self.service._delete_windows_task.assert_not_called()
 
     def test_windows_checkin_logon_trigger_limits_to_current_user(self):
@@ -519,7 +513,7 @@ class TestSchedulerService(unittest.TestCase):
         script = self.service._run_windows_powershell.call_args.args[0]
         self.assertIn("New-ScheduledTaskTrigger -AtLogOn -User 'DESKTOP-X\\zhuhe'", script)
 
-    def test_windows_checkin_weekly_trigger_uses_date_plan_day(self):
+    def test_windows_checkin_daily_trigger(self):
         from hdu_sniper.scheduler import CHECKIN_WINDOW_PREFIX
 
         self.service.system = "Windows"
@@ -529,9 +523,8 @@ class TestSchedulerService(unittest.TestCase):
         self.service._run_windows_powershell = Mock(return_value=result)
 
         ok, _message = self.service._register_windows_checkin_task(
-            f"{CHECKIN_WINDOW_PREFIX}1-0731",
-            trigger="Weekly",
-            weekday=1,
+            f"{CHECKIN_WINDOW_PREFIX}0731",
+            trigger="Daily",
             time_str="07:31",
             wait=True,
         )
@@ -539,7 +532,7 @@ class TestSchedulerService(unittest.TestCase):
         self.assertTrue(ok)
         script = self.service._run_windows_powershell.call_args.args[0]
         self.assertIn(
-            "New-ScheduledTaskTrigger -Weekly -DaysOfWeek 'Monday' "
+            "New-ScheduledTaskTrigger -Daily "
             "-At ([datetime]::Parse('07:31'))",
             script,
         )
@@ -601,7 +594,7 @@ class TestSchedulerService(unittest.TestCase):
 
     @patch("subprocess.Popen")
     @patch("subprocess.run")
-    def test_posix_checkin_weekly_cron(self, mock_run, mock_popen):
+    def test_posix_checkin_daily_cron(self, mock_run, mock_popen):
         from hdu_sniper.scheduler import CHECKIN_WINDOW_PREFIX
 
         self.service.system = "Linux"
@@ -610,15 +603,14 @@ class TestSchedulerService(unittest.TestCase):
         process.communicate.return_value = ("", "")
         mock_popen.return_value = process
 
-        ok, _message = self.service._schedule_posix_checkin_weekly(
-            f"{CHECKIN_WINDOW_PREFIX}1-0731",
-            1,
+        ok, _message = self.service._schedule_posix_checkin_daily(
+            f"{CHECKIN_WINDOW_PREFIX}0731",
             "07:31",
         )
 
         self.assertTrue(ok)
         crontab = process.communicate.call_args.kwargs["input"]
-        self.assertIn("31 07 * * 1", crontab)
+        self.assertIn("31 07 * * *", crontab)
         self.assertIn("--checkin-wait", crontab)
 
 
