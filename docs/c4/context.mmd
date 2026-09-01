@@ -1,7 +1,0 @@
-graph LR
-  Student["学生"] -->|使用| Sniper["HDU Library Sniper"]
-  Sniper -->|调用 HTTP API| Huitu["慧图图书馆平台"]
-  Sniper -->|执行统一身份认证| SSO["杭电 SSO"]
-  Sniper -->|发送通知| Wechat["微信 Webhook"]
-  Sniper -->|检查更新并下载| GitHub["GitHub Releases"]
-  Sniper -->|注册/查询/触发系统任务| OS["OS Task Scheduler"]
