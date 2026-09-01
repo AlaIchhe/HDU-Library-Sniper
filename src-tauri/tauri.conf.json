@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "HDU Library Sniper",
+  "version": "2.0.0",
+  "identifier": "io.github.alaichhe.hdu-library-sniper",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist/web"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "HDU Library Sniper",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 760,
+        "minHeight": 560,
+        "visible": true,
+        "center": true
+      }
+    ],
+    "security": { "csp": null },
+    "trayIcon": { "id": "main", "iconPath": "icons/icon.png", "showMenuOnLeftClick": false }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": false,
+    "resources": ["../dist/hdu-sniper-server.exe"],
+    "windows": { "nsis": { "installMode": "currentUser", "runAfterFinish": true } }
+  },
+  "plugins": {
+    "autostart": { "args": ["--background"] }
+  }
+}

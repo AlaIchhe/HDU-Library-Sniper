@@ -1,4 +1,0 @@
-interface:
-  display_name: "发布 Release"
-  short_description: "生成发布说明、更新版本号并自动发布 GitHub Release"
-  default_prompt: "Use $publish-release to publish a new GitHub Release: generate release notes, bump the version, and push the tag."

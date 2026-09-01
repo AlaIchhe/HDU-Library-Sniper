@@ -1,64 +1,10 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-*.egg-info/
-.eggs/
-build/
-dist/
-packaging/.cache/
-*.egg
-*.spec
-
-# 虚拟环境
-.venv/
-.venv-python*-backup/
-venv/
-env/
-
-# uv
-.uv-cache*/
-
-# 测试与检查产物
-.coverage
-.pytest_cache/
-.ruff_cache/
-htmlcov/
-
-# Docker
+node_modules
+dist
 .env
-deploy/config/*
-!deploy/config/README.md
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# 敏感数据：登录缓存、凭据（学号+密码）、运行日志
-data/session.cache
-data/credentials.yaml
-logs/
-
-# 原始抓包样例（响应体无 cookie，但可能含 uid/姓名，仅本地参考，不入库）
-fixtures/captures/
-
-# 系统
-.DS_Store
-Thumbs.db
-
-# Playwright MCP 工具输出（页面快照/控制台日志）
-.playwright-mcp/
-.playwright-test-data/
-
-# 部署时冻结的调度配置(含路径)
-.libsniper.env
-
-# 本地测试辅助脚本
-.schedule-playwright-server.py
-
-# NVIDIA 工具日志目录
-NVIDIA Corporation/
+.env.local
+.data
+src-tauri/target
+src-tauri/gen
+*.db
+*.db-shm
+*.db-wal

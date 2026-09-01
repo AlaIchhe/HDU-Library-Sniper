@@ -1,0 +1,26 @@
+services:
+  hdu-sniper:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: localhost/hdu-library-sniper:dev
+    container_name: hdu-library-sniper
+    env_file:
+      - .env.local
+    environment:
+      HDU_SNIPER_HOME: /var/lib/hdu-sniper
+      HDU_WEB_PORT: 8000
+      HDU_BOOKING_SCHEDULER_INSTALLED: "1"
+    ports:
+      - "${HDU_WEB_PORT:-8000}:8000"
+    volumes:
+      - hdu-sniper-data:/var/lib/hdu-sniper
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  hdu-sniper-data:

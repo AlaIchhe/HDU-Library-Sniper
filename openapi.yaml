@@ -1,0 +1,441 @@
+openapi: 3.0.3
+info:
+  title: HDU Library Sniper API
+  version: 2.0.0
+servers:
+  - url: /
+paths:
+  /api/session:
+    get:
+      operationId: getSession
+      responses:
+        "200":
+          description: Current session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionStatus" }
+  /api/audit:
+    get:
+      operationId: listAudit
+      parameters:
+        - { name: limit, in: query, required: false, schema: { type: integer, default: 20 } }
+      responses:
+        "200":
+          description: Recent audit events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEvent" }
+  /api/session/login:
+    post:
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [studentId, password]
+              properties:
+                studentId: { type: string }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Login result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message]
+                properties:
+                  success: { type: boolean }
+                  message: { type: string }
+  /api/plans:
+    get:
+      operationId: listPlans
+      responses:
+        "200":
+          description: Plans
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [plans]
+                properties:
+                  plans:
+                    type: array
+                    items: { $ref: "#/components/schemas/PlanListItem" }
+    post:
+      operationId: createPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookingPlanInput" }
+      responses:
+        "201":
+          description: Created plan
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [plan]
+                properties:
+                  plan: { $ref: "#/components/schemas/BookingPlan" }
+  /api/plans/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: updatePlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookingPlanInput" }
+      responses:
+        "200":
+          description: Updated plan
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [plan]
+                properties:
+                  plan: { $ref: "#/components/schemas/BookingPlan" }
+    delete:
+      operationId: deletePlan
+      responses:
+        "200":
+          description: Delete result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+  /api/plans/{id}/{action}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: action, in: path, required: true, schema: { type: string, enum: [enable, disable] } }
+    post:
+      operationId: setPlanEnabled
+      responses:
+        "200":
+          description: Updated plan
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [plan, disabledPlanIds]
+                properties:
+                  plan: { $ref: "#/components/schemas/PlanListItem" }
+                  disabledPlanIds: { type: array, items: { type: string } }
+  /api/groups:
+    post:
+      operationId: createGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroupInput" }
+      responses:
+        "201":
+          description: Created group
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [plan]
+                properties:
+                  plan: { $ref: "#/components/schemas/BookingGroup" }
+  /api/groups/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: updateGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroupInput" }
+      responses:
+        "200":
+          description: Updated group
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [plan]
+                properties:
+                  plan: { $ref: "#/components/schemas/BookingGroup" }
+    delete:
+      operationId: deleteGroup
+      responses:
+        "200":
+          description: Delete result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+  /api/bookings/current:
+    get:
+      operationId: listCurrentBookings
+      responses:
+        "200":
+          description: Current bookings
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bookings]
+                properties:
+                  bookings:
+                    type: array
+                    items: { $ref: "#/components/schemas/Booking" }
+  /api/bookings/{id}/{action}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: action, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: bookingAction
+      responses:
+        "200":
+          description: Action result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message]
+                properties:
+                  success: { type: boolean }
+                  message: { type: string }
+  /api/checkin:
+    get:
+      operationId: getCheckin
+      responses:
+        "200":
+          description: Check-in status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckInStatus" }
+  /api/checkin/{action}:
+    parameters:
+      - { name: action, in: path, required: true, schema: { type: string, enum: [enable, disable] } }
+    post:
+      operationId: setCheckin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { agreed: { type: boolean } }
+      responses:
+        "200":
+          description: Check-in status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckInStatus" }
+  /api/runtime/status:
+    get:
+      operationId: getRuntimeStatus
+      responses:
+        "200":
+          description: Runtime status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RuntimeStatus" }
+  /api/runtime/next-target:
+    get:
+      operationId: getNextTarget
+      responses:
+        "200":
+          description: Next target
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NextExecutionTarget" }
+  /api/catalog/room-types:
+    get:
+      operationId: listRoomTypes
+      responses:
+        "200":
+          description: Room types
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [options]
+                properties:
+                  options: { type: array, items: { $ref: "#/components/schemas/RoomTypeOption" } }
+  /api/catalog/floors:
+    get:
+      operationId: listFloors
+      parameters:
+        - { name: roomQuery, in: query, required: true, schema: { type: string } }
+        - { name: roomType, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Floors
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [options, range]
+                properties:
+                  options: { type: array, items: { $ref: "#/components/schemas/FloorOption" } }
+                  range:
+                    type: object
+                    required: [minBeginTime, maxEndTime, minDuration, maxDuration]
+                    properties:
+                      minBeginTime: { type: integer }
+                      maxEndTime: { type: integer }
+                      minDuration: { type: integer }
+                      maxDuration: { type: integer }
+  /api/catalog/durations:
+    get:
+      operationId: listDurations
+      parameters:
+        - { name: roomQuery, in: query, required: true, schema: { type: string } }
+        - { name: startHour, in: query, required: true, schema: { type: integer } }
+        - { name: roomType, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Durations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [options]
+                properties:
+                  options: { type: array, items: { type: integer } }
+components:
+  schemas:
+    Weekday:
+      type: integer
+      enum: [1, 2, 3, 4, 5, 6, 7]
+    BookingPlan:
+      type: object
+      required: [id, kind, roomType, roomQuery, floorId, seatNum, fallbackSeats, startHour, durationHours, weekdays, enabled, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [single] }
+        roomType: { type: string }
+        roomQuery: { type: string }
+        floorId: { type: integer }
+        floorName: { type: string }
+        seatNum: { type: string }
+        fallbackSeats: { type: array, items: { type: string } }
+        startHour: { type: integer }
+        durationHours: { type: integer }
+        weekdays: { type: array, items: { $ref: "#/components/schemas/Weekday" } }
+        enabled: { type: boolean }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    BookingPlanInput:
+      allOf:
+        - $ref: "#/components/schemas/BookingPlan"
+    BookingGroup:
+      type: object
+      required: [id, kind, name, memberPlanIds, weekdays, enabled, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [group] }
+        name: { type: string }
+        memberPlanIds: { type: array, items: { type: string } }
+        weekdays: { type: array, items: { $ref: "#/components/schemas/Weekday" } }
+        enabled: { type: boolean }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    GroupInput:
+      type: object
+      required: [name, memberPlanIds]
+      properties:
+        name: { type: string }
+        memberPlanIds: { type: array, items: { type: string } }
+    PlanListItem:
+      oneOf:
+        - $ref: "#/components/schemas/BookingPlan"
+        - $ref: "#/components/schemas/BookingGroup"
+    Booking:
+      type: object
+      required: [bookingId, roomName, seatNum, startText, durationText, status, state, statusLabel, canCancel, canCheckIn, canSignOut, canLeave, canRenew]
+      properties:
+        bookingId: { type: string }
+        roomName: { type: string }
+        seatNum: { type: string }
+        startText: { type: string }
+        durationText: { type: string }
+        status: { type: string }
+        state: { type: string }
+        statusLabel: { type: string }
+        canCancel: { type: boolean }
+        canCheckIn: { type: boolean }
+        canSignOut: { type: boolean }
+        canLeave: { type: boolean }
+        canRenew: { type: boolean }
+    SessionStatus:
+      type: object
+      required: [authenticated, refreshing]
+      properties:
+        authenticated: { type: boolean }
+        uid: { type: string }
+        name: { type: string }
+        refreshing: { type: boolean }
+        lastError: { type: string }
+    CheckInStatus:
+      type: object
+      required: [enabled, consentVersion]
+      properties:
+        enabled: { type: boolean }
+        consentVersion: { type: string }
+        consentedAt: { type: string }
+        lastAttemptAt: { type: string }
+        lastSuccessAt: { type: string }
+        lastMessage: { type: string }
+    RuntimeStatus:
+      type: object
+      required: [scheduler, state]
+      properties:
+        scheduler: { type: string }
+        state: { type: string }
+        lastRunAt: { type: string }
+        lastMessage: { type: string }
+    NextExecutionTarget:
+      type: object
+      required: [kind, label]
+      properties:
+        kind: { type: string, enum: [booking, check-in, none] }
+        label: { type: string }
+        at: { type: string }
+        planId: { type: string }
+        bookingId: { type: string }
+    AuditEvent:
+      type: object
+      required: [id, event, payload, createdAt]
+      properties:
+        id: { type: integer }
+        event: { type: string }
+        payload:
+          type: object
+          additionalProperties: true
+        createdAt: { type: string }
+    RoomTypeOption:
+      type: object
+      required: [id, name, query]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        query: { type: string }
+    FloorOption:
+      type: object
+      required: [id, name, seatCount, seatTitles]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        seatCount: { type: integer }
+        seatTitles: { type: array, items: { type: string } }
+    SuccessResponse:
+      type: object
+      required: [success]
+      properties: { success: { type: boolean } }

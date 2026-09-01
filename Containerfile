@@ -1,9 +1,10 @@
-FROM oven/bun:1.2-alpine
+FROM docker.io/oven/bun:1.4.0-alpine
 WORKDIR /app
-COPY package.json tsconfig.json vite.config.ts index.html ./
-RUN bun install --frozen-lockfile || bun install
+COPY package.json bun.lock tsconfig.json vite.config.ts vitest.config.ts playwright.config.ts orval.config.ts openapi.yaml index.html ./
+RUN bun install --frozen-lockfile
 COPY src ./src
 COPY public ./public
+RUN bun run build
 ENV NODE_ENV=production \
     HDU_SNIPER_HOME=/var/lib/hdu-sniper \
     HDU_WEB_PORT=8000 \
