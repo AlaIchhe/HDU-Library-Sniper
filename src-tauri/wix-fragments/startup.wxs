@@ -3,15 +3,15 @@
   <Fragment>
     <CustomAction
       Id="CreateHduStartupTask"
-      FileKey="mainBinary"
-      ExeCommand="--install-startup"
+      Directory="INSTALLDIR"
+      ExeCommand="hdu-library-sniper.exe --install-startup"
       Execute="deferred"
       Impersonate="yes"
       Return="ignore" />
     <CustomAction
       Id="DeleteHduStartupTask"
-      FileKey="mainBinary"
-      ExeCommand="--uninstall-startup"
+      Directory="INSTALLDIR"
+      ExeCommand="hdu-library-sniper.exe --uninstall-startup"
       Execute="deferred"
       Impersonate="yes"
       Return="ignore" />

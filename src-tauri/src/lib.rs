@@ -20,9 +20,9 @@ struct StartupStatus {
 }
 
 #[cfg(windows)]
-fn schtasks(args: &[&str]) -> Result<std::process::Output, String> {
+fn run_reg(args: &[&str]) -> Result<std::process::Output, String> {
     use std::os::windows::process::CommandExt;
-    Command::new("schtasks.exe")
+    Command::new("reg.exe")
         .args(args)
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -43,8 +43,13 @@ fn spawn_backend(executable: &std::path::Path) -> std::io::Result<Child> {
 }
 
 #[cfg(windows)]
+// NOTE: reg.exe requires the root hive prefix (HKCU\). Without it the command
+// fails with "Invalid key name", so autostart would never be persisted.
+const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+
+#[cfg(windows)]
 fn startup_enabled() -> bool {
-    schtasks(&["/Query", "/TN", STARTUP_TASK])
+    run_reg(&["query", RUN_KEY, "/v", STARTUP_TASK])
         .map(|output| output.status.success())
         .unwrap_or(false)
 }
@@ -52,22 +57,24 @@ fn startup_enabled() -> bool {
 #[cfg(windows)]
 fn set_startup_task(exe: &std::path::Path, enabled: bool) -> Result<(), String> {
     if enabled {
+        // HKCU Run is per-user and does not require elevation, unlike schtasks /SC ONLOGON.
         let action = format!("\"{}\" --background", exe.display());
-        let output = schtasks(&[
-            "/Create",
-            "/TN",
+        let output = run_reg(&[
+            "add",
+            RUN_KEY,
+            "/v",
             STARTUP_TASK,
-            "/TR",
+            "/t",
+            "REG_SZ",
+            "/d",
             &action,
-            "/SC",
-            "ONLOGON",
-            "/F",
+            "/f",
         ])?;
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
         }
     } else {
-        let output = schtasks(&["/Delete", "/TN", STARTUP_TASK, "/F"])?;
+        let output = run_reg(&["delete", RUN_KEY, "/v", STARTUP_TASK, "/f"])?;
         if !output.status.success() && startup_enabled() {
             return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
         }
