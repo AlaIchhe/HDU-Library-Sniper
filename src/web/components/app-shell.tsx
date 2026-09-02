@@ -1,14 +1,15 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Link, Outlet, useRouterState } from "@tanstack/react-router"
-import { CalendarDays, Library, ListChecks, RefreshCw, Settings } from "lucide-react"
+import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
+import { CalendarDays, Library, ListChecks, LogOut, RefreshCw, Settings } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
 
 import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern"
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@/components/ui/menu"
 import { Separator } from "@/components/ui/separator"
 import {
   Sidebar,
@@ -131,6 +132,8 @@ export function AppShell() {
     select: (state) => state.location.pathname as string,
   })
   const session = useAppStore((state) => state.session)
+  const setSession = useAppStore((state) => state.setSession)
+  const navigate = useNavigate()
   const theme = useAppStore((state) => state.theme)
   const notice = useAppStore((state) => state.notice)
   const setNotice = useAppStore((state) => state.setNotice)
@@ -278,11 +281,35 @@ export function AppShell() {
                       useAppStore.getState().setTheme(nextTheme)
                     }
                   />
-                  <Avatar className="size-8">
-                    <AvatarFallback>
-                      {session?.name?.slice(0, 1) || "H"}
-                    </AvatarFallback>
-                  </Avatar>
+                  <Menu>
+                    <MenuTrigger className="rounded-full outline-none" aria-label="用户菜单">
+                      <Avatar className="size-8">
+                        <AvatarFallback>
+                          {session?.name?.slice(0, 1) || "H"}
+                        </AvatarFallback>
+                      </Avatar>
+                    </MenuTrigger>
+                    <MenuPopup align="end">
+                      <MenuItem
+                        variant="destructive"
+                        onClick={async () => {
+                          try {
+                            await api.logout()
+                            setSession(null)
+                            navigate({ to: "/", replace: true })
+                          } catch (cause) {
+                            toastManager.add({
+                              type: "error",
+                              title: cause instanceof Error ? cause.message : "退出登录失败",
+                            })
+                          }
+                        }}
+                      >
+                        <LogOut />
+                        退出登录
+                      </MenuItem>
+                    </MenuPopup>
+                  </Menu>
                 </div>
               </header>
               <main className="mx-auto min-w-0 w-full max-w-7xl flex-1 overflow-x-hidden p-4 sm:p-8">

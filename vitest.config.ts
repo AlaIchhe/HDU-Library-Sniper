@@ -4,6 +4,11 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "bun:sqlite": new URL("./tests/bun-sqlite.ts", import.meta.url).pathname,
+    },
+  },
   test: {
     environment: "happy-dom",
     setupFiles: ["./tests/setup.ts"],

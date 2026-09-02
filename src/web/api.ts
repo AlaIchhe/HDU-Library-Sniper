@@ -15,6 +15,7 @@ async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>):
 export const api = {
   session: () => call<SessionStatus>("/api/session", undefined, sessionSchema),
   login: (studentId: string, password: string) => call<{ success: boolean; message: string }>("/api/session/login", { method: "POST", body: JSON.stringify({ studentId, password }) }),
+  logout: () => call<{ success: boolean }>("/api/session/logout", { method: "POST" }),
   plans: () => call<{ plans: PlanListItem[] }>("/api/plans"),
   createPlan: (plan: Partial<BookingPlan>) => call<{ plan: BookingPlan }>("/api/plans", { method: "POST", body: JSON.stringify(plan) }),
   setEnabled: (id: string, enabled: boolean) => call<{ plan: PlanListItem; disabledPlanIds: string[] }>(`/api/plans/${encodeURIComponent(id)}/${enabled ? "enable" : "disable"}`, { method: "POST" }),

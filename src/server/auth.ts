@@ -1,5 +1,4 @@
 import { createCipheriv } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { CookieJar } from "./cookies";
 import { db } from "./db";
 import { LibraryClient } from "./library";
@@ -22,18 +21,8 @@ export class AuthService {
   readonly client: LibraryClient;
 
   constructor() {
-    const secret = (name: string): string => {
-      const direct = process.env[name]?.trim();
-      const file = process.env[`${name}_FILE`]?.trim();
-      if (direct && file) throw new Error(`${name} 与 ${name}_FILE 不能同时设置`);
-      if (direct) return direct;
-      if (!file) return "";
-      return readFileSync(file, "utf8").trim();
-    };
-    const studentId = secret("HDU_STUDENT_ID");
-    const password = secret("HDU_PASSWORD");
-    if (studentId && password) this.credentials = { studentId, password };
-    const row = db.query("SELECT cookies, uid, name FROM session WHERE id = 1").get() as { cookies?: string; uid?: string; name?: string } | null;
+    const row = db.query("SELECT cookies, uid, name, student_id, password FROM session WHERE id = 1").get() as { cookies?: string; uid?: string; name?: string; student_id?: string; password?: string } | null;
+    if (row?.student_id && row.password) this.credentials = { studentId: row.student_id, password: row.password };
     const jar = new CookieJar(row?.cookies ? JSON.parse(row.cookies) : []);
     this.client = new LibraryClient({
       jar,
@@ -79,8 +68,6 @@ export class AuthService {
 
   async login(studentId: string, password: string): Promise<{ success: boolean; message: string }> {
     if (!studentId.trim() || !password) return { success: false, message: "请输入学号和密码" };
-    // Credentials are held in memory for the current process. Tauri supplies the
-    // persistent secret through its secure storage adapter in production.
     this.credentials = { studentId, password };
     // The HTTP SSO flow is intentionally isolated here so the session client
     // can refresh without ever replaying side-effecting booking requests.
@@ -112,9 +99,17 @@ export class AuthService {
     }
     await this.client.validate();
     if (!this.client.uid) return { success: false, message: "Cookie 无效或登录态未生效" };
-    await db.query("INSERT INTO session(id,cookies,uid,name,updated_at) VALUES(1,?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,updated_at=excluded.updated_at")
-      .run(JSON.stringify(this.client.jar.all), this.client.uid, this.client.name, new Date().toISOString());
+    await db.query("INSERT INTO session(id,cookies,uid,name,student_id,password,updated_at) VALUES(1,?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id=excluded.student_id,password=excluded.password,updated_at=excluded.updated_at")
+      .run(JSON.stringify(this.client.jar.all), this.client.uid, this.client.name, studentId, password, new Date().toISOString());
     return { success: true, message: `认证成功${this.client.name ? `：${this.client.name}` : ""}` };
+  }
+
+  logout(): void {
+    this.client.uid = "";
+    this.client.name = "";
+    this.client.jar.clear();
+    db.query("UPDATE session SET uid = '', name = '', cookies = '[]', updated_at = ?1 WHERE id = 1")
+      .run(new Date().toISOString());
   }
 
   async refresh(): Promise<boolean> {

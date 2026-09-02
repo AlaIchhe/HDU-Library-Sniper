@@ -27,6 +27,8 @@ db.exec(`
     id INTEGER PRIMARY KEY CHECK (id = 1),
     uid TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL DEFAULT '',
+    student_id TEXT NOT NULL DEFAULT '',
+    password TEXT NOT NULL DEFAULT '',
     cookies TEXT NOT NULL DEFAULT '[]',
     updated_at TEXT NOT NULL
   );
@@ -48,6 +50,8 @@ db.exec(`
 for (const statement of [
   "ALTER TABLE plans ADD COLUMN kind TEXT NOT NULL DEFAULT 'single'",
   "ALTER TABLE plans ADD COLUMN name TEXT",
+  "ALTER TABLE session ADD COLUMN student_id TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE session ADD COLUMN password TEXT NOT NULL DEFAULT ''",
 ]) {
   try { db.exec(statement); } catch { /* column already exists */ }
 }

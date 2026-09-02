@@ -8,4 +8,5 @@
 export type ListDurationsParams = {
 roomQuery: string;
 startHour: number;
+roomType?: string;
 };

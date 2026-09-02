@@ -5,7 +5,9 @@
  * OpenAPI spec version: 2.0.0
  */
 import type { FloorOption } from './floorOption.ts';
+import type { ListFloors200Range } from './listFloors200Range.ts';
 
 export type ListFloors200 = {
   options: FloorOption[];
+  range: ListFloors200Range;
 };
