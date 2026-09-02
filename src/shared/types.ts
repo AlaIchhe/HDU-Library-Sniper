@@ -115,3 +115,15 @@ export const weekdayLabels: Record<Weekday, string> = {
 };
 
 export type ApiError = { detail?: string };
+
+export type QrLoginStart = {
+  uuid: string;
+  image: string;
+};
+
+export type QrLoginStatus = {
+  status: "waiting" | "confirmed" | "expired" | "error";
+  message?: string;
+  session?: SessionStatus;
+};
+

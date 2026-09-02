@@ -13,8 +13,15 @@ export function createApi(auth: AuthService, scheduler: Scheduler) {
     if (url.pathname === "/api/health") return json({ status: "ok" });
     if (url.pathname === "/api/session" && request.method === "GET") return json(auth.status());
     if (url.pathname === "/api/session/login" && request.method === "POST") {
-      const body = await request.json() as { studentId?: string; password?: string };
+      const body = await request.json().catch(() => ({})) as { studentId?: string; password?: string };
       return json(await auth.login(body.studentId || "", body.password || ""));
+    }
+    if (url.pathname === "/api/session/qr" && request.method === "POST") {
+      return json(await auth.createQrLogin());
+    }
+    const qrMatch = url.pathname.match(/^\/api\/session\/qr\/([^/]+)\/status$/);
+    if (qrMatch && request.method === "GET") {
+      return json(await auth.pollQrLogin(decodeURIComponent(qrMatch[1])));
     }
     if (url.pathname === "/api/session/logout" && request.method === "POST") {
       auth.logout();
