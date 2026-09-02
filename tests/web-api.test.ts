@@ -1,6 +1,20 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, resolveApiBase } from "../src/web/api";
 
+// The web API now uses @tauri-apps/plugin-http inside Tauri. In the test
+// environment there is no real Tauri runtime, so route the plugin fetch to the
+// stubbed global fetch and silence the plugin logger.
+vi.mock("@tauri-apps/plugin-http", () => ({
+  fetch: (input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init),
+}));
+vi.mock("@tauri-apps/plugin-log", () => ({
+  attachConsole: () => Promise.resolve(),
+  error: () => undefined,
+  warn: () => undefined,
+  info: () => undefined,
+  debug: () => undefined,
+}));
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
