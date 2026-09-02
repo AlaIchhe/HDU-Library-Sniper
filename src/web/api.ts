@@ -1,14 +1,25 @@
 import { z } from "zod";
 import type { AuditEvent, Booking, BookingPlan, BookingRange, CheckInStatus, DurationOptions, FloorOption, NextExecutionTarget, PlanListItem, RoomTypeOption, RuntimeStatus, SessionStatus } from "../shared/types";
 
+export function resolveApiBase(): string {
+  const configured = import.meta.env.VITE_API_BASE?.trim();
+  if (configured) return configured.replace(/\/+$/, "");
+  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) return "http://127.0.0.1:8000";
+  return "";
+}
+
 const sessionSchema = z.object({ authenticated: z.boolean(), uid: z.string().optional(), name: z.string().optional(), refreshing: z.boolean(), lastError: z.string().optional() });
 const checkinSchema = z.object({ enabled: z.boolean(), consentVersion: z.string(), consentedAt: z.string().optional(), lastAttemptAt: z.string().optional(), lastSuccessAt: z.string().optional(), lastMessage: z.string().optional() });
 
 async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>): Promise<T> {
-  const response = await fetch(path, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
+  const response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
   const text = await response.text();
-  const body = text ? JSON.parse(text) : {};
-  if (!response.ok) throw new Error(body.detail || body.message || "请求失败");
+  let body: { detail?: string; message?: string } = {};
+  if (text) {
+    try { body = JSON.parse(text) as typeof body; }
+    catch { throw new Error(response.ok ? "后台服务返回格式错误" : `请求失败 (${response.status})`); }
+  }
+  if (!response.ok) throw new Error(body.detail || body.message || `请求失败 (${response.status})`);
   return schema ? schema.parse(body) : body as T;
 }
 
