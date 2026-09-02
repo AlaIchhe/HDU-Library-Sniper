@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Containerfile
+      args:
+        SOURCE_REVISION: "${HDU_SOURCE_REVISION:-unknown}"
     image: localhost/hdu-library-sniper:dev
     container_name: hdu-library-sniper
     env_file:
@@ -15,12 +17,13 @@ services:
       - "${HDU_WEB_PORT:-8000}:8000"
     volumes:
       - hdu-sniper-data:/var/lib/hdu-sniper
-    restart: unless-stopped
+    restart: always
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
 
 volumes:
   hdu-sniper-data:

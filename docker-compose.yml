@@ -2,13 +2,19 @@ services:
   hdu-sniper:
     build: .
     image: hdu-library-sniper:latest
-    restart: unless-stopped
+    restart: always
     ports:
       - "${HDU_WEB_PORT:-8000}:8000"
     environment:
       HDU_SNIPER_HOME: /var/lib/hdu-sniper
     volumes:
       - hdu-data:/var/lib/hdu-sniper
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   hdu-data:
