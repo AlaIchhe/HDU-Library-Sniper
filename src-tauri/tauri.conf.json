@@ -26,12 +26,17 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "createUpdaterArtifacts": false,
+    "targets": ["msi"],
+    "createUpdaterArtifacts": true,
+    "icon": ["icons/icon.ico", "icons/icon.png"],
     "resources": ["../dist/hdu-sniper-server.exe"],
-    "windows": { "nsis": { "installMode": "currentUser", "runAfterFinish": true } }
+    "windows": { "wix": { "language": "zh-CN", "fragmentPaths": ["wix-fragments/startup.wxs"] } }
   },
   "plugins": {
-    "autostart": { "args": ["--background"] }
+    "autostart": { "args": ["--background"] },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGRDY2MjM1NTMyNUY0OTkKUldTWjlDVlROV0xXVCtDMmt2SGRYVjFvYk1IVmQ1aytFTnFOajM0cHM4amRCbSs0L0tNMlZ3ZUsK",
+      "endpoints": ["https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/latest.json"]
+    }
   }
 }

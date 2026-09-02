@@ -1,0 +1,36 @@
+name: Release Windows app
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: dtolnay/rust-toolchain@stable
+      - run: bun install --frozen-lockfile
+      - run: bun run build:server
+      - name: Validate updater public key
+        shell: pwsh
+        run: |
+          $config = Get-Content "src-tauri/tauri.conf.json" -Raw
+          if ($config.Contains("__TAURI_UPDATER_PUBLIC_KEY__")) { throw "Set the real updater public key in src-tauri/tauri.conf.json" }
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "HDU Library Sniper ${{ github.ref_name }}"
+          args: "--bundles msi"
+          releaseDraft: true
+          prerelease: false

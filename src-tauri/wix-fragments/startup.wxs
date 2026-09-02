@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <CustomAction
+      Id="CreateHduStartupTask"
+      FileKey="mainBinary"
+      ExeCommand="--install-startup"
+      Execute="deferred"
+      Impersonate="yes"
+      Return="ignore" />
+    <CustomAction
+      Id="DeleteHduStartupTask"
+      FileKey="mainBinary"
+      ExeCommand="--uninstall-startup"
+      Execute="deferred"
+      Impersonate="yes"
+      Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="CreateHduStartupTask" After="InstallFiles">NOT Installed</Custom>
+      <Custom Action="DeleteHduStartupTask" Before="RemoveFiles">REMOVE="ALL"</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

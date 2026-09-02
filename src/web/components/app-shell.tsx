@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Link, Outlet, useRouterState } from "@tanstack/react-router"
-import { CalendarDays, Library, ListChecks, Settings } from "lucide-react"
+import { CalendarDays, Library, ListChecks, RefreshCw, Settings } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
 
 import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern"
@@ -34,6 +34,10 @@ import {
   useRuntime,
 } from "../queries"
 import { LightRays } from "@/components/ui/light-rays"
+import { api } from "../api"
+import { notifyAuditEvents } from "../notifications"
+import { getStartupStatus, setStartupEnabled } from "../tauri"
+import { checkForUpdate, installUpdate } from "../updater"
 
 function CheckinControl() {
   const { data, isLoading } = useCheckin()
@@ -83,6 +87,21 @@ function CheckinControl() {
   )
 }
 
+function UpdateControl() {
+  const [busy, setBusy] = useState(false)
+  async function check() {
+    setBusy(true)
+    try {
+      const result = await checkForUpdate()
+      if (result.error) toastManager.add({ type: "error", title: `更新检查失败：${result.error}` })
+      else if (!result.available) toastManager.add({ type: "success", title: "当前已是最新版本" })
+      else if (window.confirm(`发现新版本 ${result.version}，现在安装吗？`)) { await installUpdate(); toastManager.add({ type: "success", title: "更新已安装，请重启应用" }) }
+    } catch (error) { toastManager.add({ type: "error", title: error instanceof Error ? error.message : "更新安装失败" }) }
+    finally { setBusy(false) }
+  }
+  return <Button variant="ghost" size="sm" disabled={busy} onClick={() => void check()} title="检查更新" aria-label="检查更新"><RefreshCw className={busy ? "animate-spin" : ""} /></Button>
+}
+
 function NextBlock({
   label,
   at,
@@ -107,6 +126,7 @@ function NextBlock({
 }
 
 export function AppShell() {
+  const [startupEnabled, setStartupEnabledState] = useState<boolean | null>(null)
   const pathname = useRouterState({
     select: (state) => state.location.pathname as string,
   })
@@ -117,6 +137,28 @@ export function AppShell() {
   const target = useNextTarget()
   const runtime = useRuntime()
   const reduced = useReducedMotion()
+
+  useEffect(() => { void getStartupStatus().then((status) => setStartupEnabledState(status.enabled)) }, [])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void checkForUpdate().then((result) => {
+        if (result.available) toastManager.add({ type: "success", title: `发现新版本 ${result.version}，可点击更新按钮安装` })
+      })
+    }, 10_000)
+    return () => window.clearTimeout(timer)
+  }, [])
+  useEffect(() => {
+    let active = true
+    const poll = async () => { try { const result = await api.audit(50); if (active) await notifyAuditEvents(result.events) } catch { /* backend may not be ready yet */ } }
+    void poll(); const timer = window.setInterval(() => void poll(), 15_000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [])
+
+  async function toggleStartup() {
+    const next = !startupEnabled
+    try { await setStartupEnabled(next); setStartupEnabledState(next); toastManager.add({ type: "success", title: next ? "已开启开机自启" : "已关闭开机自启" }) }
+    catch (error) { toastManager.add({ type: "error", title: error instanceof Error ? error.message : "自启设置失败" }) }
+  }
 
   useEffect(() => {
     if (!notice) return
@@ -225,6 +267,10 @@ export function AppShell() {
                 </nav>
                 <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
                   <CheckinControl />
+                  <UpdateControl />
+                  <Button variant="outline" size="sm" disabled={startupEnabled === null} onClick={() => void toggleStartup()}>
+                    {startupEnabled ? "自启已开" : "开启自启"}
+                  </Button>
                   <AnimatedThemeToggler
                     className="grid size-9 place-items-center rounded-full border text-foreground/80 transition-colors hover:bg-muted hover:text-foreground [&_svg]:size-4"
                     theme={theme}
