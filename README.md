@@ -134,6 +134,43 @@ HDU_SKIP_SYSTEMD_SCHEDULER=1 bun run podman:up
 bun run podman:down
 ```
 
+#### Podman 自动更新
+
+如需让宿主机自动跟踪 GitHub 仓库 `origin/main` 并更新容器，可安装 systemd 定时器：
+
+```bash
+sudo bun run podman:auto-update:install
+```
+
+安装后，宿主机每天凌晨 03:15（Asia/Shanghai）检查一次更新，并随机延迟最多 15 分钟，避免固定时间集中执行。检查服务会：
+
+1. 从 `origin/main` 拉取最新代码；
+2. 在临时 Git worktree 中构建候选镜像；
+3. 使用临时数据卷启动候选容器并检查 `/api/health`；
+4. 健康检查通过后替换生产容器；
+5. 替换失败时恢复旧容器。
+
+生产数据继续保存在 `hdu-sniper-data` 命名卷中，不会因更新删除。自动更新配置位于：
+
+```text
+/etc/default/hdu-library-sniper-auto-update
+```
+
+默认配置跟踪当前仓库的 `origin/main`，也可以编辑该文件修改 `HDU_SNIPER_REMOTE`、`HDU_SNIPER_BRANCH`、镜像名或端口。建议将仓库 remote 指向可信地址，并通过受保护的主分支发布更新。
+
+查看状态或手动执行一次检查：
+
+```bash
+sudo bun run podman:auto-update:status
+sudo bun run podman:auto-update
+```
+
+卸载自动更新（不会删除应用容器或数据）：
+
+```bash
+sudo bun run podman:auto-update:uninstall
+```
+
 容器 WebUI 是单租户管理界面，不建议直接暴露到公网。请放在可信内网或已认证的反向代理之后。
 
 ## Windows MSI 安装
