@@ -1,5 +1,20 @@
 import { z } from "zod";
-import type { AuditEvent, Booking, BookingPlan, BookingRange, CheckInStatus, DurationOptions, FloorOption, NextExecutionTarget, PlanListItem, RoomTypeOption, RuntimeStatus, SessionStatus } from "../shared/types";
+import type {
+  AuditEvent,
+  Booking,
+  BookingPlan,
+  BookingRange,
+  CheckInStatus,
+  DurationOptions,
+  FloorOption,
+  NextExecutionTarget,
+  PlanListItem,
+  QrLoginStart,
+  QrLoginStatus,
+  RoomTypeOption,
+  RuntimeStatus,
+  SessionStatus,
+} from "../shared/types";
 
 export function resolveApiBase(): string {
   const configured = import.meta.env.VITE_API_BASE?.trim();
@@ -14,7 +29,13 @@ const sessionSchema = z.object({ authenticated: z.boolean(), uid: z.string().opt
 const checkinSchema = z.object({ enabled: z.boolean(), consentVersion: z.string(), consentedAt: z.string().optional(), lastAttemptAt: z.string().optional(), lastSuccessAt: z.string().optional(), lastMessage: z.string().optional() });
 
 async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>): Promise<T> {
-  const response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
+  let response: Response;
+  try {
+    response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+    throw new Error("无法连接本地后台服务，请确认服务已启动");
+  }
   const text = await response.text();
   let body: { detail?: string; message?: string } = {};
   if (text) {
@@ -29,6 +50,8 @@ export const api = {
   session: () => call<SessionStatus>("/api/session", undefined, sessionSchema),
   login: (studentId: string, password: string) => call<{ success: boolean; message: string }>("/api/session/login", { method: "POST", body: JSON.stringify({ studentId, password }) }),
   logout: () => call<{ success: boolean }>("/api/session/logout", { method: "POST" }),
+  qrStart: () => call<QrLoginStart>("/api/session/qr", { method: "POST" }),
+  qrStatus: (uuid: string) => call<QrLoginStatus>(`/api/session/qr/${encodeURIComponent(uuid)}/status`),
   plans: () => call<{ plans: PlanListItem[] }>("/api/plans"),
   createPlan: (plan: Partial<BookingPlan>) => call<{ plan: BookingPlan }>("/api/plans", { method: "POST", body: JSON.stringify(plan) }),
   setEnabled: (id: string, enabled: boolean) => call<{ plan: PlanListItem; disabledPlanIds: string[] }>(`/api/plans/${encodeURIComponent(id)}/${enabled ? "enable" : "disable"}`, { method: "POST" }),
@@ -51,3 +74,4 @@ export const api = {
 };
 
 type BookingGroup = Extract<PlanListItem, { kind: "group" }>;
+
