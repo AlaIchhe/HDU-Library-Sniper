@@ -9,7 +9,6 @@ import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern"
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { MagicCard } from "@/components/ui/magic-card"
 import { Separator } from "@/components/ui/separator"
 import {
   Sidebar,
@@ -92,13 +91,17 @@ function NextBlock({
   at?: string
 }) {
   return (
-    <div className="rounded-lg border bg-sidebar-accent p-3 text-xs">
-      <div className="flex items-center gap-2 font-medium">
-        <Settings className="size-3.5" />
-        下一次执行
+    <div className="min-w-0 px-2 py-1 text-xs">
+      <div className="flex min-w-0 items-center gap-2 font-medium text-sidebar-foreground">
+        <Settings className="size-3.5 shrink-0 text-muted-foreground" />
+        <span>下一次执行</span>
       </div>
-      <strong className="mt-2 block">{label || "正在计算..."}</strong>
-      {at ? <span className="text-muted-foreground">{at}</span> : null}
+      <strong className="mt-2 block truncate font-medium">
+        {label || "正在计算..."}
+      </strong>
+      {at ? (
+        <span className="mt-0.5 block truncate text-muted-foreground">{at}</span>
+      ) : null}
     </div>
   )
 }
@@ -127,7 +130,7 @@ export function AppShell() {
   const errorState = runtime.data?.state === "error"
 
   return (
-    <div className="relative min-h-dvh bg-background text-foreground">
+    <div className="relative min-h-dvh min-w-0 overflow-x-hidden bg-background text-foreground">
       <LightRays
         count={5}
         color="rgba(140, 180, 255, 0.12)"
@@ -147,7 +150,7 @@ export function AppShell() {
         </ToastProvider>
       ) : (
         <ToastProvider>
-          <SidebarProvider>
+          <SidebarProvider className="min-w-0">
             <Sidebar variant="inset">
               <SidebarHeader>
                 <div className="flex items-center gap-3 px-2 py-2">
@@ -170,6 +173,7 @@ export function AppShell() {
                       <SidebarMenuItem>
                         <SidebarMenuButton
                           isActive={pathname === "/plans"}
+                          className="transition-[width,height,padding,background-color,color,box-shadow,transform] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-xs focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar data-[active=true]:shadow-xs"
                           render={<Link to="/plans" />}
                         >
                           <ListChecks className="size-4" />
@@ -179,6 +183,7 @@ export function AppShell() {
                       <SidebarMenuItem>
                         <SidebarMenuButton
                           isActive={pathname === "/bookings"}
+                          className="transition-[width,height,padding,background-color,color,box-shadow,transform] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-xs focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar data-[active=true]:shadow-xs"
                           render={<Link to="/bookings" />}
                         >
                           <CalendarDays className="size-4" />
@@ -190,26 +195,24 @@ export function AppShell() {
                 </SidebarGroup>
               </SidebarContent>
               <SidebarFooter>
-                <MagicCard className="p-3" gradientOpacity={0.08}>
-                  <NextBlock
-                    label={target.data?.label}
-                    at={target.data?.at}
-                  />
-                </MagicCard>
-                <div className="mt-3 flex items-center gap-2 px-2 text-xs text-muted-foreground">
+                <NextBlock
+                  label={target.data?.label}
+                  at={target.data?.at}
+                />
+                <div className="mt-2 flex min-w-0 items-center gap-2 px-2 text-xs text-muted-foreground">
                   <span
                     className={
                       errorState
-                        ? "size-2 rounded-full bg-destructive"
-                        : "size-2 rounded-full bg-success"
+                        ? "size-2 shrink-0 rounded-full bg-destructive"
+                        : "size-2 shrink-0 rounded-full bg-success"
                     }
                   />
-                  后台服务在线
+                  <span className="truncate">后台服务在线</span>
                 </div>
               </SidebarFooter>
             </Sidebar>
-            <SidebarInset className="min-w-0 w-full max-w-full overflow-x-hidden">
-              <header className="flex min-h-14 items-center gap-3 border-b bg-background/82 px-4 backdrop-blur sm:px-6">
+            <SidebarInset className="min-w-0 max-w-full overflow-x-hidden">
+              <header className="flex min-h-14 min-w-0 items-center gap-3 border-b bg-background/82 px-3 backdrop-blur sm:px-6">
                 <SidebarTrigger />
                 <Separator orientation="vertical" className="h-5" />
                 <nav className="hidden items-center gap-2 text-sm text-muted-foreground sm:flex">
@@ -220,7 +223,7 @@ export function AppShell() {
                     {pathname === "/bookings" ? "当前预约" : "预约方案"}
                   </strong>
                 </nav>
-                <div className="ml-auto flex items-center gap-2">
+                <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
                   <CheckinControl />
                   <AnimatedThemeToggler
                     className="grid size-9 place-items-center rounded-full border text-foreground/80 transition-colors hover:bg-muted hover:text-foreground [&_svg]:size-4"

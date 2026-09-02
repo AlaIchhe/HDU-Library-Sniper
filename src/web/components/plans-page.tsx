@@ -590,19 +590,22 @@ export function PlansPage() {
         <CardContent className="min-w-0">
           {items.length ? (
             <Table variant="card">
-              <TableHeader>
+              <TableHeader className="max-sm:hidden">
                 <TableRow>
                   <TableHead>方案</TableHead>
-                  <TableHead className="hidden sm:table-cell">时间</TableHead>
-                  <TableHead className="hidden sm:table-cell">重复日期</TableHead>
+                  <TableHead className="hidden lg:table-cell">时间</TableHead>
+                  <TableHead className="hidden lg:table-cell">重复日期</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
+                  <TableRow
+                    key={item.id}
+                    className="max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:items-center"
+                  >
+                    <TableCell className="min-w-0 max-sm:overflow-hidden">
+                      <div className="flex min-w-0 items-center gap-3">
                         <Badge variant={item.kind === "group" ? "info" : "outline"}>
                           {item.kind === "group" ? (
                             <CalendarDays className="size-3" />
@@ -611,24 +614,24 @@ export function PlansPage() {
                           )}
                           {item.kind === "group" ? "组合" : "单条"}
                         </Badge>
-                        <strong>
+                        <strong className="truncate">
                           {item.kind === "group"
                             ? item.name
                             : `${item.roomType} · 座位 ${item.seatNum}`}
                         </strong>
                       </div>
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell">
+                    <TableCell className="hidden lg:table-cell">
                       {item.kind === "group"
                         ? `${item.memberPlanIds.length} 个方案`
                         : `${item.floorName || `楼层 ${item.floorId}`} · ${String(
                             item.startHour,
                           ).padStart(2, "0")}:00 · ${item.durationHours} 小时`}
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell">
+                    <TableCell className="hidden lg:table-cell">
                       {item.weekdays.map((day) => weekdayLabels[day]).join("、")}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="max-sm:ps-0">
                       <div className="flex justify-end gap-2">
                         <Switch
                           checked={item.enabled}
