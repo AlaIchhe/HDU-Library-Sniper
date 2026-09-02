@@ -2,6 +2,15 @@ import { invoke } from "@tauri-apps/api/core"
 
 export const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 
+export async function openExternalUrl(url: string): Promise<void> {
+  if (isTauri()) {
+    const { openUrl } = await import("@tauri-apps/plugin-opener")
+    await openUrl(url)
+    return
+  }
+  window.open(url, "_blank", "noopener,noreferrer")
+}
+
 export type StartupStatus = { enabled: boolean; task_name: string }
 
 export async function getStartupStatus(): Promise<StartupStatus> {

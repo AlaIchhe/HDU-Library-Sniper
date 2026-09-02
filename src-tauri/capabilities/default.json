@@ -3,5 +3,18 @@
   "identifier": "default",
   "description": "Default desktop permissions",
   "windows": ["main"],
-  "permissions": ["core:default", "autostart:default", "notification:default", "updater:default"]
+  "permissions": [
+    "core:default",
+    "autostart:default",
+    "notification:default",
+    "updater:default",
+    "window-state:default",
+    "log:default",
+    "process:default",
+    "opener:default",
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "http://127.0.0.1:8000/*" }]
+    }
+  ]
 }

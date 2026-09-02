@@ -11,6 +11,10 @@ export async function checkForUpdate(): Promise<UpdateState> {
     if (!update) return { available: false }
     return { available: true, version: update.version, body: update.body || undefined }
   } catch (error) {
+    if (isTauri()) {
+      const { error: logError } = await import("@tauri-apps/plugin-log");
+      logError(`检查更新失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return { available: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
@@ -30,6 +34,10 @@ export async function installUpdate(): Promise<void> {
     await update.install()
   } catch (error) {
     await invoke("start_backend").catch(() => undefined)
+    if (isTauri()) {
+      const { error: logError } = await import("@tauri-apps/plugin-log");
+      logError(`安装更新失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
     throw error
   }
 }

@@ -120,7 +120,10 @@ fn backend_executable(resource_dir: &std::path::Path) -> std::path::PathBuf {
     }
     // Tauri rewrites `..` in resource paths to `_up_/dist`, so older MSI layouts
     // shipped the backend nested there. Keep resolving it for compatibility.
-    resource_dir.join("_up_").join("dist").join("hdu-sniper-server.exe")
+    resource_dir
+        .join("_up_")
+        .join("dist")
+        .join("hdu-sniper-server.exe")
 }
 
 #[tauri::command]
@@ -159,7 +162,22 @@ pub fn run() {
             return;
         }
     }
-    tauri::Builder::default()
+
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        // The Single Instance plugin must be registered first so it can
+        // de-duplicate launcher attempts before any other plugin runs.
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+
+    builder = builder
         .manage(Backend(Mutex::new(None)))
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
@@ -168,6 +186,22 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("hdu-library-sniper".to_string()),
+                    }),
+                ])
+                .max_file_size(500_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             start_backend,
             stop_backend,
@@ -176,6 +210,13 @@ pub fn run() {
             disable_startup
         ])
         .setup(|app| {
+            #[cfg(desktop)]
+            {
+                let _ = app
+                    .handle()
+                    .plugin(tauri_plugin_window_state::Builder::default().build());
+            }
+
             let handle = app.handle().clone();
             let background = std::env::args().any(|arg| arg == "--background");
             if background {
@@ -224,7 +265,9 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
             }
-        })
+        });
+
+    builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isTauri } from "./tauri";
 import type {
   AuditEvent,
   Booking,
@@ -29,20 +30,36 @@ const sessionSchema = z.object({ authenticated: z.boolean(), uid: z.string().opt
 const checkinSchema = z.object({ enabled: z.boolean(), consentVersion: z.string(), consentedAt: z.string().optional(), lastAttemptAt: z.string().optional(), lastSuccessAt: z.string().optional(), lastMessage: z.string().optional() });
 
 async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>): Promise<T> {
+  const base = resolveApiBase();
+  const url = `${base}${path}`;
   let response: Response;
   try {
-    response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
+    const fetcher = isTauri()
+      ? (await import("@tauri-apps/plugin-http")).fetch
+      : globalThis.fetch.bind(globalThis);
+    response = await fetcher(url, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+    if (isTauri()) {
+      const { error } = await import("@tauri-apps/plugin-log");
+      error(`API 请求失败: ${url} -> ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
     throw new Error("无法连接本地后台服务，请确认服务已启动");
   }
+
   const text = await response.text();
   let body: { detail?: string; message?: string } = {};
   if (text) {
     try { body = JSON.parse(text) as typeof body; }
     catch { throw new Error(response.ok ? "后台服务返回格式错误" : `请求失败 (${response.status})`); }
   }
-  if (!response.ok) throw new Error(body.detail || body.message || `请求失败 (${response.status})`);
+  if (!response.ok) {
+    if (isTauri()) {
+      const { error } = await import("@tauri-apps/plugin-log");
+      error(`API 返回错误: ${url} -> ${response.status}`);
+    }
+    throw new Error(body.detail || body.message || `请求失败 (${response.status})`);
+  }
   return schema ? schema.parse(body) : body as T;
 }
 
@@ -74,4 +91,3 @@ export const api = {
 };
 
 type BookingGroup = Extract<PlanListItem, { kind: "group" }>;
-

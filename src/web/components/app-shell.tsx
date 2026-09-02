@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
-import { CalendarDays, Library, ListChecks, LogOut, RefreshCw, Settings } from "lucide-react"
+import { CalendarDays, ExternalLink, Library, ListChecks, LogOut, RefreshCw, Settings } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
 
 import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern"
@@ -37,7 +37,7 @@ import {
 import { LightRays } from "@/components/ui/light-rays"
 import { api } from "../api"
 import { notifyAuditEvents } from "../notifications"
-import { getStartupStatus, setStartupEnabled } from "../tauri"
+import { getStartupStatus, openExternalUrl, setStartupEnabled } from "../tauri"
 import { checkForUpdate, installUpdate } from "../updater"
 
 function CheckinControl() {
@@ -290,6 +290,12 @@ export function AppShell() {
                       </Avatar>
                     </MenuTrigger>
                     <MenuPopup align="end">
+                      <MenuItem
+                        onClick={() => void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases")}
+                      >
+                        <ExternalLink />
+                        更新日志
+                      </MenuItem>
                       <MenuItem
                         variant="destructive"
                         onClick={async () => {
