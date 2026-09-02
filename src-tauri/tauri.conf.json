@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "HDU Library Sniper",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "identifier": "io.github.alaichhe.hdu-library-sniper",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -33,7 +33,6 @@
     "windows": { "wix": { "language": "zh-CN", "fragmentPaths": ["wix-fragments/startup.wxs"] } }
   },
   "plugins": {
-    "autostart": { "args": ["--background"] },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGRDY2MjM1NTMyNUY0OTkKUldTWjlDVlROV0xXVCtDMmt2SGRYVjFvYk1IVmQ1aytFTnFOajM0cHM4amRCbSs0L0tNMlZ3ZUsK",
       "endpoints": ["https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/latest.json"]

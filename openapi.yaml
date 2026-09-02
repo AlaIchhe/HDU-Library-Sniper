@@ -55,6 +55,19 @@ paths:
                 properties:
                   success: { type: boolean }
                   message: { type: string }
+  /api/session/logout:
+    post:
+      operationId: logout
+      responses:
+        "200":
+          description: Logout result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success]
+                properties:
+                  success: { type: boolean }
   /api/plans:
     get:
       operationId: listPlans

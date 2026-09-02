@@ -7,4 +7,5 @@
 
 export type ListFloorsParams = {
 roomQuery: string;
+roomType?: string;
 };

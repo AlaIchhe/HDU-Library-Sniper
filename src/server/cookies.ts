@@ -61,6 +61,10 @@ export class CookieJar {
       .join("; ");
   }
 
+  clear(): void {
+    this.cookies = [];
+  }
+
   merge(headers: Headers, requestUrl: string): boolean {
     const setCookies = typeof headers.getSetCookie === "function"
       ? headers.getSetCookie()

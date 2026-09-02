@@ -16,6 +16,10 @@ export function createApi(auth: AuthService, scheduler: Scheduler) {
       const body = await request.json() as { studentId?: string; password?: string };
       return json(await auth.login(body.studentId || "", body.password || ""));
     }
+    if (url.pathname === "/api/session/logout" && request.method === "POST") {
+      auth.logout();
+      return json({ success: true });
+    }
     const unauthorized = requireAuth();
     if (unauthorized) return unauthorized;
     if (url.pathname === "/api/audit" && request.method === "GET") {

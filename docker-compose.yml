@@ -7,10 +7,6 @@ services:
       - "${HDU_WEB_PORT:-8000}:8000"
     environment:
       HDU_SNIPER_HOME: /var/lib/hdu-sniper
-      HDU_STUDENT_ID: ${HDU_STUDENT_ID:-}
-      HDU_PASSWORD: ${HDU_PASSWORD:-}
-      HDU_STUDENT_ID_FILE: ${HDU_STUDENT_ID_FILE:-}
-      HDU_PASSWORD_FILE: ${HDU_PASSWORD_FILE:-}
     volumes:
       - hdu-data:/var/lib/hdu-sniper
 

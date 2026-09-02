@@ -5,8 +5,6 @@
  * OpenAPI spec version: 2.0.0
  */
 
-export type ListDurationsParams = {
-roomQuery: string;
-startHour: number;
-roomType?: string;
+export type Logout200 = {
+  success: boolean;
 };
