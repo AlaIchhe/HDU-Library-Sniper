@@ -113,13 +113,19 @@ fn disable_startup(_app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
+fn backend_executable(resource_dir: &std::path::Path) -> std::path::PathBuf {
+    let direct = resource_dir.join("hdu-sniper-server.exe");
+    if direct.exists() {
+        return direct;
+    }
+    // Tauri rewrites `..` in resource paths to `_up_/dist`, so older MSI layouts
+    // shipped the backend nested there. Keep resolving it for compatibility.
+    resource_dir.join("_up_").join("dist").join("hdu-sniper-server.exe")
+}
+
 #[tauri::command]
 fn start_backend(app: tauri::AppHandle, state: tauri::State<Backend>) -> Result<(), String> {
-    let resource = app
-        .path()
-        .resource_dir()
-        .map_err(|e| e.to_string())?
-        .join("hdu-sniper-server.exe");
+    let resource = backend_executable(&app.path().resource_dir().map_err(|e| e.to_string())?);
     let child = spawn_backend(&resource).map_err(|e| e.to_string())?;
     *state.0.lock().map_err(|_| "backend lock poisoned")? = Some(child);
     Ok(())
@@ -178,7 +184,7 @@ pub fn run() {
                 }
             }
             if let Ok(resource_dir) = app.path().resource_dir() {
-                let executable = resource_dir.join("hdu-sniper-server.exe");
+                let executable = backend_executable(&resource_dir);
                 if executable.exists() {
                     if let Ok(child) = spawn_backend(&executable) {
                         if let Ok(mut backend) = app.state::<Backend>().0.lock() {
