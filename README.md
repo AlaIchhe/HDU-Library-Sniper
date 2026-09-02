@@ -55,3 +55,28 @@ bun run tauri build
 
 The installed app keeps the backend running after the window is hidden. The
 tray exit action stops the backend.
+
+The Windows MSI installation creates the per-user scheduled task
+`HDU-Library-Sniper`. It launches the app with `--background` at logon and can
+be toggled from the application header.
+
+## Signed releases
+
+Generate a Tauri updater key pair once with `bun run tauri signer generate`.
+Configure these GitHub Actions secrets before pushing a `v*` tag:
+
+- `TAURI_SIGNING_PRIVATE_KEY`: the complete generated private key.
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the private-key password.
+
+The generated public key is not secret. Commit it to the `pubkey` field in
+`src-tauri/tauri.conf.json`; the release workflow validates that the placeholder
+has been replaced.
+
+The Windows release workflow builds the bundled Bun backend, MSI installer,
+updater signatures, and `latest.json`. Releases are created as drafts for a
+final manual review before publishing.
+
+The MSI WiX hook in `src-tauri/wix-fragments/startup.wxs` invokes the installed
+application with `--install-startup` after files are copied and with
+`--uninstall-startup` before files are removed. These commands create or delete
+the per-user `HDU-Library-Sniper` scheduled task through `schtasks.exe`.
