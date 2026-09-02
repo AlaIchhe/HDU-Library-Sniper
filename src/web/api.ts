@@ -4,7 +4,9 @@ import type { AuditEvent, Booking, BookingPlan, BookingRange, CheckInStatus, Dur
 export function resolveApiBase(): string {
   const configured = import.meta.env.VITE_API_BASE?.trim();
   if (configured) return configured.replace(/\/+$/, "");
-  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) return "http://127.0.0.1:8000";
+  if (typeof window === "undefined") return "";
+  if ("__TAURI_INTERNALS__" in window) return "http://127.0.0.1:8000";
+  if (window.location.protocol === "tauri:" || window.location.hostname === "tauri.localhost" || window.location.hostname === "asset.localhost") return "http://127.0.0.1:8000";
   return "";
 }
 
