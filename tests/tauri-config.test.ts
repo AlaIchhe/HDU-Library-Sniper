@@ -16,4 +16,11 @@ describe("tauri plugin configuration", () => {
     const html = readFileSync("index.html", "utf8");
     expect(html).toContain("connect-src 'self' http://127.0.0.1:8000");
   });
+
+  test("maps the backend resource into the install root dir", () => {
+    const config = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
+    expect(config.bundle?.resources).toEqual({
+      "../dist/hdu-sniper-server.exe": "hdu-sniper-server.exe",
+    });
+  });
 });
