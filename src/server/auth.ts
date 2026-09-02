@@ -12,6 +12,11 @@ const SSO_CSRF_KEY = "FzgxPikIetYDlXZM4lRG9taclVDa99lB";
 const SSO_CSRF_VALUE = "7964f321f00366a3a287a133dd307ed0";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36";
 
+// SSO’s QR scan endpoint long-polls until the code is scanned. Bound the wait so the
+// local status endpoint returns “waiting” promptly instead of hanging (which made the
+// Tauri webview fetch time out and surface “无法连接本地后台服务”).
+const QR_SCAN_TIMEOUT_MS = 2500;
+
 type SsoResponseBody = { code?: number; message?: string; data?: unknown; dataErrorMessage?: string };
 
 function encryptPassword(keyBase64: string, password: string): string {
@@ -214,16 +219,30 @@ export class AuthService {
     if (!uuid) return { status: "error", message: "二维码 ID 缺失" };
     try {
       const referer = await this.ensureSsoPage();
-      const response = await this.followRedirects(`${SSO_BASE}/api/protected/qrlogin/scan/${encodeURIComponent(uuid)}?${Date.now()}`, {
-        headers: this.ssoHeaders(referer),
-      });
-      if (!response.ok) throw new Error(`扫码状态请求失败: ${response.status}`);
-      const body = await this.readSsoJson(response);
-      if (typeof body.data === "string" && body.data) {
-        await this.completeQrLogin(body.data);
-        return { status: "confirmed", session: this.status() };
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), QR_SCAN_TIMEOUT_MS);
+      try {
+        const response = await this.followRedirects(`${SSO_BASE}/api/protected/qrlogin/scan/${encodeURIComponent(uuid)}?${Date.now()}`, {
+          headers: this.ssoHeaders(referer),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`扫码状态请求失败: ${response.status}`);
+        const body = await this.readSsoJson(response);
+        if (typeof body.data === "string" && body.data) {
+          await this.completeQrLogin(body.data);
+          return { status: "confirmed", session: this.status() };
+        }
+        return { status: "waiting" };
+      } catch (error) {
+        // A polling timeout means the code is still un-scanned; keep waiting
+        // instead of reporting a transport/network error to the UI.
+        if (error instanceof Error && (error.name === "AbortError" || /abort/i.test(error.message))) {
+          return { status: "waiting" };
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
       }
-      return { status: "waiting" };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("expired") || message.includes("过期")) return { status: "expired", message: "二维码已过期，请刷新" };
