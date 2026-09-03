@@ -25,6 +25,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          shared-key: release
           workspaces: src-tauri
       - run: bun install --frozen-lockfile
       - name: Build frontend and sidecar
