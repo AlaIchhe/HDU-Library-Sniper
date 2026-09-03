@@ -140,6 +140,7 @@ export function AppShell() {
   const target = useNextTarget()
   const runtime = useRuntime()
   const reduced = useReducedMotion()
+  const authenticated = Boolean(session?.authenticated)
 
   useEffect(() => { void getStartupStatus().then((status) => setStartupEnabledState(status.enabled)) }, [])
   useEffect(() => {
@@ -155,7 +156,11 @@ export function AppShell() {
     const poll = async () => { try { const result = await api.audit(50); if (active) await notifyAuditEvents(result.events) } catch { /* backend may not be ready yet */ } }
     void poll(); const timer = window.setInterval(() => void poll(), 15_000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [])
+  }, [authenticated])
+
+  useEffect(() => {
+    if (!session && pathname !== "/") navigate({ to: "/", replace: true })
+  }, [session, pathname, navigate])
 
   async function toggleStartup() {
     const next = !startupEnabled

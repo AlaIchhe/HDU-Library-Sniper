@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isTauri } from "./tauri";
+import { useAppStore } from "./store";
 import type {
   AuditEvent,
   Booking,
@@ -55,8 +56,15 @@ async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>):
   }
   if (!response.ok) {
     if (isTauri()) {
-      const { error } = await import("@tauri-apps/plugin-log");
-      error(`API 返回错误: ${url} -> ${response.status}`);
+      const { error, warn } = await import("@tauri-apps/plugin-log");
+      const message = `API 返回错误: ${url} -> ${response.status}`;
+      if (response.status >= 500) error(message);
+      else warn(message);
+    }
+    if (response.status === 401) {
+      // 后台服务重启会丢失内存会话；清掉本地状态让轮询停下并回到登录页
+      useAppStore.getState().setSession(null);
+      throw new Error("登录已过期，请重新登录");
     }
     throw new Error(body.detail || body.message || `请求失败 (${response.status})`);
   }

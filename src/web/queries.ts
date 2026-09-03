@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
+import { useAppStore } from "./store";
+
+const useAuthenticated = () => useAppStore((state) => state.session?.authenticated ?? false);
 
 export const queryKeys = {
   session: ["session"] as const,
@@ -11,21 +14,42 @@ export const queryKeys = {
   roomTypes: ["room-types"] as const,
   floors: (roomQuery: string, roomType?: string) => ["floors", roomQuery, roomType || ""] as const,
   durations: (roomQuery: string, startHour: number, roomType?: string) => ["durations", roomQuery, roomType || "", startHour] as const,
-  audit: ["audit"] as const,
 };
 
 export function useSession() { return useQuery({ queryKey: queryKeys.session, queryFn: api.session, retry: false }); }
-export function usePlans() { return useQuery({ queryKey: queryKeys.plans, queryFn: api.plans }); }
-export function useBookings() { return useQuery({ queryKey: queryKeys.bookings, queryFn: api.bookings, refetchInterval: 30_000 }); }
-export function useNextTarget() { return useQuery({ queryKey: queryKeys.nextTarget, queryFn: api.nextTarget, refetchInterval: 30_000 }); }
-export function useRuntime() { return useQuery({ queryKey: queryKeys.runtime, queryFn: api.runtime, refetchInterval: 15_000 }); }
-export function useCheckin() { return useQuery({ queryKey: queryKeys.checkin, queryFn: api.checkinStatus }); }
-export function useAudit(limit = 20) { return useQuery({ queryKey: queryKeys.audit, queryFn: () => api.audit(limit), refetchInterval: 15_000 }); }
-export function useRoomTypes() { return useQuery({ queryKey: queryKeys.roomTypes, queryFn: api.roomTypes }); }
-export function useFloors(roomQuery: string, roomType?: string) { return useQuery({ queryKey: queryKeys.floors(roomQuery, roomType), queryFn: () => api.floors(roomQuery, roomType), enabled: Boolean(roomQuery) }); }
+export function usePlans() {
+  const authenticated = useAuthenticated();
+  return useQuery({ queryKey: queryKeys.plans, queryFn: api.plans, enabled: authenticated });
+}
+
+export function useBookings() {
+  const authenticated = useAuthenticated();
+  return useQuery({ queryKey: queryKeys.bookings, queryFn: api.bookings, refetchInterval: 30_000, enabled: authenticated });
+}
+export function useNextTarget() {
+  const authenticated = useAuthenticated();
+  return useQuery({ queryKey: queryKeys.nextTarget, queryFn: api.nextTarget, refetchInterval: 30_000, enabled: authenticated });
+}
+export function useRuntime() {
+  const authenticated = useAuthenticated();
+  return useQuery({ queryKey: queryKeys.runtime, queryFn: api.runtime, refetchInterval: 15_000, enabled: authenticated });
+}
+export function useCheckin() {
+  const authenticated = useAuthenticated();
+  return useQuery({ queryKey: queryKeys.checkin, queryFn: api.checkinStatus, enabled: authenticated });
+}
+export function useRoomTypes() {
+  const authenticated = useAuthenticated();
+  return useQuery({ queryKey: queryKeys.roomTypes, queryFn: api.roomTypes, enabled: authenticated });
+}
+export function useFloors(roomQuery: string, roomType?: string) {
+  const authenticated = useAuthenticated();
+  return useQuery({ queryKey: queryKeys.floors(roomQuery, roomType), queryFn: () => api.floors(roomQuery, roomType), enabled: authenticated && Boolean(roomQuery) });
+}
 export function useDurations(roomQuery: string, startHour: string, roomType?: string) {
   const hour = Number(startHour);
-  return useQuery({ queryKey: queryKeys.durations(roomQuery, hour, roomType), queryFn: () => api.durations(roomQuery, hour, roomType), enabled: Boolean(roomQuery) && startHour !== "" });
+  const authenticated = useAuthenticated();
+  return useQuery({ queryKey: queryKeys.durations(roomQuery, hour, roomType), queryFn: () => api.durations(roomQuery, hour, roomType), enabled: authenticated && Boolean(roomQuery) && startHour !== "" });
 }
 
 export function usePlanMutations() {
