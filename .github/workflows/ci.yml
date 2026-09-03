@@ -27,6 +27,10 @@ jobs:
         with:
           workspaces: src-tauri
       - run: bun install --frozen-lockfile
+      - name: Build frontend and sidecar
+        run: |
+          npm run build
+          bun run build:server
       - name: Warm release build cache
         working-directory: src-tauri
         run: cargo build --release
