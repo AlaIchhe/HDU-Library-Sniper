@@ -378,11 +378,15 @@ function GroupEditor({
     .filter(Boolean) as BookingPlan[]
 
   async function submit(values: z.infer<typeof groupSchema>) {
-    if (initial)
-      await mutations.updateGroup.mutateAsync({ id: initial.id, name: values.name, ids: values.ids })
-    else await mutations.createGroup.mutateAsync({ name: values.name, ids: values.ids })
-    toastManager.add({ type: "success", title: initial ? "组合方案已更新" : "组合方案已创建" })
-    onClose()
+    try {
+      if (initial)
+        await mutations.updateGroup.mutateAsync({ id: initial.id, name: values.name, ids: values.ids })
+      else await mutations.createGroup.mutateAsync({ name: values.name, ids: values.ids })
+      toastManager.add({ type: "success", title: initial ? "组合方案已更新" : "组合方案已创建" })
+      onClose()
+    } catch (cause) {
+      toastManager.add({ type: "error", title: cause instanceof Error ? cause.message : "组合方案保存失败" })
+    }
   }
 
   return (

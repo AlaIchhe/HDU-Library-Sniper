@@ -110,8 +110,8 @@ export function getGroupMembers(groupId: string): string[] {
 
 export function saveGroup(group: { id: string; name: string; memberPlanIds: string[]; weekdays: Weekday[]; enabled: boolean; createdAt: string; updatedAt: string }): void {
   const transaction = db.transaction(() => {
-    db.query(`INSERT INTO plans (id, kind, name, room_type, room_query, floor_id, seat_num, weekdays, enabled, created_at, updated_at)
-      VALUES (?1, 'group', ?2, '', '', 0, '', ?3, ?4, ?5, ?6)
+    db.query(`INSERT INTO plans (id, kind, name, room_type, room_query, floor_id, seat_num, start_hour, duration_hours, weekdays, enabled, created_at, updated_at)
+      VALUES (?1, 'group', ?2, '', '', 0, '', 0, 0, ?3, ?4, ?5, ?6)
       ON CONFLICT(id) DO UPDATE SET kind='group', name=excluded.name, weekdays=excluded.weekdays,
       enabled=excluded.enabled, updated_at=excluded.updated_at`).run(
       group.id, group.name, JSON.stringify(group.weekdays), group.enabled ? 1 : 0, group.createdAt, group.updatedAt,
