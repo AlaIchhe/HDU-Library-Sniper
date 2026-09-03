@@ -113,3 +113,26 @@ describe("LibraryClient.bookingRange parsing", () => {
     expect(range).toEqual({ minBeginTime: 7, maxEndTime: 22, minDuration: 1, maxDuration: 15 });
   });
 });
+
+describe("LibraryClient.bookSeat", () => {
+  test("submits the booking request with LAB_JSON=1 and an Api-Token header", async () => {
+    let captured: { path: string; init?: RequestInit } | undefined;
+    const client = makeClient(async (path, init) => {
+      captured = { path, init };
+      return { CODE: "ok", DATA: { result: "success" } } as unknown as Record<string, unknown>;
+    });
+    client.uid = "304174";
+
+    await client.bookSeat("42", new Date(2026, 8, 5, 9, 0, 0), 12);
+
+    // 慧图接口必须带 LAB_JSON=1 才会返回 JSON；apiToken() 签名也按该形式计算，
+    // 若此处回退为不带参数，服务端会返回 XHTML 登录页导致"非 JSON 响应"错误。
+    expect(captured?.path).toBe("/Seat/Index/bookSeats?LAB_JSON=1");
+    const headers = new Headers(captured?.init?.headers);
+    expect(headers.get("Api-Token")).toBeTruthy();
+    const body = captured?.init?.body instanceof URLSearchParams ? captured.init.body : undefined;
+    expect(body?.get("seats[0]")).toBe("42");
+    expect(body?.get("seatBookers[0]")).toBe("304174");
+    expect(body?.get("duration")).toBe(String(12 * 3600));
+  });
+});

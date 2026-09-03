@@ -20,7 +20,7 @@
 
 Windows x64 MSI 安装包：
 
-[下载 HDU Library Sniper](https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/HDU.Library.Sniper_2.0.8_x64_zh-CN.msi)
+[下载 HDU Library Sniper](https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/HDU.Library.Sniper_2.0.9_x64_zh-CN.msi)
 
 ## 使用说明
 
@@ -221,11 +221,11 @@ https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/latest.j
 正式发布版本时推送 `v*` 标签：
 
 ```powershell
-git tag -a v2.0.8 -m "Release v2.0.8"
-git push origin v2.0.8
+git tag -a v2.0.9 -m "Release v2.0.9"
+git push origin v2.0.9
 ```
 
-`.github/workflows/release.yml` 会在 Windows runner 上完成依赖安装、Bun 后端编译、MSI 打包、签名并生成 `latest.json`。工作流默认创建 Draft Release，检查资产后需要在 GitHub 页面手动发布，发布后客户端才能通过 `releases/latest` 获取更新。
+`.github/workflows/release.yml` 会在 Windows runner 上完成依赖安装、Bun 后端编译、MSI 打包、签名并生成 `latest.json`。工作流会直接发布正式 Release，上传 MSI 后客户端即可通过 `releases/latest` 获取自动更新，无需再手动发布。
 
 ## 项目结构
 

@@ -46,5 +46,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "HDU Library Sniper ${{ github.ref_name }}"
           args: "--bundles msi"
-          releaseDraft: true
+          # 直接发布正式 Release：tauri-action 会上传 MSI 并生成 latest.json，
+          # 客户端通过 releases/latest 自动更新即可拉取，无需再手动发布。
+          releaseDraft: false
           prerelease: false

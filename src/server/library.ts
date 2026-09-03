@@ -212,7 +212,9 @@ export class LibraryClient {
       "seats[0]": seatId,
       "seatBookers[0]": this.uid,
     });
-    return this.request("/Seat/Index/bookSeats", {
+    // 慧图接口需要 LAB_JSON=1 才会返回 JSON，否则返回 XHTML 登录/通用页。
+    // apiToken() 的签名串按 `?LAB_JSON=1` 计算，这里必须保持一致。
+    return this.request("/Seat/Index/bookSeats?LAB_JSON=1", {
       method: "POST",
       headers: { "Api-Token": apiToken(seatId, this.uid, begin, duration, apiTime) },
       body: payload,
