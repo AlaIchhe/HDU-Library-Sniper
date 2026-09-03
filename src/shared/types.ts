@@ -119,6 +119,9 @@ export type ApiError = { detail?: string };
 export type QrLoginStart = {
   uuid: string;
   image: string;
+  /** 二维码可安全扫描的时间窗口（秒）。SSO 在该窗口结束后会作废旧码，
+   *  客户端应在此窗口到期前换一张新二维码，避免对已失效的码空转轮询。 */
+  ttlSeconds: number;
 };
 
 export type QrLoginStatus = {
@@ -126,4 +129,3 @@ export type QrLoginStatus = {
   message?: string;
   session?: SessionStatus;
 };
-

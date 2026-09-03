@@ -14,9 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
-  CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -36,7 +34,14 @@ import { useAppStore } from "../store"
 import { Busy, loginSchema } from "../shared"
 import type { QrLoginStart } from "../../shared/types"
 
-type QrState = "loading" | "ready" | "waiting" | "confirmed" | "expired" | "error"
+// 二维码状态机。UI 只对“确定性”状态做反馈，不做中间态伪反馈：
+//  - loading：正在获取二维码（确定）
+//  - ready：二维码已就绪，等待用户扫码（确定）
+//  - confirmed：已确认登录成功（确定）
+//  - expired / error：二维码已失效或获取失败（确定，需要换码）
+// 轮询期间（ready 之后、confirmed/expired 之前）不产生任何“等待服务器/已扫描/待确认”
+// 文案——SSO 不暴露这些中间态，任何此类反馈都是歧义。
+type QrState = "loading" | "ready" | "confirmed" | "expired" | "error"
 
 function LoginPage() {
   const navigate = useNavigate()
@@ -61,7 +66,7 @@ function LoginPage() {
       if (nonce !== qrNonce.current) return
       setQr(nextQr)
       setQrState("ready")
-      setQrMessage("请使用企业微信扫码登录")
+      setQrMessage("请使用钉钉扫码登录")
     } catch (cause) {
       if (nonce !== qrNonce.current) return
       setQrState("error")
@@ -69,20 +74,23 @@ function LoginPage() {
     }
   }, [])
 
-  useEffect(() => {
-    void loadQr()
-  }, [loadQr])
+  // 二维码生命周期由两个独立时钟驱动，互不干扰：
+  //  - 轮询时钟：只探测“是否已确认/是否已失效”，不改变二维码本身；
+  //  - 到期时钟：二维码展示超过安全窗口后自动换新码，避免用户对着失效码空等。
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const expiryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const loop = useRef({ stopped: true })
 
   useEffect(() => {
-    if (!qr || !["ready", "waiting"].includes(qrState)) return
-    let stopped = false
-    let timer: ReturnType<typeof setTimeout>
+    if (!qr) return
+    const currentQr = qr
+    let cancelled = false
 
-    async function poll() {
-      if (!qr || stopped) return
+    async function tick() {
+      if (loop.current.stopped || cancelled) return
       try {
-        const result = await api.qrStatus(qr.uuid)
-        if (stopped) return
+        const result = await api.qrStatus(currentQr.uuid)
+        if (loop.current.stopped || cancelled) return
         if (result.status === "confirmed") {
           setQrState("confirmed")
           if (result.session?.authenticated) {
@@ -95,32 +103,47 @@ function LoginPage() {
           return
         }
         if (result.status === "expired") {
-          setQrState("expired")
-          setQrMessage(result.message || "二维码已过期，请刷新")
+          // SSO 判定该码已失效：自动换新码，不打扰用户。
+          void loadQr()
           return
         }
         if (result.status === "error") {
-          setQrState("error")
-          setQrMessage(result.message || "扫码状态获取失败")
+          // 服务端短暂异常：不立即判死，稍后重试一轮。
+          await new Promise((resolve) => setTimeout(resolve, 800))
+          if (loop.current.stopped || cancelled) return
+          pollTimer.current = setTimeout(tick, 0)
           return
         }
-        setQrState("waiting")
-        setQrMessage("等待扫码确认...")
-      } catch (cause) {
-        if (stopped) return
-        setQrState("error")
-        setQrMessage(cause instanceof Error ? cause.message : "扫码状态获取失败")
-        return
+        // waiting：二维码仍有效，静默继续下一轮。
+        pollTimer.current = setTimeout(tick, 1500)
+      } catch {
+        if (loop.current.stopped || cancelled) return
+        pollTimer.current = setTimeout(tick, 1500)
       }
-      if (!stopped) timer = setTimeout(poll, 1800)
     }
 
-    timer = setTimeout(poll, 1200)
+    loop.current.stopped = false
+    pollTimer.current = setTimeout(tick, 1200)
+
+    // 到期自动换码：在安全窗口到期前提前刷新。
+    const ttl = Math.max(20, currentQr.ttlSeconds || 90)
+    const lead = Math.min(10, Math.floor(ttl / 4))
+    expiryTimer.current = setTimeout(() => {
+      if (loop.current.stopped || cancelled) return
+      void loadQr()
+    }, Math.max(0, (ttl - lead) * 1000))
+
     return () => {
-      stopped = true
-      clearTimeout(timer)
+      cancelled = true
+      loop.current.stopped = true
+      if (pollTimer.current) clearTimeout(pollTimer.current)
+      if (expiryTimer.current) clearTimeout(expiryTimer.current)
     }
-  }, [qr, qrState, navigate, setSession])
+  }, [qr, loadQr, navigate, setSession])
+
+  useEffect(() => {
+    void loadQr()
+  }, [loadQr])
 
   async function submit(values: z.infer<typeof loginSchema>) {
     setError("")
@@ -134,7 +157,8 @@ function LoginPage() {
     }
   }
 
-  const qrBusy = qrState === "loading" || qrState === "waiting" || qrState === "confirmed"
+  const qrBusy = qrState === "loading"
+  const showQr = qr?.image && qrState !== "loading"
 
   return (
     <main className="relative grid min-h-svh place-items-center overflow-hidden p-6">
@@ -158,7 +182,7 @@ function LoginPage() {
             登录图书馆账户
           </CardTitle>
           <CardDescription className="break-words">
-            支持账号密码或企业微信扫码，登录后可管理预约方案并保持后台服务运行。
+            支持账号密码或钉钉扫码，登录后可管理预约方案并保持后台服务运行。
           </CardDescription>
         </CardHeader>
         <div className="grid gap-0 px-6 pb-6 md:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)]">
@@ -211,14 +235,13 @@ function LoginPage() {
               <Badge variant={qrState === "error" || qrState === "expired" ? "warning" : "secondary"}>
                 {qrState === "loading" && "加载中"}
                 {qrState === "ready" && "待扫码"}
-                {qrState === "waiting" && "待确认"}
                 {qrState === "confirmed" && "已确认"}
                 {qrState === "expired" && "已过期"}
                 {qrState === "error" && "异常"}
               </Badge>
             </div>
             <div className="relative mx-auto aspect-square w-full max-w-60 overflow-hidden rounded-xl border bg-background">
-              {qr?.image && ["ready", "waiting", "expired", "error"].includes(qrState) ? (
+              {showQr ? (
                 <img
                   src={qr.image}
                   alt="SSO 登录二维码"
@@ -244,7 +267,7 @@ function LoginPage() {
               )}
             </div>
             <p className="text-center text-xs leading-5 text-muted-foreground">
-              扫码请求由本地后台代理，避免跨域并保护登录会话。
+              扫码请求由本地后台代理，避免跨域并保护登录会话。二维码失效后将自动刷新。
             </p>
           </div>
         </div>
@@ -270,16 +293,3 @@ export function LoginGate() {
   if (query.isLoading && !session) return <Busy label="正在连接后台服务..." />
   return session?.authenticated ? <Busy /> : <LoginPage />
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
