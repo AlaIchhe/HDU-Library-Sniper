@@ -20,7 +20,7 @@
 
 Windows x64 MSI 安装包：
 
-[下载 HDU Library Sniper](https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/HDU.Library.Sniper_2.0.5_x64_zh-CN.msi)
+[下载 HDU Library Sniper](https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/HDU.Library.Sniper_2.0.6_x64_zh-CN.msi)
 
 ## 使用说明
 
@@ -175,19 +175,12 @@ sudo bun run podman:auto-update:uninstall
 
 ## Windows MSI 安装
 
-直接下载上方 MSI，双击安装即可。安装器使用当前用户权限，不需要管理员权限。
+直接下载上方 MSI，双击安装即可（安装位置为 `Program Files`，首次安装可能需要管理员确认）。如果电脑上已经安装了旧的 MSI 版本，新版本会自动覆盖；如果旧版本来自更早的 Setup(`.exe`)/NSIS/Inno 安装包，MSI 安装时也会先将其卸载，避免新旧两套程序同时存在导致点开仍是旧版本。
 
-安装过程会创建当前用户的计划任务：
-
-- 任务名：`HDU-Library-Sniper`
-- 触发器：用户登录时（`ONLOGON`）
-- 启动参数：`--background`
-- 作用：启动桌面端并保持后台预约、签到和托盘服务运行
-
-安装后可在应用顶部切换“开启自启”。卸载时会自动删除该计划任务。也可以使用系统命令查看：
+安装完成后可在应用顶部切换“开启自启”。自启使用当前用户的启动项（`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`），以 `--background` 参数在登录时启动后台预约、签到和托盘服务。也可以用系统命令查看：
 
 ```powershell
-schtasks /Query /TN "HDU-Library-Sniper"
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "HDU-Library-Sniper"
 ```
 
 关闭主窗口不会停止任务；请从托盘菜单退出应用，或在设置中关闭自启后再卸载。
@@ -208,7 +201,7 @@ bun run tauri build --bundles msi
 src-tauri/target/release/bundle/msi/
 ```
 
-项目只发布 MSI，不发布 NSIS 安装包。MSI 使用 WiX hook 在安装后创建、卸载前删除计划任务。
+项目只发布 MSI，不发布 NSIS 安装包。MSI 使用 WiX hook 在安装时先清理旧版安装、再覆盖新文件，避免新旧版本并存导致点开仍是旧版本。
 
 ## 自动更新与发布
 
@@ -228,8 +221,8 @@ https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/latest.j
 正式发布版本时推送 `v*` 标签：
 
 ```powershell
-git tag -a v2.0.5 -m "Release v2.0.5"
-git push origin v2.0.5
+git tag -a v2.0.6 -m "Release v2.0.6"
+git push origin v2.0.6
 ```
 
 `.github/workflows/release.yml` 会在 Windows runner 上完成依赖安装、Bun 后端编译、MSI 打包、签名并生成 `latest.json`。工作流默认创建 Draft Release，检查资产后需要在 GitHub 页面手动发布，发布后客户端才能通过 `releases/latest` 获取更新。
