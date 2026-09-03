@@ -1,6 +1,6 @@
 [package]
 name = "hdu-library-sniper"
-version = "2.0.8"
+version = "2.0.9"
 description = "HDU Library Sniper"
 authors = ["HDU Library Sniper Contributors"]
 edition = "2021"
