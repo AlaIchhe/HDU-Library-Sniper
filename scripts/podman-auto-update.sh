@@ -46,7 +46,6 @@ cleanup() {
   fi
   exit "$status"
 }
-trap cleanup EXIT
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
@@ -153,6 +152,16 @@ if ! flock -n 9; then
   exit 0
 fi
 
+# 锁由父 shell 持有。把真正的更新逻辑放进一个子 shell 执行，并在子 shell 内
+# 立刻关闭锁描述符 9，避免脚本通过 podman 启动的 conmon 进程继承这个锁 fd。
+# 否则 conmon 会一直持有锁，导致次日自动更新被误判为 "already running" 而跳过。
+#
+# 清理逻辑也必须放进子 shell：CANDIDATE_CONTAINER / CANDIDATE_VOLUME /
+# WORKTREE_DIR 都在子 shell 内赋值，只有子 shell 里的 cleanup 能看到并正确清理。
+(
+  exec 9>&-
+  trap cleanup EXIT
+
 git -C "$REPO_DIR" fetch --quiet "$REMOTE" "$BRANCH"
 TARGET_REVISION="$(git -C "$REPO_DIR" rev-parse "$REMOTE/$BRANCH")"
 SHORT_REVISION="${TARGET_REVISION:0:12}"
@@ -245,3 +254,4 @@ if [[ -n "$PREVIOUS_CONTAINER" ]]; then
 fi
 
 log "updated successfully to $TARGET_REVISION"
+)
