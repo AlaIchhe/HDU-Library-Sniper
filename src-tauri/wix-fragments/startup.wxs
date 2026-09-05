@@ -6,43 +6,32 @@
       the per-user HKCU Run entry of the installing user:
         - fresh install and upgrades (re)write the entry, so it always points at
           the freshly installed exe path;
-        - uninstall removes it, unless this uninstall is part of a major upgrade
-          (UPGRADINGPRODUCTCODE is set on the old product) where the new package
-          rewrites the entry right after;
+        - uninstall removes the component and with it the Run value;
         - disabling autostart is out of app scope: delete the Run value manually.
-      Custom actions use the Directory+ExeCommand form because Tauri's generated
-      mainBinary FileKey id is not stable across builds. Impersonate=yes keeps
-      the per-user write elevation-free; Return=ignore never fails the MSI over
-      autostart.
+      The value is written as a plain RegistryValue component. An earlier
+      revision spawned the app with the install-startup argument from a
+      deferred custom action, but that failed silently inside msiexec
+      (Return=ignore hid it),
+      so the registry write no longer depends on launching the exe.
     -->
-    <CustomAction
-      Id="CreateHduStartupTask"
-      Directory="INSTALLDIR"
-      ExeCommand="hdu-library-sniper.exe --install-startup"
-      Execute="deferred"
-      Impersonate="yes"
-      Return="ignore" />
-    <CustomAction
-      Id="DeleteHduStartupTask"
-      Directory="INSTALLDIR"
-      ExeCommand="hdu-library-sniper.exe --uninstall-startup"
-      Execute="deferred"
-      Impersonate="yes"
-      Return="ignore" />
-    <InstallExecuteSequence>
-      <Custom Action="CreateHduStartupTask" After="InstallFiles">NOT Installed AND NOT REMOVE</Custom>
-      <Custom Action="RestartHduApp" After="InstallFinalize">NOT Installed AND NOT REMOVE</Custom>
-      <Custom Action="DeleteHduStartupTask" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
-    </InstallExecuteSequence>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="CMP_StartupEntry" Guid="7E1A4C2D-9B3F-4D8A-A6E5-1C2B3D4E5F60">
+        <RegistryValue
+          Root="HKCU"
+          Key="Software\Microsoft\Windows\CurrentVersion\Run"
+          Name="HDU-Library-Sniper"
+          Type="string"
+          Value='"[INSTALLDIR]hdu-library-sniper.exe" --background'
+          KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
     <!--
       RestartHduApp: the updater flow runs this MSI while the app is running, and
       StopRunningApp (upgrade-migrate.wxs) kills it mid-install, so the webview
-      cannot relaunch itself. After the install commits, bring the freshly
-      installed app back in background mode so the 20:00 anchor never goes dark.
-      cmd.exe resolves via PATH; `start` detaches so msiexec can exit.
-      The action runs IMMEDIATE (not in-script): ICE77 forbids deferred
-      actions after InstallFinalize, and as an immediate action sequenced
-      there the freshly copied files are already on disk.
+      cannot relaunch itself. An IMMEDIATE action sequenced after InstallFinalize
+      runs once the script has executed and the freshly copied files are on disk
+      (ICE77 forbids deferred actions there). cmd.exe resolves via PATH; `start`
+      detaches so msiexec can exit while the new app keeps running.
     -->
     <CustomAction
       Id="RestartHduApp"
@@ -51,13 +40,8 @@
       Execute="immediate"
       Impersonate="yes"
       Return="asyncNoWait" />
-    <!-- Placeholder component that forces WiX light.exe to link this fragment
-         into the MSI; without a referenced component the custom actions above
-         are silently dropped during bundling (see upgrade-migrate.wxs). -->
-    <DirectoryRef Id="INSTALLDIR">
-      <Component Id="CMP_StartupEntry" Guid="7E1A4C2D-9B3F-4D8A-A6E5-1C2B3D4E5F60">
-        <RegistryValue Root="HKCU" Key="Software\github\HDU Library Sniper" Name="StartupEntry" Type="integer" Value="1" KeyPath="yes" />
-      </Component>
-    </DirectoryRef>
+    <InstallExecuteSequence>
+      <Custom Action="RestartHduApp" After="InstallFinalize">NOT Installed AND NOT REMOVE</Custom>
+    </InstallExecuteSequence>
   </Fragment>
 </Wix>

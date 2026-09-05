@@ -6,20 +6,8 @@ use tauri::{Manager, WindowEvent};
 
 struct Backend(Mutex<Option<Child>>);
 
-const STARTUP_TASK: &str = "HDU-Library-Sniper";
-
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-#[cfg(windows)]
-fn run_reg(args: &[&str]) -> Result<std::process::Output, String> {
-    use std::os::windows::process::CommandExt;
-    Command::new("reg.exe")
-        .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| e.to_string())
-}
 
 #[cfg(windows)]
 fn spawn_backend(executable: &std::path::Path) -> std::io::Result<Child> {
@@ -34,48 +22,7 @@ fn spawn_backend(executable: &std::path::Path) -> std::io::Result<Child> {
     Command::new(executable).spawn()
 }
 
-#[cfg(windows)]
-// NOTE: reg.exe requires the root hive prefix (HKCU\). Without it the command
-// fails with "Invalid key name", so autostart would never be persisted.
-const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-
-#[cfg(windows)]
-fn startup_enabled() -> bool {
-    run_reg(&["query", RUN_KEY, "/v", STARTUP_TASK])
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-}
-
-#[cfg(windows)]
-fn set_startup_task(exe: &std::path::Path, enabled: bool) -> Result<(), String> {
-    if enabled {
-        // HKCU Run is per-user and does not require elevation, unlike schtasks /SC ONLOGON.
-        let action = format!("\"{}\" --background", exe.display());
-        let output = run_reg(&[
-            "add",
-            RUN_KEY,
-            "/v",
-            STARTUP_TASK,
-            "/t",
-            "REG_SZ",
-            "/d",
-            &action,
-            "/f",
-        ])?;
-        if !output.status.success() {
-            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
-        }
-    } else {
-        let output = run_reg(&["delete", RUN_KEY, "/v", STARTUP_TASK, "/f"])?;
-        if !output.status.success() && startup_enabled() {
-            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
-        }
-    }
-    Ok(())
-}
-
-// MSI 安装/卸载阶段通过 --install-startup / --uninstall-startup 维护自启项，
-// UI 不提供开关；运行时不再暴露 Tauri command。
+// 自启项由 MSI 安装阶段的 startup.wxs RegistryValue 组件直接维护。
 
 fn backend_executable(resource_dir: &std::path::Path) -> std::path::PathBuf {
     let direct = resource_dir.join("hdu-sniper-server.exe");
@@ -108,25 +55,6 @@ fn stop_backend(state: tauri::State<Backend>) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[cfg(windows)]
-    {
-        let args: Vec<String> = std::env::args().collect();
-        if args
-            .iter()
-            .any(|arg| arg == "--install-startup" || arg == "--uninstall-startup")
-        {
-            let enabled = args.iter().any(|arg| arg == "--install-startup");
-            let result = std::env::current_exe()
-                .map_err(|e| e.to_string())
-                .and_then(|exe| set_startup_task(&exe, enabled));
-            if let Err(error) = result {
-                eprintln!("startup task configuration failed: {error}");
-                std::process::exit(1);
-            }
-            return;
-        }
-    }
-
     let mut builder = tauri::Builder::default();
 
     #[cfg(desktop)]
