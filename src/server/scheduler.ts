@@ -1,8 +1,11 @@
 import type { RuntimeStatus } from "../shared/types";
-import { getMeta, setMeta, writeAudit } from "./db";
 import { AuthService } from "./auth";
+import { getMeta, setMeta, writeAudit } from "./db";
+import { bookingAnchorDelaySeconds, timezone } from "./config";
 import { tryAcquireJobLock } from "./lock";
 import { BookingExecutor } from "./booking";
+import { AuthenticationExpiredError } from "./library";
+import { listPlanItems } from "./plans";
 
 const checkInStartMinutes = 7 * 60 + 30;
 const checkInEndMinutes = 19 * 60 + 30;
@@ -10,13 +13,13 @@ const checkInIntervalMs = 15 * 60_000;
 
 export class Scheduler {
   private timer: Timer | undefined;
+  private bookingTimer: Timer | undefined;
   private nextPollAt: string | undefined;
   private running = false;
   private statusValue: RuntimeStatus = {
     scheduler: "stopped",
     state: "idle",
     checkInPolling: { active: false },
-    bookingScheduler: { installed: process.env.HDU_BOOKING_SCHEDULER_INSTALLED === "1" },
   };
 
   constructor(private readonly auth: AuthService, private readonly booking: BookingExecutor) {}
@@ -39,12 +42,15 @@ export class Scheduler {
     if (this.timer) return;
     this.statusValue.scheduler = "running";
     this.scheduleNextPoll();
+    this.scheduleBookingAnchor();
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
     this.nextPollAt = undefined;
+    if (this.bookingTimer) clearTimeout(this.bookingTimer);
+    this.bookingTimer = undefined;
     this.statusValue.scheduler = "stopped";
   }
 
@@ -59,6 +65,46 @@ export class Scheduler {
       return { success: result.success, message: result.message };
     } finally {
       this.running = false;
+      if (this.statusValue.state === "running") this.statusValue.state = "idle";
+    }
+  }
+
+  private shanghaiSecondsOfDay(): number {
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+    const value = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+    return value("hour") * 3600 + value("minute") * 60 + value("second");
+  }
+
+  private scheduleBookingAnchor(): void {
+    if (this.bookingTimer) return;
+    const delay = bookingAnchorDelaySeconds(this.shanghaiSecondsOfDay());
+    this.bookingTimer = setTimeout(() => {
+      this.bookingTimer = undefined;
+      void this.bookingAnchorTick().finally(() => this.scheduleBookingAnchor());
+    }, delay * 1000);
+  }
+
+  private async bookingAnchorTick(): Promise<void> {
+    if (!listPlanItems().some((item) => item.enabled)) return;
+    this.statusValue.state = "running";
+    try {
+      if (!(await this.auth.restore())) {
+        this.statusValue.state = "auth_required";
+        return;
+      }
+      const result = await this.booking.runBurst();
+      this.statusValue.lastRunAt = new Date().toISOString();
+      this.statusValue.lastMessage = result.message;
+    } catch (error) {
+      if (error instanceof AuthenticationExpiredError && (await this.auth.restore())) {
+        const result = await this.booking.runBurst();
+        this.statusValue.lastRunAt = new Date().toISOString();
+        this.statusValue.lastMessage = result.message;
+      } else {
+        this.statusValue.lastMessage = String(error);
+        writeAudit("booking_burst_failed", { error: String(error) });
+      }
+    } finally {
       if (this.statusValue.state === "running") this.statusValue.state = "idle";
     }
   }
