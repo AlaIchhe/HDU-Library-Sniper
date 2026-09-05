@@ -41,7 +41,7 @@ export async function floors(auth: AuthService, roomQuery: string, roomType?: st
   const options = (await auth.client.floors(roomQuery, lookup, 1))
     .map(floorToOption)
     .filter((option): option is FloorOption => Boolean(option));
-  if (!options.length) throw new HduLibraryError("座位图没有可用楼层");
+  if (!options.length) throw new HduLibraryError("该房间类型当前没有可预约楼层（可能尚未开放预约，请尝试其他房间类型）");
   return { options, range };
 }
 

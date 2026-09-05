@@ -72,6 +72,23 @@ export function FieldError({
   );
 }
 
+export function FormError({
+  className,
+  children,
+  ...props
+}: React.ComponentPropsWithoutRef<"p">): React.ReactElement {
+  return (
+    <p
+      className={cn("text-destructive-foreground text-xs", className)}
+      role="alert"
+      data-slot="form-error"
+      {...props}
+    >
+      {children}
+    </p>
+  );
+}
+
 export const FieldControl: typeof FieldPrimitive.Control =
   FieldPrimitive.Control;
 export const FieldValidity: typeof FieldPrimitive.Validity =
