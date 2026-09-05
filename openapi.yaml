@@ -235,7 +235,7 @@ paths:
   /api/bookings/{id}/{action}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
-      - { name: action, in: path, required: true, schema: { type: string } }
+      - { name: action, in: path, required: true, schema: { type: string, enum: [cancel, check-in, leave, renew, sign-out] } }
     post:
       operationId: bookingAction
       responses:
@@ -345,8 +345,10 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [options]
+                required: [roomQuery, startHour, options]
                 properties:
+                  roomQuery: { type: string }
+                  startHour: { type: integer }
                   options: { type: array, items: { type: integer } }
 components:
   schemas:

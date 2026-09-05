@@ -10,8 +10,8 @@ function makeClient(request: (path: string, init?: RequestInit) => Promise<Recor
   return client;
 }
 
-describe("LibraryClient.floors parsing", () => {
-  test("collects floor nodes regardless of the nested tree shape", async () => {
+describe("LibraryClient contract parsing", () => {
+  test("parses the exact Huitu seat map path", async () => {
     const client = makeClient(async (path) => {
       // The first GET returns the space_category; the POST returns the seat map.
       if (path.includes("space_category[")) {
@@ -20,14 +20,21 @@ describe("LibraryClient.floors parsing", () => {
       return {
         allContent: {
           children: [
-            { children: [{ children: [] }] },
+            { children: {} },
             {
               children: [
-                {
-                  roomName: "四楼",
-                  seatMap: { info: { id: "1558" }, POIs: [{ title: "298" }, { title: "299" }] },
-                },
+                { roomName: "废弃节点" },
               ],
+            },
+            {
+              children: {
+                children: [
+                  {
+                    roomName: "四楼",
+                    seatMap: { info: { id: "1558" }, POIs: [{ title: "298" }, { title: "299" }] },
+                  },
+                ],
+              },
             },
           ],
         },
@@ -38,21 +45,33 @@ describe("LibraryClient.floors parsing", () => {
     expect((floors[0] as Record<string, unknown>).roomName).toBe("四楼");
   });
 
-  test("falls back to the query string when space_category is absent", async () => {
+  test("uses space_category from the Huitu room detail", async () => {
     let postBody: URLSearchParams | undefined;
     const client = makeClient(async (path, init) => {
-      if (path.includes("space_category[")) return { data: {} } as Record<string, unknown>;
+      if (path.includes("space_category[")) {
+        return {
+          data: { space_category: { category_id: "7", content_id: "12" } },
+        } as unknown as Record<string, unknown>;
+      }
       postBody = init?.body instanceof URLSearchParams ? init.body : undefined;
-      return {
-        allContent: {
-          children: [
-            {
-              roomName: "三楼",
-              seatMap: { info: { id: "42" }, POIs: [{ title: "101" }] },
-            },
-          ],
-        },
-      };
+        return {
+          allContent: {
+            children: [
+              { children: {} },
+              { children: {} },
+              {
+                children: {
+                  children: [
+                    {
+                      roomName: "三楼",
+                      seatMap: { info: { id: "42" }, POIs: [{ title: "101" }] },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        };
     });
     const floors = await client.floors("space_category[category_id]=7&space_category[content_id]=12", new Date(), 1);
     expect(floors).toHaveLength(1);
@@ -72,7 +91,7 @@ describe("LibraryClient.request auth handling", () => {
     try {
       await expect(
         (client as unknown as { request: (p: string, i?: RequestInit, r?: boolean) => Promise<Record<string, unknown>> }).request(
-          "/User/Center/baseInfo?LAB_JSON=0", {}, false,
+          "/User/Center/baseInfo", {}, false,
         ),
       ).rejects.toBeInstanceOf(AuthenticationExpiredError);
     } finally {
@@ -81,8 +100,8 @@ describe("LibraryClient.request auth handling", () => {
   });
 });
 
-describe("LibraryClient.roomTypes parsing", () => {
-  test("searches all content children for defaultItems", async () => {
+describe("LibraryClient roomTypes parsing", () => {
+  test("parses the exact Huitu room types path", async () => {
     const client = makeClient(async (path) => {
       expect(path).toBe("/Space/Category/list?LAB_JSON=1");
       return {
@@ -125,8 +144,7 @@ describe("LibraryClient.bookSeat", () => {
 
     await client.bookSeat("42", new Date(2026, 8, 5, 9, 0, 0), 12);
 
-    // 慧图接口必须带 LAB_JSON=1 才会返回 JSON；apiToken() 签名也按该形式计算，
-    // 若此处回退为不带参数，服务端会返回 XHTML 登录页导致"非 JSON 响应"错误。
+    // LAB_JSON=1 是慧图 xH 请求的默认契约，Api-Token 签名串也按该形式计算。
     expect(captured?.path).toBe("/Seat/Index/bookSeats?LAB_JSON=1");
     const headers = new Headers(captured?.init?.headers);
     expect(headers.get("Api-Token")).toBeTruthy();
@@ -134,5 +152,61 @@ describe("LibraryClient.bookSeat", () => {
     expect(body?.get("seats[0]")).toBe("42");
     expect(body?.get("seatBookers[0]")).toBe("304174");
     expect(body?.get("duration")).toBe(String(12 * 3600));
+  });
+});
+
+describe("LibraryClient.action", () => {
+  function actionClient() {
+    const calls: Array<{ path: string; init?: RequestInit }> = [];
+    const client = makeClient(async (path, init) => {
+      calls.push({ path, init });
+      if (path.startsWith("/Seat/Index/stepOutLatestComeBackTime")) {
+        return {
+          CODE: "ok",
+          DATA: { result: "success", latest_come_back_time: 1800 },
+        } as unknown as Record<string, unknown>;
+      }
+      return { CODE: "ok", DATA: { result: "success" } } as unknown as Record<string, unknown>;
+    });
+    return { calls, client };
+  }
+
+  test("uses Huitu frontend endpoints and the default LAB_JSON contract", async () => {
+    const cases: Array<[Parameters<LibraryClient["action"]>[0], string]> = [
+      ["cancel", "/Seat/Index/cancelBooking?bookingId=123&LAB_JSON=1"],
+      ["checkIn", "/Seat/Index/checkIn?bookingId=123&LAB_JSON=1"],
+      ["comeBack", "/Seat/Index/comeBack?bookingId=123&LAB_JSON=1"],
+      ["signOut", "/Seat/Index/checkOut?bookingId=123&LAB_JSON=1"],
+    ];
+
+    for (const [kind, expectedPath] of cases) {
+      const { calls, client } = actionClient();
+      await client.action(kind, "123");
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.path).toBe(expectedPath);
+      expect(calls[0]?.init?.method).toBe("POST");
+    }
+  });
+
+  test("performs leave as latest-time lookup followed by stepOut", async () => {
+    const { calls, client } = actionClient();
+
+    await client.action("leave", "123");
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.path).toBe("/Seat/Index/stepOutLatestComeBackTime?bookingId=123&LAB_JSON=1");
+    expect(calls[1]?.path).toBe("/Seat/Index/stepOut?bookingId=123&LAB_JSON=1");
+    const body = calls[1]?.init?.body instanceof URLSearchParams ? calls[1].init.body : undefined;
+    expect(body?.get("comeBackTime")).toBe("1800");
+  });
+
+  test("prefers DATA.msg for business failures", async () => {
+    const client = makeClient(async () => ({
+      CODE: "ok",
+      MESSAGE: "顶层信息",
+      DATA: { result: "fail", msg: "预约单不存在" },
+    } as unknown as Record<string, unknown>));
+
+    await expect(client.action("checkIn", "123")).rejects.toThrow("预约单不存在");
   });
 });

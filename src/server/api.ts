@@ -119,31 +119,24 @@ export function createApi(auth: AuthService, scheduler: Scheduler) {
     if (url.pathname === "/api/catalog/room-types" && request.method === "GET") return json({ options: await catalog.roomTypes(auth) });
     if (url.pathname === "/api/catalog/floors" && request.method === "GET") return json(await catalog.floors(auth, url.searchParams.get("roomQuery") || "", url.searchParams.get("roomType") || undefined));
     if (url.pathname === "/api/catalog/durations" && request.method === "GET") return json(await catalog.durations(auth, url.searchParams.get("roomQuery") || "", Number(url.searchParams.get("startHour")), url.searchParams.get("roomType") || undefined));
-    const bookingMatch = url.pathname.match(/^\/api\/bookings\/([^/]+)\/(cancel|check-in|check-in-test|leave|come-back|renew|sign-out)$/);
+    const bookingMatch = url.pathname.match(/^\/api\/bookings\/([^/]+)\/(cancel|check-in|leave|renew|sign-out)$/);
     if (bookingMatch) {
       const bookingId = decodeURIComponent(bookingMatch[1]);
       const action = bookingMatch[2];
-      if (action === "check-in-test") {
-        const bookings = await auth.client.bookings();
-        const item = bookings.find((candidate) => String(candidate.id) === bookingId);
-        const now = Number(item?.nowTime || 0);
-        const begin = Number(item?.time || 0);
-        const available = Boolean(item && String(item.status) === "0" && now >= begin - Number(item.limitSignAgo || 0) && now <= begin + Number(item.limitSignBack || 0));
-        return json({ success: available, message: available ? "签到窗口已开启" : "当前尚未进入签到窗口" });
-      }
-      const kind = action === "check-in" ? "checkIn" : action === "come-back" || action === "renew" ? "comeBack" : action === "sign-out" ? "signOut" : action;
+      const kind = action === "check-in" ? "checkIn" : action === "renew" ? "comeBack" : action === "sign-out" ? "signOut" : action;
       await auth.client.action(kind as "cancel" | "checkIn" | "comeBack" | "leave" | "signOut", bookingId);
-      const refreshed = await auth.client.bookings();
-      const exists = refreshed.some((candidate) => String(candidate.id) === bookingId);
-      if (action !== "cancel" && !exists) return json({ success: false, message: "操作后未能复核预约状态" }, { status: 409 });
       return json({ success: true, message: "操作成功" });
     }
     if (url.pathname === "/api/bookings/current" && request.method === "GET") {
       const raw = await auth.client.bookings();
-      const bookings = raw.filter((item) => !["3", "4", "7"].includes(String(item.status || ""))).map((item) => {
+      const ended = new Set(["3", "4", "5", "6", "7", "9"]);
+      const bookings = raw.filter((item) => !ended.has(String(item.status || ""))).map((item) => {
         const status = String(item.status || "");
         const begin = Number(item.time || 0) * 1000;
-        const canCheckIn = status === "0" && Number(item.nowTime || 0) >= Number(item.time || 0) - Number(item.limitSignAgo || 0);
+        const now = Number(item.nowTime || 0);
+        const canCheckIn = status === "0" &&
+          now >= Number(item.time || 0) - Number(item.limitSignAgo || 0) &&
+          now <= Number(item.time || 0) + Number(item.limitSignBack || 0);
         return {
           bookingId: String(item.id || ""),
           roomName: String(item.roomName || "未知房间"),
@@ -153,9 +146,9 @@ export function createApi(auth: AuthService, scheduler: Scheduler) {
           status,
           state: canCheckIn ? "check_in" : status === "1" ? "in_use" : status === "2" ? "away" : "pending",
           statusLabel: canCheckIn ? "可签到" : status === "1" ? "使用中" : status === "2" ? "暂离中" : "待签到",
-          canCancel: status === "0" || status === "8",
+          canCancel: status === "0",
           canCheckIn,
-          canSignOut: status === "1",
+          canSignOut: status === "1" || status === "2",
           canLeave: status === "1",
           canRenew: status === "2",
         };

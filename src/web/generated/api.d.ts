@@ -177,7 +177,7 @@ export interface paths {
             header?: never;
             path: {
                 id: string;
-                action: string;
+                action: "cancel" | "check-in" | "leave" | "renew" | "sign-out";
             };
             cookie?: never;
         };
@@ -744,7 +744,7 @@ export interface operations {
             header?: never;
             path: {
                 id: string;
-                action: string;
+                action: "cancel" | "check-in" | "leave" | "renew" | "sign-out";
             };
             cookie?: never;
         };
@@ -925,6 +925,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        roomQuery: string;
+                        startHour: number;
                         options: number[];
                     };
                 };

@@ -2,17 +2,11 @@ import { createHash } from "node:crypto";
 import { CookieJar } from "./cookies";
 
 const BASE = "https://hdu.huitu.zhishulib.com";
-const URLS = {
-  baseInfo: `${BASE}/User/Center/baseInfo`,
-  rooms: `${BASE}/Space/Category/list`,
-  seats: `${BASE}/Seat/Index/searchSeats`,
-  bookings: `${BASE}/Seat/Index/myBookingList?fromType=web`,
-  book: `${BASE}/Seat/Index/bookSeats`,
-  cancel: `${BASE}/Seat/Index/cancelBooking`,
-  checkIn: `${BASE}/Seat/Index/checkIn`,
-  comeBack: `${BASE}/Seat/Index/comeBack`,
-  leave: `${BASE}/Seat/Index/leave`,
-  signOut: `${BASE}/Seat/Index/signOut`,
+const ACTION_ENDPOINTS = {
+  cancel: "/Seat/Index/cancelBooking",
+  checkIn: "/Seat/Index/checkIn",
+  comeBack: "/Seat/Index/comeBack",
+  checkOut: "/Seat/Index/checkOut",
 };
 
 export class AuthenticationExpiredError extends Error {}
@@ -22,24 +16,6 @@ export class RequestTimeoutError extends HduLibraryError {}
 export function apiToken(seatId: string, uid: string, beginTime: number, duration: number, apiTime = Math.floor(Date.now() / 1000)): string {
   const source = `post&/Seat/Index/bookSeats?LAB_JSON=1&api_time${apiTime}&beginTime${beginTime}&duration${duration}&is_recommend1&seatBookers[0]${uid}&seats[0]${seatId}`;
   return btoa(createHash("md5").update(source).digest("hex"));
-}
-
-// 楼层（含 seatMap.info.id / POIs）在返回树中的嵌套层级不固定，
-// 这里递归收集所有符合条件的节点，避免因层级或索引变化导致楼层显示为空。
-function collectFloorNodes(node: unknown, out: unknown[]): void {
-  if (!node || typeof node !== "object") return;
-  if (Array.isArray(node)) {
-    for (const item of node) collectFloorNodes(item, out);
-    return;
-  }
-  const record = node as Record<string, unknown>;
-  const map = record.seatMap as Record<string, unknown> | undefined;
-  const info = map?.info as Record<string, unknown> | undefined;
-  if (map && info && Number.isInteger(Number(info.id)) && Number(info.id) > 0) {
-    out.push(record);
-    return;
-  }
-  for (const value of Object.values(record)) collectFloorNodes(value, out);
 }
 
 const headers = {
@@ -81,20 +57,15 @@ export class LibraryClient {
     }
     if (this.jar.merge(response.headers, url)) await this.options.onJarChange?.(this.jar);
     if (!response.ok) throw new HduLibraryError(`请求失败: HTTP ${response.status}`);
-    const contentType = response.headers.get("content-type") || "";
-    if (!contentType.includes("json")) {
-      const preview = (await response.text()).replace(/\s+/g, " ").slice(0, 160);
-      throw new HduLibraryError(`慧图返回非 JSON 响应: ${preview}`);
+    let body: Record<string, unknown>;
+    try {
+      body = await response.json() as Record<string, unknown>;
+    } catch {
+      throw new HduLibraryError("慧图响应格式无效");
     }
-    const body = await response.json() as Record<string, unknown>;
-    // 慧图在登录失效/未登录时返回 com.Redirect 重定向 JSON，而不是 is_login=false。
-    // 将其识别为登录态失效，触发重登而不是静默返回空数据。
-    if (String((body as Record<string, unknown>).ui_type || "") === "com.Redirect") {
-      if (retry && await this.refreshAuth()) return this.request(path, init, false);
-      throw new AuthenticationExpiredError("图书馆登录状态已失效");
-    }
-    const loginData = (body.DATA || body.data) as Record<string, unknown> | undefined;
-    if (loginData?.is_login === false) {
+    // 慧图未登录时返回 com.Redirect 到 CAS 登录页；这是登录态失效的真实契约。
+    const href = String(body.href || "");
+    if (body.ui_type === "com.Redirect" && href.includes("/User/Index/hduCASLogin")) {
       if (retry && await this.refreshAuth()) return this.request(path, init, false);
       throw new AuthenticationExpiredError("图书馆登录状态已失效");
     }
@@ -109,7 +80,7 @@ export class LibraryClient {
 
   async validate(): Promise<boolean> {
     try {
-      const body = await this.request("/User/Center/baseInfo?LAB_JSON=0", {}, false);
+      const body = await this.request("/User/Center/baseInfo", {}, false);
       const data = body.DATA as Record<string, unknown> | undefined;
       if (data?.is_login && String(data.uid || "").match(/^\d+$/)) {
         this.uid = String(data.uid);
@@ -123,29 +94,23 @@ export class LibraryClient {
   async roomTypes(): Promise<Array<{ name: string; query: string }>> {
     const body = await this.request("/Space/Category/list?LAB_JSON=1");
     const content = body.content as Record<string, unknown> | undefined;
-    const children = Array.isArray(content?.children) ? (content!.children as unknown[]) : [];
-    let items: unknown[] = [];
-    const preferred = children[1] as Record<string, unknown> | undefined;
-    if (Array.isArray(preferred?.defaultItems) && preferred.defaultItems.length) {
-      items = preferred.defaultItems as unknown[];
-    } else {
-      for (const child of children) {
-        const defaults = (child as Record<string, unknown>)?.defaultItems;
-        if (Array.isArray(defaults) && defaults.length) { items = defaults; break; }
-      }
-    }
+    const children = Array.isArray(content?.children) ? (content!.children as Record<string, unknown>[]) : [];
+    const items = children[1]?.defaultItems;
+    if (!Array.isArray(items)) throw new HduLibraryError("房间类型解析失败");
     return items.map((item) => {
       const value = item as Record<string, unknown>;
-      const link = value.link as Record<string, unknown> | string | undefined;
-      const url = typeof link === "string" ? link : String((link as Record<string, unknown>)?.url || "");
-      return { name: String(value.name || ""), query: decodeURIComponent(url.split("?")[1] || "") };
+      const url = String((value.link as Record<string, unknown> | undefined)?.url || "");
+      const query = url.split("?")[1] || "";
+      if (!query) throw new HduLibraryError("房间类型链接解析失败");
+      return { name: String(value.name || ""), query: decodeURIComponent(query) };
     });
   }
 
   async bookingRange(roomQuery: string): Promise<{ minBeginTime: number; maxEndTime: number; minDuration: number; maxDuration: number }> {
     const detail = await this.request(`/Seat/Index/searchSeats?${roomQuery}&LAB_JSON=1`);
-    const data = (detail.data || detail.DATA || {}) as Record<string, unknown>;
-    const range = data.range as Record<string, unknown> | undefined;
+    const data = detail.data as Record<string, unknown> | undefined;
+    const range = data?.range as Record<string, unknown> | undefined;
+    if (!range) throw new HduLibraryError("预约时间范围解析失败");
     return {
       minBeginTime: Number(range?.minBeginTime ?? 0),
       maxEndTime: Number(range?.maxEndTime ?? 0),
@@ -164,32 +129,22 @@ export class LibraryClient {
       "space_category[content_id]": String(category.content_id),
     });
     const map = await this.request("/Seat/Index/searchSeats?LAB_JSON=1", { method: "POST", body: payload });
-    const floors: unknown[] = [];
-    collectFloorNodes(map, floors);
-    if (!floors.length) {
-      // 兜底：沿用原始固定的层级路径，防止递归收集因返回结构差异而漏掉。
-      const legacy = ((((map?.allContent as Record<string, unknown>)?.children as unknown[])?.[2] as Record<string, unknown>)?.children as Record<string, unknown>)?.children as unknown[] || [];
-      floors.push(...legacy);
-    }
+    const allContent = map.allContent as Record<string, unknown> | undefined;
+    const container = ((allContent?.children as unknown[] | undefined)?.[2] as Record<string, unknown> | undefined);
+    const floors = ((container?.children as Record<string, unknown> | undefined)?.children as unknown[] | undefined);
+    if (!Array.isArray(floors)) throw new HduLibraryError("座位图解析失败");
     return floors;
   }
 
   private async lookupCategory(roomQuery: string): Promise<{ category_id: string; content_id: string }> {
-    try {
-      const detail = await this.request(`/Seat/Index/searchSeats?${roomQuery}&LAB_JSON=1`);
-      const data = detail.data as Record<string, unknown> | undefined;
-      const category = data?.space_category as Record<string, unknown> | undefined;
-      if (category) {
-        return {
-          category_id: String(category.category_id ?? ""),
-          content_id: String(category.content_id ?? ""),
-        };
-      }
-    } catch { /* 回退到查询字符串解析 */ }
-    const categoryId = roomQuery.match(/space_category\[category_id\]=([^&]+)/)?.[1];
-    const contentId = roomQuery.match(/space_category\[content_id\]=([^&]+)/)?.[1];
-    if (!categoryId) throw new HduLibraryError("无法解析空间分类");
-    return { category_id: categoryId, content_id: contentId || "" };
+    const detail = await this.request(`/Seat/Index/searchSeats?${roomQuery}&LAB_JSON=1`);
+    const data = detail.data as Record<string, unknown> | undefined;
+    const category = data?.space_category as Record<string, unknown> | undefined;
+    if (!category?.category_id) throw new HduLibraryError("房间详情解析失败");
+    return {
+      category_id: String(category.category_id),
+      content_id: String(category.content_id || ""),
+    };
   }
 
   async bookings(): Promise<Record<string, unknown>[]> {
@@ -212,8 +167,7 @@ export class LibraryClient {
       "seats[0]": seatId,
       "seatBookers[0]": this.uid,
     });
-    // 慧图接口需要 LAB_JSON=1 才会返回 JSON，否则返回 XHTML 登录/通用页。
-    // apiToken() 的签名串按 `?LAB_JSON=1` 计算，这里必须保持一致。
+    // LAB_JSON=1 是慧图 xH 请求的默认契约，Api-Token 签名串也按该形式计算。
     return this.request("/Seat/Index/bookSeats?LAB_JSON=1", {
       method: "POST",
       headers: { "Api-Token": apiToken(seatId, this.uid, begin, duration, apiTime) },
@@ -221,12 +175,41 @@ export class LibraryClient {
     });
   }
 
-  async action(kind: "cancel" | "checkIn" | "comeBack" | "leave" | "signOut", bookingId: string): Promise<Record<string, unknown>> {
-    const body = await this.request(`${URLS[kind].replace(BASE, "")}?bookingId=${encodeURIComponent(bookingId)}`, { method: "POST" });
+  private assertActionSuccess(body: Record<string, unknown>): void {
     const data = body.DATA as Record<string, unknown> | undefined;
     if (String(body.CODE).toLowerCase() !== "ok" || String(data?.result).toLowerCase() !== "success") {
-      throw new HduLibraryError(String(body.MESSAGE || "操作失败"));
+      // 慧图前端契约：CODE != ok 读顶层 MESSAGE；CODE = ok 但 result != success 读 DATA.msg。
+      throw new HduLibraryError(String(data?.msg || body.MESSAGE || "操作失败"));
     }
+  }
+
+  async action(kind: "cancel" | "checkIn" | "comeBack" | "leave" | "signOut", bookingId: string): Promise<Record<string, unknown>> {
+    const encodedId = encodeURIComponent(bookingId);
+    // 前端请求拦截器默认给所有 xH 请求追加 LAB_JSON=1。
+    if (kind === "leave") {
+      const latest = await this.request(
+        `/Seat/Index/stepOutLatestComeBackTime?bookingId=${encodedId}&LAB_JSON=1`,
+        { method: "POST" },
+      );
+      this.assertActionSuccess(latest);
+      const latestData = latest.DATA as Record<string, unknown> | undefined;
+      const comeBackTime = Number(latestData?.latest_come_back_time || 0);
+      if (!Number.isFinite(comeBackTime) || comeBackTime <= 0) {
+        throw new HduLibraryError("无法获取暂离返回时间");
+      }
+
+      // 前端由用户在弹出层中选择返回时间；本地后端无交互时选择服务端给出的最晚时间。
+      const body = await this.request(
+        `/Seat/Index/stepOut?bookingId=${encodedId}&LAB_JSON=1`,
+        { method: "POST", body: new URLSearchParams({ comeBackTime: String(comeBackTime) }) },
+      );
+      this.assertActionSuccess(body);
+      return body;
+    }
+
+    const endpoint = kind === "signOut" ? "checkOut" : kind;
+    const body = await this.request(`${ACTION_ENDPOINTS[endpoint]}?bookingId=${encodedId}&LAB_JSON=1`, { method: "POST" });
+    this.assertActionSuccess(body);
     return body;
   }
 }
