@@ -505,12 +505,7 @@ export function PlansPage() {
   }, [allSingles, items])
 
   async function toggle(item: PlanListItem) {
-    if (
-      !item.enabled &&
-      items.some((other) => other.enabled && other.id !== item.id) &&
-      !window.confirm("启用此方案将自动停用当前方案，是否继续？")
-    )
-      return
+    // 同时只能启用一个方案：启用新方案时由后端自动停用当前方案，无需用户确认
     try {
       await mutations.toggle.mutateAsync({ id: item.id, enabled: !item.enabled })
       toastManager.add({ type: "success", title: !item.enabled ? "方案已启用" : "方案已停用" })

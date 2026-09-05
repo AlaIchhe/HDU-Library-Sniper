@@ -27,8 +27,10 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { toastManager, ToastProvider } from "@/components/ui/toast"
+import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "../store"
 import {
+  queryKeys,
   useCheckin,
   useCheckinMutation,
   useNextTarget,
@@ -37,7 +39,7 @@ import {
 import { LightRays } from "@/components/ui/light-rays"
 import { api } from "../api"
 import { notifyAuditEvents } from "../notifications"
-import { getStartupStatus, isTauri, openExternalUrl, setStartupEnabled } from "../tauri"
+import { isTauri, openExternalUrl } from "../tauri"
 import { checkForUpdate, installUpdate } from "../updater"
 
 function CheckinControl() {
@@ -166,12 +168,12 @@ function NextBlock({
 }
 
 export function AppShell() {
-  const [startupEnabled, setStartupEnabledState] = useState<boolean | null>(null)
   const pathname = useRouterState({
     select: (state) => state.location.pathname as string,
   })
   const session = useAppStore((state) => state.session)
   const setSession = useAppStore((state) => state.setSession)
+  const queryClient = useQueryClient()
   const navigate = useNavigate()
   const theme = useAppStore((state) => state.theme)
   const notice = useAppStore((state) => state.notice)
@@ -181,7 +183,6 @@ export function AppShell() {
   const reduced = useReducedMotion()
   const authenticated = Boolean(session?.authenticated)
 
-  useEffect(() => { void getStartupStatus().then((status) => setStartupEnabledState(status.enabled)) }, [])
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void checkForUpdate().then((result) => {
@@ -200,12 +201,6 @@ export function AppShell() {
   useEffect(() => {
     if (!session && pathname !== "/") navigate({ to: "/", replace: true })
   }, [session, pathname, navigate])
-
-  async function toggleStartup() {
-    const next = !startupEnabled
-    try { await setStartupEnabled(next); setStartupEnabledState(next); toastManager.add({ type: "success", title: next ? "已开启开机自启" : "已关闭开机自启" }) }
-    catch (error) { toastManager.add({ type: "error", title: error instanceof Error ? error.message : "自启设置失败" }) }
-  }
 
   useEffect(() => {
     if (!notice) return
@@ -316,9 +311,6 @@ export function AppShell() {
                   <CheckinControl />
                   {isTauri() && <ClashControl />}
                   <UpdateControl />
-                  <Button variant="outline" size="sm" disabled={startupEnabled === null} onClick={() => void toggleStartup()}>
-                    {startupEnabled ? "自启已开" : "开启自启"}
-                  </Button>
                   <AnimatedThemeToggler
                     className="grid size-9 place-items-center rounded-full border text-foreground/80 transition-colors hover:bg-muted hover:text-foreground [&_svg]:size-4"
                     theme={theme}
@@ -346,6 +338,8 @@ export function AppShell() {
                         onClick={async () => {
                           try {
                             await api.logout()
+                            // 清掉 session 查询缓存，避免登录页用陈旧缓存复活已登出的会话
+                            queryClient.removeQueries({ queryKey: queryKeys.session })
                             setSession(null)
                             navigate({ to: "/", replace: true })
                           } catch (cause) {
