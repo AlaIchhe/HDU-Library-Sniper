@@ -40,14 +40,17 @@
       cannot relaunch itself. After the install commits, bring the freshly
       installed app back in background mode so the 20:00 anchor never goes dark.
       cmd.exe resolves via PATH; `start` detaches so msiexec can exit.
+      The action runs IMMEDIATE (not in-script): ICE77 forbids deferred
+      actions after InstallFinalize, and as an immediate action sequenced
+      there the freshly copied files are already on disk.
     -->
     <CustomAction
       Id="RestartHduApp"
       Directory="INSTALLDIR"
       ExeCommand="cmd.exe /c start hdu-library-sniper.exe --background"
-      Execute="deferred"
+      Execute="immediate"
       Impersonate="yes"
-      Return="ignore" />
+      Return="asyncNoWait" />
     <!-- Placeholder component that forces WiX light.exe to link this fragment
          into the MSI; without a referenced component the custom actions above
          are silently dropped during bundling (see upgrade-migrate.wxs). -->
