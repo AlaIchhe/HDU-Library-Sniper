@@ -1,10 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use serde::Serialize;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 use tauri::{Manager, WindowEvent};
-use tauri_plugin_autostart::MacosLauncher;
 
 struct Backend(Mutex<Option<Child>>);
 
@@ -12,12 +10,6 @@ const STARTUP_TASK: &str = "HDU-Library-Sniper";
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-#[derive(Debug, Serialize)]
-struct StartupStatus {
-    enabled: bool,
-    task_name: String,
-}
 
 #[cfg(windows)]
 fn run_reg(args: &[&str]) -> Result<std::process::Output, String> {
@@ -82,43 +74,8 @@ fn set_startup_task(exe: &std::path::Path, enabled: bool) -> Result<(), String> 
     Ok(())
 }
 
-#[tauri::command]
-fn startup_status() -> StartupStatus {
-    #[cfg(windows)]
-    let enabled = startup_enabled();
-    #[cfg(not(windows))]
-    let enabled = false;
-    StartupStatus {
-        enabled,
-        task_name: STARTUP_TASK.to_string(),
-    }
-}
-
-#[tauri::command]
-fn enable_startup(_app: tauri::AppHandle) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        return set_startup_task(&std::env::current_exe().map_err(|e| e.to_string())?, true);
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = _app;
-        Ok(())
-    }
-}
-
-#[tauri::command]
-fn disable_startup(_app: tauri::AppHandle) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        return set_startup_task(&std::env::current_exe().map_err(|e| e.to_string())?, false);
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = _app;
-        Ok(())
-    }
-}
+// MSI 安装/卸载阶段通过 --install-startup / --uninstall-startup 维护自启项，
+// UI 不提供开关；运行时不再暴露 Tauri command。
 
 fn backend_executable(resource_dir: &std::path::Path) -> std::path::PathBuf {
     let direct = resource_dir.join("hdu-sniper-server.exe");
@@ -186,14 +143,8 @@ pub fn run() {
 
     builder = builder
         .manage(Backend(Mutex::new(None)))
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec!["--background"]),
-        ))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(
@@ -209,13 +160,7 @@ pub fn run() {
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![
-            start_backend,
-            stop_backend,
-            startup_status,
-            enable_startup,
-            disable_startup
-        ])
+        .invoke_handler(tauri::generate_handler![start_backend, stop_backend])
         .setup(|app| {
             #[cfg(desktop)]
             {

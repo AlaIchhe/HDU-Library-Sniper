@@ -30,7 +30,7 @@
     "createUpdaterArtifacts": true,
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "resources": { "../dist/hdu-sniper-server.exe": "hdu-sniper-server.exe" },
-    "windows": { "wix": { "language": "zh-CN", "upgradeCode": "1A2C9174-90BF-55BB-9D8B-8CFE5B6CA1F9", "componentRefs": ["CMP_UpgradeMigrate"], "fragmentPaths": ["wix-fragments/upgrade-migrate.wxs"] } }
+    "windows": { "wix": { "language": "zh-CN", "upgradeCode": "1A2C9174-90BF-55BB-9D8B-8CFE5B6CA1F9", "componentRefs": ["CMP_UpgradeMigrate", "CMP_StartupEntry"], "fragmentPaths": ["wix-fragments/upgrade-migrate.wxs", "wix-fragments/startup.wxs"] } }
   },
   "plugins": {
     "updater": {

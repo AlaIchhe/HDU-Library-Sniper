@@ -5,12 +5,10 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "autostart:default",
     "notification:default",
     "updater:default",
     "window-state:default",
     "log:default",
-    "process:default",
     "opener:default",
     {
       "identifier": "http:default",

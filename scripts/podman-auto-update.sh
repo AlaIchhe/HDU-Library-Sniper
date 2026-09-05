@@ -77,7 +77,6 @@ run_args() {
     --restart "$restart_policy"
     --env HDU_SNIPER_HOME=/var/lib/hdu-sniper
     --env HDU_WEB_PORT=8000
-    --env HDU_BOOKING_SCHEDULER_INSTALLED=1
     --volume "$volume_name:/var/lib/hdu-sniper:Z"
     --publish "$publish"
     --health-cmd "wget -qO- http://127.0.0.1:8000/api/health"
