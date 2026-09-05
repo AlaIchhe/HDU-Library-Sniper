@@ -71,7 +71,7 @@ export function enablePlanItem(id: string, enabled: boolean): { item: PlanListIt
   return { item: getPlanItem(id)!, disabledPlanIds };
 }
 
-export function validateGroup(name: string, memberPlanIds: string[], overridePlans?: BookingPlan[]): { name: string; memberPlanIds: string[]; plans: BookingPlan[]; weekdays: Weekday[] } {
+function validateGroup(name: string, memberPlanIds: string[], overridePlans?: BookingPlan[]): { name: string; memberPlanIds: string[]; plans: BookingPlan[]; weekdays: Weekday[] } {
   const singles = overridePlans || memberPlanIds.map((id) => getPlan(id));
   if (memberPlanIds.length < 2 || singles.some((plan) => !plan)) throw new Error("组合方案至少需要两个有效单条方案");
   if (new Set(memberPlanIds).size !== memberPlanIds.length) throw new Error("组合方案不能包含重复方案");
@@ -108,5 +108,4 @@ export function updateGroup(id: string, name: string, memberPlanIds: string[]): 
   return getPlanItem(id) as BookingGroup;
 }
 
-export { deletePlan, deleteGroup, getPlan, listPlans, referencedPlanIds };
-export { validatePlan };
+export { deletePlan, deleteGroup, referencedPlanIds };

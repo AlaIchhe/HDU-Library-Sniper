@@ -1,5 +1,4 @@
 export type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
-export type PlanKind = "single" | "group";
 
 export type BookingPlan = {
   id: string;
@@ -61,7 +60,6 @@ export type RuntimeStatus = {
   state: "idle" | "running" | "auth_required" | "error";
   lastRunAt?: string;
   lastMessage?: string;
-  bookingScheduler?: { installed: boolean; nextAt?: string; lastRunAt?: string; lastMessage?: string };
   checkInPolling?: { active: boolean; nextPollAt?: string; lastPollAt?: string };
 };
 
@@ -120,7 +118,6 @@ export const weekdayLabels: Record<Weekday, string> = {
   7: "周日",
 };
 
-export type ApiError = { detail?: string };
 
 export type QrLoginStart = {
   uuid: string;

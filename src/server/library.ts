@@ -13,7 +13,7 @@ export class AuthenticationExpiredError extends Error {}
 export class HduLibraryError extends Error {}
 export class RequestTimeoutError extends HduLibraryError {}
 
-export function apiToken(seatId: string, uid: string, beginTime: number, duration: number, apiTime = Math.floor(Date.now() / 1000)): string {
+function apiToken(seatId: string, uid: string, beginTime: number, duration: number, apiTime = Math.floor(Date.now() / 1000)): string {
   const source = `post&/Seat/Index/bookSeats?LAB_JSON=1&api_time${apiTime}&beginTime${beginTime}&duration${duration}&is_recommend1&seatBookers[0]${uid}&seats[0]${seatId}`;
   return btoa(createHash("md5").update(source).digest("hex"));
 }
