@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse, stringify } from "yaml";
 
-export const DIRECT_TARGET_DOMAINS = ["hdu.huitu.zhishulib.com", "sso.hdu.edu.cn"];
+const DIRECT_TARGET_DOMAINS = ["hdu.huitu.zhishulib.com", "sso.hdu.edu.cn"];
 export const MANAGED_DIRECT_RULES = DIRECT_TARGET_DOMAINS.map((domain) => `DOMAIN,${domain},DIRECT`);
 
 const VERGE_DIR_NAME = "io.github.clash-verge-rev.clash-verge-rev";
@@ -149,16 +149,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
-export async function readRuntimeRules(endpoint: VergeEndpoint): Promise<unknown> {
+async function readRuntimeRules(endpoint: VergeEndpoint): Promise<unknown> {
   const data = await pipeJson(endpoint, "GET", "/rules") as { rules?: unknown } | undefined;
   return data?.rules;
-}
-
-export async function readRuntimeRulesForProbe(): Promise<unknown> {
-  const paths = vergePaths();
-  if (!paths) return [];
-  const endpoint = parseVergeConfig(await Bun.file(paths.configPath).text());
-  return readRuntimeRules(endpoint);
 }
 
 async function fileEnabledState(paths: VergePaths): Promise<boolean> {

@@ -9,10 +9,11 @@
 - 登录杭电数字杭电账户，保存本地会话 Cookie
 - 创建、启用和管理图书馆预约方案
 - 按预约时间自动提交预约，并复核预约结果
+- 每天 20:00 程序内卡点抢座：被拒不间断重试（请求间隔 1.1s 防风控），幂等去重不会重复预约
 - 在签到窗口自动签到，支持手动签到和结果复核
 - 审计日志记录预约、签到及后台错误
 - Windows 系统通知：预约完成、签到结果和后台错误
-- Windows 开机自启：通过计划任务 `HDU-Library-Sniper` 启动后台模式
+- Windows 开机自启：MSI 安装阶段写入当前用户启动项，UI 不再提供开关
 - Tauri 自动更新：从 GitHub Releases 检查并安装签名更新
 - SQLite 本地持久化，容器部署使用命名卷保存数据
 
@@ -20,13 +21,13 @@
 
 Windows x64 MSI 安装包：
 
-[下载 HDU Library Sniper](https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/HDU.Library.Sniper_2.0.9_x64_zh-CN.msi)
+[下载 HDU Library Sniper](https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/HDU.Library.Sniper_2.0.13_x64_zh-CN.msi)
 
 ## 使用说明
 
 启动后，在登录页输入学号和数字杭电密码。进入工作台后创建预约方案，选择房间类型、校区、楼层、日期、时间段和座位规则，再启用方案即可。
 
-Windows 桌面端安装完成后默认开启开机自启。应用顶部可以查询并切换自启状态。关闭窗口只会隐藏到系统托盘；从托盘选择退出时，后台服务会一并停止。
+Windows 桌面端安装完成后即默认开机自启（由 MSI 写入，UI 不提供开关）。关闭窗口只会隐藏到系统托盘；从托盘选择退出时，后台服务会一并停止。
 
 预约和签到结果会显示在工作台中。Windows 桌面端还会发送系统通知，浏览器开发模式不会调用系统通知 API。
 
@@ -64,12 +65,6 @@ bun run server
 bun run typecheck
 bun run test
 bun run build
-```
-
-预约逻辑支持预演，不会真正提交预约请求：
-
-```bash
-bun run booking-run --dry-run
 ```
 
 ## 配置环境变量
@@ -124,11 +119,13 @@ bun run podman:build
 bun run podman:up
 ```
 
-默认情况下 `podman:up` 还会安装宿主机 systemd 定时器 `hdu-library-sniper-booking.timer`，每天 20:00（Asia/Shanghai）执行一次预约任务。如不需要宿主机定时器：
+默认情况下 `podman:up` 还会安装宿主机 systemd 开机自启服务 `hdu-library-sniper.service`，开机时自动拉起容器（预约由容器内常驻服务在 20:00 程序内触发，与桌面端一致）。如不需要开机自启：
 
 ```bash
-HDU_SKIP_SYSTEMD_SCHEDULER=1 bun run podman:up
+HDU_SKIP_SYSTEMD_AUTOSTART=1 bun run podman:up
 ```
+
+脚本是按 rootful Podman 设计的；rootless Podman 需要自行配置 `enable-linger` 与用户级 unit。也可以用 `bun run autostart:install` / `autostart:uninstall` 单独管理。
 
 ```bash
 bun run podman:down
@@ -177,13 +174,21 @@ sudo bun run podman:auto-update:uninstall
 
 直接下载上方 MSI，双击安装即可（安装位置为 `Program Files`，首次安装可能需要管理员确认）。如果电脑上已经安装了旧的 MSI 版本，新版本会自动覆盖；如果旧版本来自更早的 Setup(`.exe`)/NSIS/Inno 安装包，MSI 安装时也会先将其卸载，避免新旧两套程序同时存在导致点开仍是旧版本。
 
-安装完成后可在应用顶部切换“开启自启”。自启使用当前用户的启动项（`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`），以 `--background` 参数在登录时启动后台预约、签到和托盘服务。也可以用系统命令查看：
+开机自启由 MSI 在安装阶段写入当前用户的启动项（`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`），以 `--background` 参数在登录时启动后台预约、签到和托盘服务；UI 不提供开关。升级/重装会重写该启动项（保证指向最新安装路径），卸载时自动清除。查看或手动删除：
 
 ```powershell
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "HDU-Library-Sniper"
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "HDU-Library-Sniper" /f
 ```
 
-关闭主窗口不会停止任务；请从托盘菜单退出应用，或在设置中关闭自启后再卸载。
+关闭主窗口不会停止任务；请从托盘菜单退出应用后再卸载。
+
+### 每天 20:00 的自动预约
+
+自动签到要求应用全天常驻（默认开机自启，关闭窗口只是隐藏到系统托盘），因此抢座调度直接由常驻的后台服务在程序内完成：每天 20:00（Asia/Shanghai）发起抢座 burst，抢的是次日（自习室）或后两日（其他房型）的座位。仅锚定整点触发，不做事后补偿。
+
+抢座是幂等的：已存在同一开始时段的预约会自动跳过；请求被馆方拒绝（如整点瞬间窗口尚未切换）会按 1.1s 间隔持续重试，直到成功或超时。容器部署与桌面端一致，由容器内常驻服务的程序内锚点触发；宿主机 systemd 只负责开机自启拉起容器。
+
 
 ## Windows 本地构建
 

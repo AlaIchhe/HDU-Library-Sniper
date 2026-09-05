@@ -8,3 +8,6 @@ src-tauri/gen
 *.db
 *.db-shm
 *.db-wal
+playwright-report
+test-results
+gui-test-screenshots
