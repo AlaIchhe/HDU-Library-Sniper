@@ -72,8 +72,8 @@ import {
 import {
   Field,
   FieldDescription,
-  FieldError,
   FieldLabel,
+  FormError,
 } from "@/components/ui/field"
 import { Form } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
@@ -107,6 +107,7 @@ function SelectField({
   options,
   placeholder,
   disabled,
+  error,
 }: {
   label: string
   value: string
@@ -114,6 +115,7 @@ function SelectField({
   options: { value: string; label: string; detail?: string }[]
   placeholder: string
   disabled?: boolean
+  error?: string
 }) {
   return (
     <Field>
@@ -138,6 +140,7 @@ function SelectField({
           ))}
         </SelectPopup>
       </Select>
+      {error && <FormError>{error}</FormError>}
     </Field>
   )
 }
@@ -149,6 +152,7 @@ function SearchableField({
   options,
   placeholder,
   disabled,
+  error,
 }: {
   label: string
   value: string
@@ -156,6 +160,7 @@ function SearchableField({
   options: { value: string; label: string }[]
   placeholder: string
   disabled?: boolean
+  error?: string
 }) {
   return (
     <Field>
@@ -178,6 +183,7 @@ function SearchableField({
           </ComboboxList>
         </ComboboxPopup>
       </Combobox>
+      {error && <FormError>{error}</FormError>}
     </Field>
   )
 }
@@ -269,6 +275,7 @@ function PlanEditor({
           placeholder="选择房间类型"
           options={roomTypes.data?.options.map((item) => ({ value: item.name, label: item.name })) || []}
           disabled={roomTypes.isLoading}
+          error={form.formState.errors.roomType?.message}
         />
         <div className="grid gap-1">
           <SelectField
@@ -282,6 +289,7 @@ function PlanEditor({
             placeholder="选择楼层"
             options={floors.data?.options.map((item) => ({ value: String(item.id), label: item.name, detail: `${item.seatCount} 个座位` })) || []}
             disabled={!roomQuery || floors.isLoading}
+            error={form.formState.errors.floorId?.message}
           />
           {floors.error && (
             <p className="text-sm text-destructive">
@@ -295,7 +303,7 @@ function PlanEditor({
           <FieldLabel>座位号</FieldLabel>
           <Input {...form.register("seatNum")} disabled={!form.watch("floorId")} />
           {form.formState.errors.seatNum?.message && (
-            <FieldError>{form.formState.errors.seatNum.message}</FieldError>
+            <FormError>{form.formState.errors.seatNum.message}</FormError>
           )}
         </Field>
         <Field>
@@ -314,6 +322,7 @@ function PlanEditor({
           }}
           placeholder="选择时间"
           options={startHourOptions}
+          error={form.formState.errors.startHour?.message}
         />
         <SelectField
           label="时长"
@@ -328,6 +337,7 @@ function PlanEditor({
           placeholder="选择时长"
           options={durations.data?.options.map((value) => ({ value: String(value), label: `${value} 小时` })) || []}
           disabled={!hour || durations.isLoading}
+          error={form.formState.errors.duration?.message}
         />
       </div>
       <Field>
@@ -339,7 +349,7 @@ function PlanEditor({
           placeholder="请选择重复日期"
         />
         {form.formState.errors.weekdays?.message && (
-          <FieldError>{form.formState.errors.weekdays.message}</FieldError>
+          <FormError>{form.formState.errors.weekdays.message}</FormError>
         )}
       </Field>
       <DialogFooter variant="bare" className="px-0">
@@ -395,7 +405,7 @@ function GroupEditor({
         <FieldLabel>组合名称</FieldLabel>
         <Input {...form.register("name")} />
         {form.formState.errors.name?.message && (
-          <FieldError>{form.formState.errors.name.message}</FieldError>
+          <FormError>{form.formState.errors.name.message}</FormError>
         )}
       </Field>
       <Field>
@@ -421,7 +431,7 @@ function GroupEditor({
           ))}
         </CheckboxGroup>
         {form.formState.errors.ids?.message && (
-          <FieldError>{form.formState.errors.ids.message}</FieldError>
+          <FormError>{form.formState.errors.ids.message}</FormError>
         )}
       </Field>
       <div className="grid gap-2">

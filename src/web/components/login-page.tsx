@@ -21,8 +21,8 @@ import {
 import {
   Field,
   FieldDescription,
-  FieldError,
   FieldLabel,
+  FormError,
 } from "@/components/ui/field"
 import { Form } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
@@ -192,7 +192,7 @@ function LoginPage() {
                 <FieldLabel>学号</FieldLabel>
                 <Input className="w-full" autoComplete="username" {...form.register("studentId")} />
                 {form.formState.errors.studentId?.message && (
-                  <FieldError>{form.formState.errors.studentId.message}</FieldError>
+                  <FormError>{form.formState.errors.studentId.message}</FormError>
                 )}
               </Field>
               <Field>
@@ -204,7 +204,7 @@ function LoginPage() {
                   {...form.register("password")}
                 />
                 {form.formState.errors.password?.message && (
-                  <FieldError>{form.formState.errors.password.message}</FieldError>
+                  <FormError>{form.formState.errors.password.message}</FormError>
                 )}
               </Field>
               {error && (
