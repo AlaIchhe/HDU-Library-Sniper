@@ -12,7 +12,6 @@ services:
     environment:
       HDU_SNIPER_HOME: /var/lib/hdu-sniper
       HDU_WEB_PORT: 8000
-      HDU_BOOKING_SCHEDULER_INSTALLED: "1"
     ports:
       - "${HDU_WEB_PORT:-8000}:8000"
     volumes:
