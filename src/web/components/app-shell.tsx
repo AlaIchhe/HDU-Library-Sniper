@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
-import { CalendarDays, ExternalLink, Library, ListChecks, LogOut, RefreshCw, Settings } from "lucide-react"
+import { CalendarDays, ExternalLink, Library, ListChecks, LogOut, Network, RefreshCw, Settings } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
 
 import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern"
@@ -37,7 +37,7 @@ import {
 import { LightRays } from "@/components/ui/light-rays"
 import { api } from "../api"
 import { notifyAuditEvents } from "../notifications"
-import { getStartupStatus, openExternalUrl, setStartupEnabled } from "../tauri"
+import { getStartupStatus, isTauri, openExternalUrl, setStartupEnabled } from "../tauri"
 import { checkForUpdate, installUpdate } from "../updater"
 
 function CheckinControl() {
@@ -101,6 +101,45 @@ function UpdateControl() {
     finally { setBusy(false) }
   }
   return <Button variant="ghost" size="sm" disabled={busy} onClick={() => void check()} title="检查更新" aria-label="检查更新"><RefreshCw className={busy ? "animate-spin" : ""} /></Button>
+}
+
+function ClashControl() {
+  const [busy, setBusy] = useState(false)
+
+  async function check() {
+    setBusy(true)
+    try {
+      const status = await api.clashDirectStatus()
+      if (!status.available) {
+        toastManager.add({ type: "error", title: status.reason || "未检测到 Clash Verge" })
+        return
+      }
+      if (!status.enabled) {
+        const updated = await api.setClashDirect(true)
+        if (updated.enabled) toastManager.add({ type: "success", title: "网络已刷新：校园域名已切换为直连" })
+        else toastManager.add({ type: "error", title: updated.reason || "网络刷新失败，请稍后重试" })
+        return
+      }
+      toastManager.add({ type: "success", title: "网络正常：校园域名直连已生效" })
+    } catch (cause) {
+      toastManager.add({ type: "error", title: cause instanceof Error ? cause.message : "网络检查失败" })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      title="检查网络"
+      aria-label="检查网络"
+      disabled={busy}
+      onClick={() => void check()}
+    >
+      <Network className={busy ? "animate-pulse" : ""} />
+    </Button>
+  )
 }
 
 function NextBlock({
@@ -275,6 +314,7 @@ export function AppShell() {
                 </nav>
                 <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
                   <CheckinControl />
+                  {isTauri() && <ClashControl />}
                   <UpdateControl />
                   <Button variant="outline" size="sm" disabled={startupEnabled === null} onClick={() => void toggleStartup()}>
                     {startupEnabled ? "自启已开" : "开启自启"}

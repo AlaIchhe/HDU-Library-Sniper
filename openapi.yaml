@@ -68,6 +68,32 @@ paths:
                 required: [success]
                 properties:
                   success: { type: boolean }
+  /api/clash/direct:
+    get:
+      operationId: getClashDirect
+      responses:
+        "200":
+          description: Clash direct-rule status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClashDirectStatus" }
+    post:
+      operationId: setClashDirect
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Updated Clash direct-rule status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClashDirectStatus" }
   /api/plans:
     get:
       operationId: listPlans
@@ -406,6 +432,15 @@ components:
         lastAttemptAt: { type: string }
         lastSuccessAt: { type: string }
         lastMessage: { type: string }
+    ClashDirectStatus:
+      type: object
+      required: [available, enabled, reloaded]
+      properties:
+        available: { type: boolean }
+        enabled: { type: boolean }
+        reloaded: { type: boolean }
+        mode: { type: string }
+        reason: { type: string }
     RuntimeStatus:
       type: object
       required: [scheduler, state]

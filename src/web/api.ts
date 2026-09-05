@@ -7,6 +7,7 @@ import type {
   BookingPlan,
   BookingRange,
   CheckInStatus,
+  ClashDirectStatus,
   DurationOptions,
   FloorOption,
   NextExecutionTarget,
@@ -96,6 +97,8 @@ export const api = {
   audit: (limit = 20) => call<{ events: AuditEvent[] }>(`/api/audit?limit=${limit}`),
   checkinStatus: () => call<CheckInStatus>("/api/checkin", undefined, checkinSchema),
   setCheckin: (enabled: boolean, agreed = false) => call<CheckInStatus>(`/api/checkin/${enabled ? "enable" : "disable"}`, { method: "POST", body: JSON.stringify({ agreed }) }, checkinSchema),
+  clashDirectStatus: () => call<ClashDirectStatus>("/api/clash/direct"),
+  setClashDirect: (enabled: boolean) => call<ClashDirectStatus>("/api/clash/direct", { method: "POST", body: JSON.stringify({ enabled }) }),
 };
 
 type BookingGroup = Extract<PlanListItem, { kind: "group" }>;

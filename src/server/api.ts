@@ -2,6 +2,7 @@ import { AuthService } from "./auth";
 import { createGroup, createPlan, deleteGroup, deletePlan, enablePlanItem, getPlanItem, listPlanItems, referencedPlanIds, updateGroup, updatePlan } from "./plans";
 import { Scheduler } from "./scheduler";
 import * as catalog from "./catalog";
+import { getClashDirectStatus, setClashDirect } from "./clash";
 import { listAudit } from "./db";
 import { bookingDayOffsetFor } from "./config";
 
@@ -22,6 +23,12 @@ export function createApi(auth: AuthService, scheduler: Scheduler) {
     const qrMatch = url.pathname.match(/^\/api\/session\/qr\/([^/]+)\/status$/);
     if (qrMatch && request.method === "GET") {
       return json(await auth.pollQrLogin(decodeURIComponent(qrMatch[1])));
+    }
+    // Clash 控制不需要登录态：登录被代理问题卡住时正是需要它的时候。
+    if (url.pathname === "/api/clash/direct" && request.method === "GET") return json(await getClashDirectStatus());
+    if (url.pathname === "/api/clash/direct" && request.method === "POST") {
+      const body = await request.json().catch(() => ({})) as { enabled?: boolean };
+      return json(await setClashDirect(Boolean(body.enabled)));
     }
     if (url.pathname === "/api/session/logout" && request.method === "POST") {
       auth.logout();
