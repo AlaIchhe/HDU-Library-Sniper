@@ -20,8 +20,14 @@ test("shows floor validation error when floors fail to load", async ({ page }) =
     route.fulfill({ status: 502, json: { detail: "该房间类型当前没有可预约楼层" } }));
 
   await page.goto("/");
+  // 侧边栏折叠时其内部链接在视口外，isVisible 仍为 true；必须按几何位置判断并先展开
   const nav = page.getByText("预约方案", { exact: true }).first();
-  if (!(await nav.isVisible())) await page.getByRole("button", { name: "Toggle Sidebar" }).click();
+  const box = await nav.boundingBox();
+  const viewportWidth = page.viewportSize()?.width ?? 1280;
+  if (!box || box.x < 0 || box.x + box.width > viewportWidth) {
+    await page.getByRole("button", { name: "Toggle Sidebar" }).click();
+    await expect(nav).toBeInViewport();
+  }
   await nav.click();
   await page.getByRole("button", { name: "创建方案" }).first().click();
   await page.getByRole("button", { name: /单条方案/ }).click();
