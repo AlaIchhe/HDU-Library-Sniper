@@ -40,7 +40,6 @@ const EVENT_LABELS: Record<string, string> = {
   booking_run_finished: "预约执行完成",
   booking_member_finished: "单条预约执行完成",
   checkin_succeeded: "自动签到成功",
-  checkin_unverified: "签到待复核",
   checkin_failed: "自动签到失败",
 }
 

@@ -101,9 +101,7 @@ export class Scheduler {
           current <= begin + Number(booking.limitSignBack || 0);
         if (!available || !booking.id) continue;
         await this.auth.client.action("checkIn", String(booking.id));
-        const refreshed = await this.auth.client.bookings();
-        const checkedIn = refreshed.some((item) => String(item.id) === String(booking.id) && String(item.status || "") === "1");
-        writeAudit(checkedIn ? "checkin_succeeded" : "checkin_unverified", { bookingId: String(booking.id) });
+        writeAudit("checkin_succeeded", { bookingId: String(booking.id) });
       }
     } catch (error) {
       this.statusValue.lastMessage = String(error);

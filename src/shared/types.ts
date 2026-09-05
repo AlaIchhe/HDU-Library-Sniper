@@ -85,8 +85,6 @@ export type DurationOptions = {
   roomQuery: string;
   startHour: number;
   options: number[];
-  source: "server-probe";
-  notice?: string;
 };
 export type CheckInStatus = {
   enabled: boolean;

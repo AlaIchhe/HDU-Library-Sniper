@@ -1351,7 +1351,7 @@ export type bookingActionResponseSuccess = (bookingActionResponse200) & {
 export type bookingActionResponse = (bookingActionResponseSuccess)
 
 export const getBookingActionUrl = (id: string,
-    action: string,) => {
+    action: 'cancel' | 'check-in' | 'leave' | 'renew' | 'sign-out',) => {
 
 
 
@@ -1360,7 +1360,7 @@ export const getBookingActionUrl = (id: string,
 }
 
 export const bookingAction = async (id: string,
-    action: string, options?: RequestInit): Promise<bookingActionResponse> => {
+    action: 'cancel' | 'check-in' | 'leave' | 'renew' | 'sign-out', options?: RequestInit): Promise<bookingActionResponse> => {
 
   const res = await fetch(getBookingActionUrl(id,action),
   {
@@ -1414,7 +1414,7 @@ const {mutation: mutationOptions, fetch: fetchOptions} = options ?
     export type BookingActionMutationResult = NonNullable<Awaited<ReturnType<typeof bookingAction>>>
 
     export type BookingActionMutationError = unknown
-    export type BookingActionMutationVariables = {id: string;action: string}
+    export type BookingActionMutationVariables = {id: string;action: 'cancel' | 'check-in' | 'leave' | 'renew' | 'sign-out'}
 
     export const useBookingAction = <TError = unknown,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bookingAction>>, TError,BookingActionMutationVariables, TContext>, fetch?: RequestInit}

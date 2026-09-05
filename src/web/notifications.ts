@@ -2,7 +2,7 @@ import { isTauri } from "./tauri"
 import type { AuditEvent } from "../shared/types"
 
 const notifiedKey = "hdu-sniper.notification-events"
-const interesting = new Set(["booking_run_finished", "checkin_succeeded", "checkin_failed", "checkin_unverified"])
+const interesting = new Set(["booking_run_finished", "checkin_succeeded", "checkin_failed"])
 
 export function unseenAuditEvents(events: AuditEvent[], seenIds: number[]): AuditEvent[] {
   const seen = new Set(seenIds)

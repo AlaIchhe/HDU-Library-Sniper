@@ -6,5 +6,7 @@
  */
 
 export type ListDurations200 = {
+  roomQuery: string;
+  startHour: number;
   options: number[];
 };
