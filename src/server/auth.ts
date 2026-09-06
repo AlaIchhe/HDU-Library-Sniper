@@ -12,10 +12,6 @@ const SSO_CSRF_KEY = "FzgxPikIetYDlXZM4lRG9taclVDa99lB";
 const SSO_CSRF_VALUE = "7964f321f00366a3a287a133dd307ed0";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36";
 
-// SSO's QR scan endpoint long-polls until the code is scanned. Bound the wait so the
-// local status endpoint returns promptly instead of hanging (which made the Tauri
-// webview fetch time out and surface "无法连接本地后台服务").
-const QR_SCAN_TIMEOUT_MS = 2500;
 // QR 轮询单次会话的最大轮询时长（秒）：超时后服务端判定该码已失效，客户端应换新码。
 const QR_POLL_SESSION_TTL_S = 90;
 // 局域网或本地后端出现瞬时网络抖动时，服务端允许短时重试，避免把一次抖动误判成“二维码异常”。
@@ -25,6 +21,13 @@ type SsoResponseBody = { code?: number; message?: string; data?: unknown; dataEr
 type QrLoginStatusResult = {
   status: "waiting" | "confirmed" | "expired" | "error";
   ttlSeconds: number;
+  message?: string;
+  session?: SessionStatus;
+};
+
+type QrSessionState = {
+  createdAt: number;
+  status: QrLoginStatusResult["status"];
   message?: string;
   session?: SessionStatus;
 };
@@ -51,6 +54,8 @@ function encryptPassword(keyBase64: string, password: string): string {
 export class AuthService {
   private credentials: { studentId: string; password: string } | undefined;
   private csrf: { key: string; value: string } = { key: SSO_CSRF_KEY, value: SSO_CSRF_VALUE };
+  // 每个二维码的扫码状态：由 createQrLogin 启动的后台循环写入，status 端点即时读取。
+  private qrSessions = new Map<string, QrSessionState>();
   readonly client: LibraryClient;
 
   constructor() {
@@ -203,6 +208,11 @@ export class AuthService {
     if (!buffer.length) throw new Error("二维码内容为空");
     // SSO 未返回二维码有效期，但长轮询周期为 30s，到期返回 wait 后 SSO 侧会作废旧码。
     // 据此给客户端一个合理的安全窗口，并预留提前刷新时间。
+    // 扫码确认由后台扫描循环驱动：status 端点变为即时短轮询读取，
+    // 前端查询到登录态即直接跳转，无需长轮询挂起请求。
+    this.qrSessions.set(uuid, { createdAt: Date.now(), status: "waiting" });
+    this.pruneQrSessions();
+    void this.runQrScanLoop(uuid);
     return {
       uuid,
       image: `data:image/png;base64,${buffer.toString("base64")}`,
@@ -241,35 +251,19 @@ export class AuthService {
       );
   }
 
-  async pollQrLogin(uuid: string): Promise<QrLoginStatusResult> {
-    if (!uuid) return { status: "error", message: "二维码 ID 缺失", ttlSeconds: QR_POLL_SESSION_TTL_S };
-    const sessionBudget = Date.now() + QR_POLL_SESSION_TTL_S * 1000;
-    try {
-      // 单个二维码的总轮询预算：超时后即使 SSO 尚未明确报错，也判定该码已失效。
-      while (Date.now() < sessionBudget) {
-        const remaining = sessionBudget - Date.now();
-        const round = Math.min(QR_POLL_ROUND_MS, Math.max(QR_SCAN_TIMEOUT_MS, remaining));
-        const result = await this.pollQrRound(uuid, round);
-        if (result) return result;
-      }
-      return { status: "expired", message: "二维码已过期，请刷新", ttlSeconds: QR_POLL_SESSION_TTL_S };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("expired") || message.includes("过期")) {
-        return { status: "expired", message: "二维码已过期，请刷新", ttlSeconds: QR_POLL_SESSION_TTL_S };
-      }
-      return { status: "error", message, ttlSeconds: QR_POLL_SESSION_TTL_S };
-    }
+  pollQrLogin(uuid: string): QrLoginStatusResult {
+    const entry = uuid ? this.qrSessions.get(uuid) : undefined;
+    if (!entry) return { status: "error", message: "二维码已失效，请刷新", ttlSeconds: QR_POLL_SESSION_TTL_S };
+    return { status: entry.status, message: entry.message, session: entry.session, ttlSeconds: QR_POLL_SESSION_TTL_S };
   }
 
   /**
-   * 单轮长轮询：最多等 roundMs 毫秒。SSO 在未扫码时会在约 30s 后返回 wait，
-   * 我们用 QR_SCAN_TIMEOUT_MS 截断避免本地请求挂太久，并区分：
-   *  - 截断（AbortError）→ 仍未变化，返回 null（外层继续等）
-   *  - 返回 wait / 408 → SSO 已完成一个长轮询周期，判定该码失效 → expired
-   *  - 返回授权 token → 完成登录 → confirmed
+   * 单轮长轮询（在后台扫描循环中运行）：最多等 roundMs 毫秒。
+   *  - 截断（AbortError）→ 本轮无变化，返回 null（循环继续下一轮）
+   *  - 返回 wait / 408 → SSO 已完成一个长轮询周期，判定该码失效 → 抛错（expired）
+   *  - 返回授权 token → 返回给调用方执行 completeQrLogin
    */
-  private async pollQrRound(uuid: string, roundMs: number): Promise<QrLoginStatusResult | null> {
+  private async pollQrRoundForToken(uuid: string, roundMs: number): Promise<string | null> {
     const referer = await this.ensureSsoPage();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), roundMs);
@@ -283,13 +277,9 @@ export class AuthService {
           });
           if (!response.ok) throw new Error(`扫码状态请求失败: ${response.status}`);
           const body = await this.readSsoJson(response);
-          // 返回授权 token：扫码已确认，完成登录。
-          if (typeof body.data === "string" && body.data) {
-            await this.completeQrLogin(body.data);
-            return { status: "confirmed", session: this.status(), ttlSeconds: QR_POLL_SESSION_TTL_S };
-          }
+          if (typeof body.data === "string" && body.data) return body.data;
           // 显式 wait：SSO 已完成一个长轮询周期且码未变，判定失效，客户端应换新码。
-          return { status: "expired", message: "二维码已过期，请刷新", ttlSeconds: QR_POLL_SESSION_TTL_S };
+          throw new Error("二维码已过期，请刷新");
         } catch (error) {
           if (error instanceof Error && (error.name === "AbortError" || /abort/i.test(error.message))) {
             return null; // 本轮未变化，继续等待
@@ -302,6 +292,40 @@ export class AuthService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private pruneQrSessions(): void {
+    const cutoff = Date.now() - 10 * 60_000;
+    for (const [key, entry] of this.qrSessions) {
+      if (entry.createdAt < cutoff) this.qrSessions.delete(key);
+    }
+  }
+
+  // 后台扫描循环：createQrLogin 时启动，独立于前端请求推进扫码确认，
+  // 结果写入 qrSessions 供 status 短轮询即时读取。
+  private async runQrScanLoop(uuid: string): Promise<void> {
+    const budget = Date.now() + QR_POLL_SESSION_TTL_S * 1000;
+    while (Date.now() < budget) {
+      const entry = this.qrSessions.get(uuid);
+      if (!entry || entry.status !== "waiting") return;
+      try {
+        const token = await this.pollQrRoundForToken(uuid, QR_POLL_ROUND_MS);
+        if (token === null) continue;
+        await this.completeQrLogin(token);
+        this.qrSessions.set(uuid, { createdAt: entry.createdAt, status: "confirmed", session: this.status() });
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const expired = /expired|过期/i.test(message);
+        this.qrSessions.set(uuid, {
+          createdAt: entry.createdAt,
+          status: expired ? "expired" : "error",
+          message: expired ? "二维码已过期，请刷新" : message,
+        });
+        return;
+      }
+    }
+    this.qrSessions.set(uuid, { createdAt: Date.now(), status: "expired", message: "二维码已过期，请刷新" });
   }
 
   logout(): void {
