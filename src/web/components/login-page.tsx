@@ -2,12 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { LogIn, LockKeyhole, QrCode, RefreshCw, ShieldCheck } from "lucide-react"
+import { LogIn, QrCode, RefreshCw, ShieldCheck } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 
-import { AnimatedShinyText } from "@/components/ui/animated-shiny-text"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -18,12 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Field,
-  FieldDescription,
-  FieldLabel,
-  FormError,
-} from "@/components/ui/field"
+import { Field, FieldLabel, FormError } from "@/components/ui/field"
 import { Form } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
@@ -115,7 +109,7 @@ function LoginPage() {
           return
         }
         // waiting：二维码仍有效，静默继续下一轮。
-        pollTimer.current = setTimeout(tick, 1500)
+        pollTimer.current = setTimeout(tick, 1000)
       } catch {
         if (loop.current.stopped || cancelled) return
         pollTimer.current = setTimeout(tick, 1500)
@@ -123,7 +117,7 @@ function LoginPage() {
     }
 
     loop.current.stopped = false
-    pollTimer.current = setTimeout(tick, 1200)
+    pollTimer.current = setTimeout(tick, 800)
 
     // 到期自动换码：在安全窗口到期前提前刷新。
     const ttl = Math.max(20, currentQr.ttlSeconds || 90)
@@ -175,15 +169,9 @@ function LoginPage() {
               <CardDescription>预约工作台</CardDescription>
             </div>
           </div>
-          <AnimatedShinyText className="text-xs font-semibold tracking-widest text-muted-foreground">
-            SECURE ACCESS
-          </AnimatedShinyText>
           <CardTitle render={<h1 />} className="text-3xl">
             登录图书馆账户
           </CardTitle>
-          <CardDescription className="break-words">
-            支持账号密码或钉钉扫码，登录后可管理预约方案并保持后台服务运行。
-          </CardDescription>
         </CardHeader>
         <div className="grid gap-0 px-6 pb-6 md:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)]">
           <Form onSubmit={form.handleSubmit(submit)} className="contents">
@@ -217,12 +205,6 @@ function LoginPage() {
                 <LogIn className="size-4" />
                 进入工作台
               </Button>
-              <Field>
-                <FieldDescription>
-                  <LockKeyhole className="mr-1 inline size-3.5" />
-                  凭据仅提交给本地后台服务
-                </FieldDescription>
-              </Field>
             </div>
           </Form>
           <Separator orientation="vertical" className="hidden md:block" />
@@ -266,9 +248,6 @@ function LoginPage() {
                 </div>
               )}
             </div>
-            <p className="text-center text-xs leading-5 text-muted-foreground">
-              扫码请求由本地后台代理，避免跨域并保护登录会话。二维码失效后将自动刷新。
-            </p>
           </div>
         </div>
       </Card>
