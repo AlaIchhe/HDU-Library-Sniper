@@ -1,7 +1,7 @@
 FROM docker.io/oven/bun:1.4.0-alpine
 WORKDIR /app
 ARG SOURCE_REVISION=unknown
-COPY package.json bun.lock tsconfig.json vite.config.ts vitest.config.ts playwright.config.ts orval.config.ts openapi.yaml index.html ./
+COPY package.json bun.lock tsconfig.json vite.config.ts vitest.config.ts playwright.config.ts index.html ./
 RUN bun install --frozen-lockfile
 COPY src ./src
 COPY public ./public
