@@ -10,9 +10,9 @@ export const port = Number(process.env.HDU_WEB_PORT || 8000);
 export const timezone = "Asia/Shanghai";
 export const bookingDayOffset = 2;
 
-// 自习室等一般只能提前一天预约，其他类型房间提前两天开放。
+// 仅生活区提前一天开放预约，其余房型（含自习室）提前两天。
 export function bookingDayOffsetFor(roomType?: string): number {
-  return roomType && /自习/.test(roomType) ? 1 : bookingDayOffset;
+  return roomType && /生活区/.test(roomType) ? 1 : bookingDayOffset;
 }
 
 // 馆方在每天 20:00（Asia/Shanghai）开放新一日的预约窗口，抢座锚定这个整点。

@@ -21,7 +21,7 @@
 
 Windows x64 MSI 安装包：
 
-[下载 HDU Library Sniper](https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/HDU.Library.Sniper_2.0.14_x64_zh-CN.msi)
+[下载 HDU Library Sniper](https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/HDU.Library.Sniper_2.0.15_x64_zh-CN.msi)
 
 ## 使用说明
 
