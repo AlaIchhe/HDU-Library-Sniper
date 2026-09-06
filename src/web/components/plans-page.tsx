@@ -153,6 +153,8 @@ function SearchableField({
   placeholder,
   disabled,
   error,
+  onOpenChange,
+  emptyText = "没有匹配项",
 }: {
   label: string
   value: string
@@ -161,6 +163,8 @@ function SearchableField({
   placeholder: string
   disabled?: boolean
   error?: string
+  onOpenChange?: (open: boolean) => void
+  emptyText?: string
 }) {
   return (
     <Field>
@@ -169,6 +173,7 @@ function SearchableField({
         value={value}
         onValueChange={(next) => next !== null && onChange(String(next))}
         itemToStringValue={(item) => String(item ?? "")}
+        onOpenChange={onOpenChange}
         disabled={disabled}
       >
         <ComboboxInput placeholder={placeholder} />
@@ -179,7 +184,7 @@ function SearchableField({
                 {option.label}
               </ComboboxItem>
             ))}
-            <ComboboxEmpty>没有匹配项</ComboboxEmpty>
+            <ComboboxEmpty>{emptyText}</ComboboxEmpty>
           </ComboboxList>
         </ComboboxPopup>
       </Combobox>
@@ -276,6 +281,11 @@ function PlanEditor({
           options={roomTypes.data?.options.map((item) => ({ value: item.name, label: item.name })) || []}
           disabled={roomTypes.isLoading}
           error={form.formState.errors.roomType?.message}
+          onOpenChange={(open) => {
+            // 桌面端没有刷新概念：网络恢复后展开下拉即自动重试失败的查询
+            if (open && roomTypes.isError) void roomTypes.refetch()
+          }}
+          emptyText={roomTypes.isFetching ? "正在加载房间类型…" : roomTypes.isError ? "房间类型加载失败，重新展开将自动重试" : "没有匹配项"}
         />
         <div className="grid gap-1">
           <SelectField
