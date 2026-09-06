@@ -25,7 +25,7 @@ fi
 podman run "${run_args[@]}"
 
 if [[ "${HDU_SKIP_SYSTEMD_AUTOSTART:-0}" != "1" ]]; then
-  "$(dirname "${BASH_SOURCE[0]}")/install-systemd-autostart.sh"
+  bash "$(dirname "${BASH_SOURCE[0]}")/install-systemd-autostart.sh"
 fi
 
 podman logs --tail 20 hdu-library-sniper
