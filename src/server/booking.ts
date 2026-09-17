@@ -10,6 +10,8 @@ export type BookingMemberResult = {
   seatNum?: string;
   success: boolean;
   message: string;
+  /** 终态：重试也不会改变结果（如存在时间冲突的预约），burst 应立即停止。 */
+  terminal?: boolean;
 };
 
 export type BookingRunResult = {
@@ -60,7 +62,10 @@ function responseMessage(response: Record<string, unknown>): string {
 
 function bookingSucceeded(response: Record<string, unknown>): boolean {
   const data = response.DATA as Record<string, unknown> | undefined;
-  return String(response.CODE).toLowerCase() === "ok" && String(data?.result).toLowerCase() === "success";
+  if (String(response.CODE).toLowerCase() !== "ok") return false;
+  if (String(data?.result).toLowerCase() === "success") return true;
+  // 部分成功响应（如服务端调整后的结果）只带 DATA.msg，没有 result 字段。
+  return String(data?.msg || "").includes("成功");
 }
 
 function planMembers(enabled: PlanListItem): BookingPlan[] {
@@ -74,6 +79,19 @@ function memberBegin(plan: BookingPlan): Date | undefined {
 }
 
 // 幂等依据：馆方预约列表里已存在同一开始时间的预约时，不再重复提交。
+async function existingBookingForBegin(client: LibraryClient, begin: Date): Promise<Record<string, unknown> | undefined> {
+  try {
+    const items = await paced(() => client.bookings());
+    const target = Math.floor(begin.getTime() / 1000);
+    return items.find((item) => Number(item.time || 0) === target);
+  } catch {
+    return undefined;
+  }
+}
+
+function isDuplicateMessage(message: string): boolean {
+  return /已有预约|请勿重复|重复预约/.test(message);
+}
 async function bookedBeginTimes(client: LibraryClient): Promise<Set<number>> {
   try {
     const items = await paced(() => client.bookings());
@@ -104,10 +122,25 @@ async function executePlan(client: LibraryClient, plan: BookingPlan, begin: Date
     try {
       const response = await paced(() => client.bookSeat(String(seat.id), begin, plan.durationHours));
       if (bookingSucceeded(response)) return { planId: plan.id, seatNum, success: true, message: "预约成功" };
-      lastMessage = responseMessage(response) || "预约失败";
+      const message = responseMessage(response) || "预约失败";
+      lastMessage = message;
+      // 服务器已受理但响应被判定失败时，先做幂等确认，避免重复提交和误报。
+      const confirmed = await existingBookingForBegin(client, begin);
+      if (confirmed) {
+        return { planId: plan.id, seatNum: String(confirmed.seatNum || seatNum), success: true, message: "预约已生效（以预约列表为准）" };
+      }
+      if (isDuplicateMessage(message)) {
+        // 同一时间段存在冲突预约（可能来自其他设备或已取消的方案），重试不会成功。
+        return { planId: plan.id, seatNum, success: false, terminal: true, message: `存在时间冲突的预约，请先取消后再试：${message}` };
+      }
     } catch (error) {
       if (error instanceof AuthenticationExpiredError) throw error;
       if (error instanceof RequestTimeoutError) {
+        // 读/连超时 ≠ 预约失败，服务器可能已受理。以预约列表做幂等确认。
+        const confirmed = await existingBookingForBegin(client, begin);
+        if (confirmed) {
+          return { planId: plan.id, seatNum: String(confirmed.seatNum || seatNum), success: true, message: "预约已生效（响应超时，以预约列表为准）" };
+        }
         return { planId: plan.id, seatNum, success: false, message: "请求超时，未自动重试" };
       }
       lastMessage = String(error);
@@ -120,7 +153,7 @@ export class BookingExecutor {
   constructor(private readonly client: LibraryClient, private readonly pause: (ms: number) => Promise<void> = sleep) {}
 
   // 单次执行：手动触发或 burst 中的一次尝试。幂等——预约列表里已有的时段直接跳过。
-  async run(dryRun = false): Promise<BookingRunResult> {
+  async run(dryRun = false, options: { audit?: boolean } = {}): Promise<BookingRunResult> {
     const release = tryAcquireJobLock("booking");
     if (!release) return { success: false, message: "已有任务正在运行", members: [] };
     try {
@@ -138,11 +171,14 @@ export class BookingExecutor {
           result = await executePlan(this.client, plan, begin, dryRun);
         }
         results.push(result);
-        writeAudit("booking_member_finished", { planId: plan.id, success: result.success, seatNum: result.seatNum });
+        writeAudit("booking_member_finished", { planId: plan.id, success: result.success, seatNum: result.seatNum, message: result.message });
       }
       const success = results.length > 0 && results.every((result) => result.success);
-      const result: BookingRunResult = { planId: enabled.id, kind: enabled.kind, success, message: dryRun ? "预约预演完成，未提交预约请求" : success ? "预约任务完成" : "预约任务部分失败或未完成", members: results };
-      writeAudit("booking_run_finished", { planId: enabled.id, kind: enabled.kind, success, members: results.length });
+      const message = dryRun ? "预约预演完成，未提交预约请求" : success ? "预约任务完成" : `预约失败：${results.map((result) => result.message).join("；")}`;
+      const result: BookingRunResult = { planId: enabled.id, kind: enabled.kind, success, message, members: results };
+      if (options?.audit !== false) {
+        writeAudit("booking_run_finished", { planId: enabled.id, kind: enabled.kind, success, members: results.length, message });
+      }
       return result;
     } finally {
       release();
@@ -154,8 +190,13 @@ export class BookingExecutor {
     const intervalMs = options.intervalMs ?? burstRequestIntervalMs;
     const deadline = Date.now() + (options.timeoutMs ?? burstTimeoutMs);
     for (;;) {
-      const result = await this.run(dryRun);
-      if (result.success || Date.now() >= deadline) return result;
+      const result = await this.run(dryRun, { audit: false });
+      const terminal = result.members.some((member) => member.terminal);
+      if (result.success || terminal || Date.now() >= deadline) {
+        // burst 只产生一条结果审计，避免逐次重试刷屏通知。
+        writeAudit("booking_run_finished", { planId: result.planId, kind: result.kind, success: result.success, members: result.members.length, message: result.message });
+        return result;
+      }
       await this.pause(intervalMs);
     }
   }

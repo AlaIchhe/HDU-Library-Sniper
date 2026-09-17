@@ -14,7 +14,7 @@ export class HduLibraryError extends Error {}
 export class RequestTimeoutError extends HduLibraryError {}
 
 function apiToken(seatId: string, uid: string, beginTime: number, duration: number, apiTime = Math.floor(Date.now() / 1000)): string {
-  const source = `post&/Seat/Index/bookSeats?LAB_JSON=1&api_time${apiTime}&beginTime${beginTime}&duration${duration}&is_recommend1&seatBookers[0]${uid}&seats[0]${seatId}`;
+  const source = `post&/Seat/Index/bookSeats?LAB_JSON=1&api_time${apiTime}&beginTime${beginTime}&duration${duration}&is_recommend0&seatBookers[0]${uid}&seats[0]${seatId}`;
   return btoa(createHash("md5").update(source).digest("hex"));
 }
 
@@ -162,7 +162,7 @@ export class LibraryClient {
     const payload = new URLSearchParams({
       beginTime: String(begin),
       duration: String(duration),
-      is_recommend: "1",
+      is_recommend: "0",
       api_time: String(apiTime),
       "seats[0]": seatId,
       "seatBookers[0]": this.uid,
