@@ -175,6 +175,27 @@ export class LibraryClient {
     });
   }
 
+  // 预锁只占座，不写入预约人；前端 lockSeats 请求同样没有 Api-Token。
+  async lockSeat(seatId: string, beginTime: Date, durationHours: number): Promise<Record<string, unknown>> {
+    const begin = Math.floor(beginTime.getTime() / 1000);
+    const duration = durationHours * 3600;
+    const payload = new URLSearchParams({
+      beginTime: String(begin),
+      duration: String(duration),
+      is_recommend: "0",
+      api_time: String(Math.floor(Date.now() / 1000)),
+      "seats[0]": seatId,
+    });
+    return this.request("/Seat/Index/lockSeats?LAB_JSON=1", {
+      method: "POST",
+      body: payload,
+    });
+  }
+
+  async unlockAllSeats(): Promise<Record<string, unknown>> {
+    return this.request("/Seat/Index/unlockAllSeats?LAB_JSON=1", { method: "POST" });
+  }
+
   private assertActionSuccess(body: Record<string, unknown>): void {
     const data = body.DATA as Record<string, unknown> | undefined;
     if (String(body.CODE).toLowerCase() !== "ok" || String(data?.result).toLowerCase() !== "success") {

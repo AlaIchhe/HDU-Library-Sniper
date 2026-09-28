@@ -155,6 +155,31 @@ describe("LibraryClient.bookSeat", () => {
   });
 });
 
+describe("LibraryClient.seat lock", () => {
+  test("submits lockSeats without seatBookers and uses unlockAllSeats for cleanup", async () => {
+    const calls: Array<{ path: string; init?: RequestInit }> = [];
+    const client = makeClient(async (path, init) => {
+      calls.push({ path, init });
+      return { CODE: "ok", DATA: { time: 1789779000 } } as unknown as Record<string, unknown>;
+    });
+
+    await client.lockSeat("42", new Date(2026, 8, 5, 9, 0, 0), 12);
+    await client.unlockAllSeats();
+
+    expect(calls[0]?.path).toBe("/Seat/Index/lockSeats?LAB_JSON=1");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(new Headers(calls[0]?.init?.headers).get("Api-Token")).toBeNull();
+    const lockBody = calls[0]?.init?.body instanceof URLSearchParams ? calls[0].init.body : undefined;
+    expect(lockBody?.get("seats[0]")).toBe("42");
+    expect(lockBody?.get("seatBookers[0]")).toBeNull();
+    expect(lockBody?.get("is_recommend")).toBe("0");
+    expect(lockBody?.get("duration")).toBe(String(12 * 3600));
+
+    expect(calls[1]?.path).toBe("/Seat/Index/unlockAllSeats?LAB_JSON=1");
+    expect(calls[1]?.init?.method).toBe("POST");
+  });
+});
+
 describe("LibraryClient.action", () => {
   function actionClient() {
     const calls: Array<{ path: string; init?: RequestInit }> = [];

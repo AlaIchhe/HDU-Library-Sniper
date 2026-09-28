@@ -24,3 +24,16 @@ export function bookingAnchorDelaySeconds(secondsOfDay: number): number {
   if (delay <= 0) delay += 24 * 3600;
   return delay;
 }
+
+// 预约开放前先预锁的提前量。窗口必须远小于馆方 15 分钟释放时间。
+export const bookingPrelockLeadSeconds = 60;
+
+// 返回距离下一次预锁的秒数：预约前进入窗口则立即预锁，已过预约锚点则等明天。
+export function bookingPrelockDelaySeconds(
+  secondsOfDay: number,
+  leadSeconds = bookingPrelockLeadSeconds,
+): number {
+  const anchorDelay = bookingAnchorDelaySeconds(secondsOfDay);
+  const anchorAt = secondsOfDay + anchorDelay;
+  return Math.max(0, anchorAt - leadSeconds - secondsOfDay);
+}
