@@ -1,7 +1,7 @@
 import type { RuntimeStatus } from "../shared/types";
 import { AuthService } from "./auth";
 import { getMeta, setMeta, writeAudit } from "./db";
-import { bookingAnchorDelaySeconds, timezone } from "./config";
+import { bookingAnchorDelaySeconds, bookingPrelockDelaySeconds, timezone } from "./config";
 import { tryAcquireJobLock } from "./lock";
 import { BookingExecutor } from "./booking";
 import { AuthenticationExpiredError } from "./library";
@@ -14,6 +14,7 @@ const checkInIntervalMs = 15 * 60_000;
 export class Scheduler {
   private timer: Timer | undefined;
   private bookingTimer: Timer | undefined;
+  private bookingPrelockTimer: Timer | undefined;
   private nextPollAt: string | undefined;
   private running = false;
   private statusValue: RuntimeStatus = {
@@ -51,6 +52,8 @@ export class Scheduler {
     this.nextPollAt = undefined;
     if (this.bookingTimer) clearTimeout(this.bookingTimer);
     this.bookingTimer = undefined;
+    if (this.bookingPrelockTimer) clearTimeout(this.bookingPrelockTimer);
+    this.bookingPrelockTimer = undefined;
     this.statusValue.scheduler = "stopped";
   }
 
@@ -77,11 +80,45 @@ export class Scheduler {
 
   private scheduleBookingAnchor(): void {
     if (this.bookingTimer) return;
-    const delay = bookingAnchorDelaySeconds(this.shanghaiSecondsOfDay());
+    const secondsOfDay = this.shanghaiSecondsOfDay();
+    const anchorDelay = bookingAnchorDelaySeconds(secondsOfDay);
+    const prelockDelay = bookingPrelockDelaySeconds(secondsOfDay);
+    const anchorAt = Date.now() + anchorDelay * 1000;
+
+    // 先建预锁，再在同一个锚点发起正式预约。锁的 15 分钟 TTL 远大于 60 秒窗口。
+    this.bookingPrelockTimer = setTimeout(() => {
+      this.bookingPrelockTimer = undefined;
+      void this.bookingPrelockTick(new Date(anchorAt));
+    }, Math.max(0, prelockDelay) * 1000);
+
     this.bookingTimer = setTimeout(() => {
       this.bookingTimer = undefined;
       void this.bookingAnchorTick().finally(() => this.scheduleBookingAnchor());
-    }, delay * 1000);
+    }, anchorDelay * 1000);
+  }
+
+  private async bookingPrelockTick(anchorAt: Date): Promise<void> {
+    if (!listPlanItems().some((item) => item.enabled)) return;
+    const deadline = new Date(Math.max(Date.now(), anchorAt.getTime() - 5_000));
+    this.statusValue.state = "running";
+    try {
+      if (!(await this.auth.restore())) {
+        this.statusValue.state = "auth_required";
+        return;
+      }
+      const result = await this.booking.lockBurst({ deadlineAt: deadline });
+      this.statusValue.lastMessage = result.message;
+    } catch (error) {
+      if (error instanceof AuthenticationExpiredError && (await this.auth.restore())) {
+        const result = await this.booking.lockBurst({ deadlineAt: deadline });
+        this.statusValue.lastMessage = result.message;
+      } else {
+        this.statusValue.lastMessage = `预锁失败：${String(error)}`;
+        writeAudit("booking_prelock_failed", { error: String(error) });
+      }
+    } finally {
+      if (this.statusValue.state === "running") this.statusValue.state = "idle";
+    }
   }
 
   private async bookingAnchorTick(): Promise<void> {
