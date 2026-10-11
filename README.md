@@ -6,9 +6,7 @@
 
 ## 操作演示
 
-[![创建方案、选择座位和时间、保存启用、查看预约](docs/media/hdu-sniper-demo.gif)](docs/media/hdu-sniper-demo.mp4)
-
-[观看完整视频](docs/media/hdu-sniper-demo.mp4) · 约 29 秒，演示数据。
+Uploading hdu-sniper-demo.mp4…
 
 ## 能做什么
 
