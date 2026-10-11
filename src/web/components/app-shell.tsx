@@ -192,6 +192,7 @@ export function AppShell() {
     return () => window.clearTimeout(timer)
   }, [])
   useEffect(() => {
+    if (!authenticated) return
     let active = true
     const poll = async () => { try { const result = await api.audit(50); if (active) await notifyAuditEvents(result.events) } catch { /* backend may not be ready yet */ } }
     void poll(); const timer = window.setInterval(() => void poll(), 15_000)
