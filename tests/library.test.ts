@@ -121,6 +121,24 @@ describe("LibraryClient roomTypes parsing", () => {
     const types = await client.roomTypes();
     expect(types).toEqual([{ name: "自习室", query: "space_category[category_id]=1&space_category[content_id]=91" }]);
   });
+
+  test("skips empty category nodes returned before room types", async () => {
+    const client = makeClient(async () => ({
+      content: {
+        children: [
+          { name: "空分类", defaultItems: [] },
+          { name: "暂未加载", defaultItems: [] },
+          { name: "房间分类", defaultItems: [
+            { name: "自习室", link: { url: "/Seat/Index/searchSeats?space_category[category_id]=2&space_category[content_id]=92" } },
+          ] },
+        ],
+      },
+    }));
+
+    await expect(client.roomTypes()).resolves.toEqual([
+      { name: "自习室", query: "space_category[category_id]=2&space_category[content_id]=92" },
+    ]);
+  });
 });
 
 describe("LibraryClient.bookingRange parsing", () => {

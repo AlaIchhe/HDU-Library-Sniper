@@ -95,11 +95,16 @@ export class LibraryClient {
     const body = await this.request("/Space/Category/list?LAB_JSON=1");
     const content = body.content as Record<string, unknown> | undefined;
     const children = Array.isArray(content?.children) ? (content!.children as Record<string, unknown>[]) : [];
-    const items = children[1]?.defaultItems;
-    if (!Array.isArray(items)) throw new HduLibraryError("房间类型解析失败");
+    // 慧图返回的分类节点顺序并不稳定：首次登录时目标节点可能不在索引 1，
+    // 甚至该节点会先返回空数组。按内容查找第一个非空列表，避免下拉框显示为空。
+    const items = children
+      .map((child) => child.defaultItems)
+      .find((value): value is unknown[] => Array.isArray(value) && value.length > 0);
+    if (!items) throw new HduLibraryError("房间类型解析失败");
     return items.map((item) => {
       const value = item as Record<string, unknown>;
-      const url = String((value.link as Record<string, unknown> | undefined)?.url || "");
+      const link = value.link as Record<string, unknown> | string | undefined;
+      const url = typeof link === "string" ? link : String(link?.url || "");
       const query = url.split("?")[1] || "";
       if (!query) throw new HduLibraryError("房间类型链接解析失败");
       return { name: String(value.name || ""), query: decodeURIComponent(query) };
