@@ -6,7 +6,7 @@
 
 ## 操作演示
 
-Uploading hdu-sniper-demo.mp4…
+https://github.com/user-attachments/assets/f8abc8a4-c9f6-4fd9-881b-3f6ec2d45c0d
 
 ## 能做什么
 
