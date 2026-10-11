@@ -13,6 +13,24 @@ export class AuthenticationExpiredError extends Error {}
 export class HduLibraryError extends Error {}
 export class RequestTimeoutError extends HduLibraryError {}
 
+function findNonEmptyDefaultItems(node: unknown): unknown[] | undefined {
+  if (Array.isArray(node)) {
+    for (const value of node) {
+      const found = findNonEmptyDefaultItems(value);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (!node || typeof node !== "object") return undefined;
+  const record = node as Record<string, unknown>;
+  if (Array.isArray(record.defaultItems) && record.defaultItems.length > 0) return record.defaultItems;
+  for (const value of Object.values(record)) {
+    const found = findNonEmptyDefaultItems(value);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 function apiToken(seatId: string, uid: string, beginTime: number, duration: number, apiTime = Math.floor(Date.now() / 1000)): string {
   const source = `post&/Seat/Index/bookSeats?LAB_JSON=1&api_time${apiTime}&beginTime${beginTime}&duration${duration}&is_recommend0&seatBookers[0]${uid}&seats[0]${seatId}`;
   return btoa(createHash("md5").update(source).digest("hex"));
@@ -93,13 +111,11 @@ export class LibraryClient {
 
   async roomTypes(): Promise<Array<{ name: string; query: string }>> {
     const body = await this.request("/Space/Category/list?LAB_JSON=1");
-    const content = body.content as Record<string, unknown> | undefined;
-    const children = Array.isArray(content?.children) ? (content!.children as Record<string, unknown>[]) : [];
-    // 慧图返回的分类节点顺序并不稳定：首次登录时目标节点可能不在索引 1，
-    // 甚至该节点会先返回空数组。按内容查找第一个非空列表，避免下拉框显示为空。
-    const items = children
-      .map((child) => child.defaultItems)
-      .find((value): value is unknown[] => Array.isArray(value) && value.length > 0);
+    // 慧图返回的分类节点顺序和嵌套层级并不稳定，首次登录时还可能出现空节点。
+    // 递归查找第一个非空 defaultItems，避免把临时空节点误当成完整目录。
+    const items = [body.content, body.data, body.DATA]
+      .map(findNonEmptyDefaultItems)
+      .find((value): value is unknown[] => Boolean(value));
     if (!items) throw new HduLibraryError("房间类型解析失败");
     return items.map((item) => {
       const value = item as Record<string, unknown>;
