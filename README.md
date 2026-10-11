@@ -4,6 +4,12 @@
 
 桌面端和容器端都由同一个本地后台服务负责预约、签到、审计和会话保持。登录凭据只提交给本机服务，不会上传到第三方服务器。
 
+## 项目短片
+
+[![HDU Library Sniper 宣传短片：配置方案、定时预约、结果通知与自动签到](docs/media/hdu-sniper-promo.gif)](docs/media/hdu-sniper-promo.mp4)
+
+[观看 / 下载 24 秒 MP4](docs/media/hdu-sniper-promo.mp4)。画面为功能示意，预约结果以图书馆系统为准。
+
 ## 功能
 
 - 登录杭电数字杭电账户，保存本地会话 Cookie
