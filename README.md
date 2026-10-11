@@ -8,7 +8,7 @@
 
 [![HDU Library Sniper UI 操作：创建预约方案、选择房间和座位、保存并启用、查看当前预约](docs/media/hdu-sniper-demo.gif)](docs/media/hdu-sniper-demo.mp4)
 
-[观看 / 下载 UI 操作演示 MP4](docs/media/hdu-sniper-demo.mp4)。录制当前项目界面，展示创建、保存、启用预约方案及查看当前预约；使用演示数据，不会提交真实预约。
+[观看 / 下载 UI 操作演示 MP4](docs/media/hdu-sniper-demo.mp4)（约 29 秒，1080p / 60 fps）。展示实际界面的房间与座位选择、时间设置、方案保存启用及当前预约；使用演示数据，不会提交真实预约。
 
 ## 功能
 
