@@ -66,43 +66,68 @@ HDU_SKIP_SYSTEMD_AUTOSTART=1 bun run podman:up
 bun run podman:down
 ```
 
+#### 预构建镜像
+
+`.github/workflows/image.yml` 会在推送到 `main` 时构建容器镜像并推送到 GitHub Container Registry，部署机可以直接使用镜像，不必 clone 仓库或在本地安装 Bun/Node 工具链：
+
+```bash
+podman pull ghcr.io/alaichhe/hdu-library-sniper:latest
+```
+
+手动启动（不需要自动更新时）：
+
+```bash
+podman volume create hdu-sniper-data 2>/dev/null || true
+podman run -d --name hdu-library-sniper \
+  --restart=always \
+  --publish 8000:8000 \
+  --volume hdu-sniper-data:/var/lib/hdu-sniper:Z \
+  ghcr.io/alaichhe/hdu-library-sniper:latest
+```
+
+镜像 tag：
+
+- `latest`：`main` 分支最新一次构建；
+- `sha-<short>`：按提交固定的版本，便于回滚；
+- `v*`：仓库打 tag 时发布的版本。
+
+如果 ghcr 包是私有的，需要先在宿主机登录一次 `podman login ghcr.io -u <GitHub 用户名>`；公开包可以匿名拉取（GitHub → Packages → hdu-library-sniper → Package settings 可调整可见性）。
+
 #### Podman 自动更新
 
-如需让宿主机自动跟踪 GitHub 仓库 `origin/main` 并更新容器，可安装 systemd 定时器：
+自动更新只拉取上面发布的镜像，不在宿主机上构建，也不需要 Git 工作区。安装 systemd 定时器：
 
 ```bash
 sudo bun run podman:auto-update:install
 ```
 
-安装后，宿主机每天凌晨 03:15（Asia/Shanghai）检查一次更新，并随机延迟最多 15 分钟，避免固定时间集中执行。检查服务会：
+安装脚本会把更新逻辑复制到 `/usr/local/sbin/hdu-library-sniper-auto-update`，systemd 指向这个副本，因此之后移动或删除仓库目录都不会影响定时任务。安装后每天凌晨 03:15（Asia/Shanghai）检查一次，并随机延迟最多 15 分钟。每次检查会：
 
-1. 从 `origin/main` 拉取最新代码；
-2. 在临时 Git worktree 中构建候选镜像；
-3. 使用临时数据卷启动候选容器并检查 `/api/health`；
-4. 健康检查通过后替换生产容器，并删除上一版容器；
-5. 回收候选镜像 tag 与不再被引用的构建层；
-6. 替换失败时恢复旧容器，并删除本轮构建的候选镜像。
+1. `podman pull` 目标镜像并记录镜像 ID；
+2. 如果运行中的容器已经是这个镜像，只做健康检查后退出；
+3. 否则用临时数据卷启动候选容器并检查 `/api/health`；
+4. 健康检查通过后替换生产容器并删除上一版容器；
+5. 回收旧的本地构建镜像与悬空层；
+6. 替换失败时恢复旧容器。
 
-候选镜像只是更新过程的临时产物：提升成功后镜像改由稳定的 `HDU_SNIPER_IMAGE`（默认 `localhost/hdu-library-sniper:dev`）引用，`candidate-<revision>` tag 会被删除，悬空构建层也会清理，因此磁盘占用不会随更新次数持续增长。如果宿主机上还跑着其他 Podman 工作负载、不希望执行全局悬空镜像清理，可以在 `/etc/default/hdu-library-sniper-auto-update` 中加入：
-
-```bash
-HDU_SNIPER_PRUNE_IMAGES=0
-```
-
-此时脚本仍会删除候选 tag，但不会执行 `podman image prune`。查看占用与回收存量镜像：
-
-```bash
-podman system df
-podman images -f reference='localhost/hdu-library-sniper:*'
-```
-
-生产数据继续保存在 `hdu-sniper-data` 命名卷中，不会因更新删除。自动更新配置位于：
+配置位于：
 
 ```text
 /etc/default/hdu-library-sniper-auto-update
 ```
 
-默认配置跟踪当前仓库的 `origin/main`，也可以编辑该文件修改 `HDU_SNIPER_REMOTE`、`HDU_SNIPER_BRANCH`、镜像名或端口。建议将仓库 remote 指向可信地址，并通过受保护的主分支发布更新。
+可以修改 `HDU_SNIPER_IMAGE`、`HDU_SNIPER_CONTAINER_NAME`、`HDU_SNIPER_VOLUME`、`HDU_SNIPER_BIND_ADDRESS`、`HDU_SNIPER_HOST_PORT`、`HDU_SNIPER_READY_TIMEOUT_SECONDS`。如果宿主机上还跑着其他 Podman 工作负载、不希望执行全局悬空镜像清理，可以设置：
+
+```bash
+HDU_SNIPER_PRUNE_IMAGES=0
+```
+
+生产数据继续保存在 `hdu-sniper-data` 命名卷中，不会因更新删除。查看占用与镜像：
+
+```bash
+podman system df
+podman images -f reference='ghcr.io/*/hdu-library-sniper*'
+```
 
 查看状态或手动执行一次检查：
 

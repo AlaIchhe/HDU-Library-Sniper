@@ -3,6 +3,7 @@ set -euo pipefail
 
 SERVICE_NAME=hdu-library-sniper-auto-update.service
 TIMER_NAME=hdu-library-sniper-auto-update.timer
+INSTALL_PATH=/usr/local/sbin/hdu-library-sniper-auto-update
 
 if [[ ${EUID} -ne 0 ]]; then
   echo "Podman auto-update removal requires root; run with sudo." >&2
@@ -10,7 +11,8 @@ if [[ ${EUID} -ne 0 ]]; then
 fi
 
 systemctl disable --now "$TIMER_NAME" 2>/dev/null || true
-rm -f "/etc/systemd/system/$SERVICE_NAME" "/etc/systemd/system/$TIMER_NAME"
+rm -f "/etc/systemd/system/$SERVICE_NAME" "/etc/systemd/system/$TIMER_NAME" "$INSTALL_PATH"
 systemctl daemon-reload
 echo "removed $SERVICE_NAME and $TIMER_NAME"
+echo "removed $INSTALL_PATH"
 echo "kept /etc/default/hdu-library-sniper-auto-update for reuse; remove it manually if no longer needed."
