@@ -101,7 +101,7 @@ podman run -d --name hdu-library-sniper \
 sudo bun run podman:auto-update:install
 ```
 
-安装脚本会把更新逻辑复制到 `/usr/local/sbin/hdu-library-sniper-auto-update`，systemd 指向这个副本，因此之后移动或删除仓库目录都不会影响定时任务。安装后每天凌晨 03:15（Asia/Shanghai）检查一次，并随机延迟最多 15 分钟。每次检查会：
+安装脚本会把更新逻辑复制到 `/usr/local/sbin/hdu-library-sniper-auto-update`，systemd 指向这个副本，因此安装完成后即使删除仓库目录也不影响定时任务。安装后每天凌晨 03:15（Asia/Shanghai）检查一次，并随机延迟最多 15 分钟。每次检查会：
 
 1. `podman pull` 目标镜像并记录镜像 ID；
 2. 如果运行中的容器已经是这个镜像，只做健康检查后退出；
@@ -129,17 +129,20 @@ podman system df
 podman images -f reference='ghcr.io/*/hdu-library-sniper*'
 ```
 
-查看状态或手动执行一次检查：
+宿主机不需要保留仓库，日常操作直接用 systemd：
 
 ```bash
-sudo bun run podman:auto-update:status
-sudo bun run podman:auto-update
+systemctl list-timers hdu-library-sniper-auto-update.timer   # 下一次触发时间
+sudo systemctl start hdu-library-sniper-auto-update.service  # 立即检查一次
+journalctl -u hdu-library-sniper-auto-update.service -n 50   # 最近一次日志
 ```
 
-卸载自动更新（不会删除应用容器或数据）：
+如果你想修改更新逻辑，需要在临时 clone 里改完并重新执行 `sudo bun run podman:auto-update:install`，它会把新版本复制到 `/usr/local/sbin`。卸载自动更新（不会删除应用容器或数据）：
 
 ```bash
 sudo bun run podman:auto-update:uninstall
 ```
+
+也可以在任意 clone 里使用 `sudo bun run podman:auto-update:status` / `podman:auto-update`，它们只是对上面 systemd 命令的封装。
 
 容器 WebUI 是单租户管理界面，不建议直接暴露到公网。请放在可信内网或已认证的反向代理之后。
