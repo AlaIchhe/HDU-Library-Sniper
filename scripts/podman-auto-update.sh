@@ -1,34 +1,31 @@
 #!/usr/bin/env bash
 #
-# Update the production Podman deployment from a trusted Git branch.
+# Update the production Podman deployment from a published container image.
 #
-# This intentionally builds a candidate image from an isolated Git worktree,
-# checks it with a disposable data volume, then replaces the production
-# container only after the candidate is healthy. If the replacement fails, the
-# previous container is renamed back and restarted.
+# Nothing is built on this host: GitHub Actions publishes the image
+# (.github/workflows/image.yml -> ghcr.io/<owner>/hdu-library-sniper) and this
+# job only pulls it. The candidate container runs against a disposable data
+# volume and must answer /api/health before production is replaced; a failed
+# replacement is rolled back to the previous container.
 #
-# Candidate images are transient: the promoted image keeps the stable
-# $IMAGE_ALIAS tag, every candidate-<revision> tag is removed afterwards and
-# unused build layers are pruned, so repeated updates do not accumulate images.
+# The script is installed to /usr/local/sbin by install-podman-auto-update.sh and
+# deliberately does not need a local Git checkout, so the deployment host keeps
+# no source tree at all.
 set -Eeuo pipefail
 
-REPO_DIR=${HDU_SNIPER_REPO_DIR:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}
-BRANCH=${HDU_SNIPER_BRANCH:-main}
-REMOTE=${HDU_SNIPER_REMOTE:-origin}
+IMAGE=${HDU_SNIPER_IMAGE:-ghcr.io/alaichhe/hdu-library-sniper:latest}
 CONTAINER_NAME=${HDU_SNIPER_CONTAINER_NAME:-hdu-library-sniper}
-IMAGE_ALIAS=${HDU_SNIPER_IMAGE:-localhost/hdu-library-sniper:dev}
 VOLUME_NAME=${HDU_SNIPER_VOLUME:-hdu-sniper-data}
-ENV_FILE=${HDU_SNIPER_ENV_FILE:-"$REPO_DIR/.env.local"}
+ENV_FILE=${HDU_SNIPER_ENV_FILE:-/etc/hdu-sniper/env}
 HOST_PORT=${HDU_SNIPER_HOST_PORT:-8000}
 BIND_ADDRESS=${HDU_SNIPER_BIND_ADDRESS:-0.0.0.0}
-READY_TIMEOUT_SECONDS=${HDU_SNIPER_READY_TIMEOUT_SECONDS:-45}
+READY_TIMEOUT_SECONDS=${HDU_SNIPER_READY_TIMEOUT_SECONDS:-60}
 LOCK_FILE=${HDU_SNIPER_UPDATE_LOCK_FILE:-/run/hdu-library-sniper-auto-update.lock}
 PRUNE_IMAGES=${HDU_SNIPER_PRUNE_IMAGES:-1}
+LEGACY_IMAGE_PREFIX=${HDU_SNIPER_LEGACY_IMAGE_PREFIX:-localhost/hdu-library-sniper:}
 
-WORKTREE_DIR=
 CANDIDATE_CONTAINER=
 CANDIDATE_VOLUME=
-CANDIDATE_IMAGE=
 
 log() {
   printf '[hdu-library-sniper auto-update] %s\n' "$*"
@@ -39,18 +36,20 @@ die() {
   exit 1
 }
 
-# 候选镜像是本次更新的临时产物：提升成功后镜像由稳定的 $IMAGE_ALIAS 引用，
-# 因此删掉 candidate-<revision> tag 不会影响生产容器。历史版本留下的候选 tag
-# 和不再被任何镜像引用的构建层都在这里一并回收，避免磁盘随更新次数线性增长。
-# 设置 HDU_SNIPER_PRUNE_IMAGES=0 可以只删除候选 tag、跳过全机悬空镜像清理。
-prune_stale_images() {
-  local prefix="${IMAGE_ALIAS%:*}:candidate-"
-  local tag
+short_id() {
+  local value=${1#sha256:}
+  printf '%s' "${value:0:12}"
+}
 
-  while IFS= read -r tag; do
-    [[ "$tag" == "$prefix"* ]] || continue
-    log "removing stale candidate image tag $tag"
-    podman image rm "$tag" >/dev/null 2>&1 || true
+# 旧版本在宿主机本地构建镜像（localhost/hdu-library-sniper:*）。迁移到镜像
+# 部署后这些 tag 不再需要；顺手清掉，并回收不再被引用的悬空层。
+# 设置 HDU_SNIPER_PRUNE_IMAGES=0 可跳过全局悬空镜像清理。
+reclaim_images() {
+  local name
+  while IFS= read -r name; do
+    [[ "$name" == "$LEGACY_IMAGE_PREFIX"* ]] || continue
+    log "removing legacy local build image $name"
+    podman image rm "$name" >/dev/null 2>&1 || true
   done < <(podman images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
 
   if [[ "$PRUNE_IMAGES" != 0 ]]; then
@@ -65,15 +64,6 @@ cleanup() {
   fi
   if [[ -n "$CANDIDATE_VOLUME" ]]; then
     podman volume rm -f "$CANDIDATE_VOLUME" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "$CANDIDATE_IMAGE" ]]; then
-    # 成功更新时镜像仍由 $IMAGE_ALIAS 和运行中的容器引用，这里只解除临时 tag；
-    # 构建失败或回滚时镜像已无人引用，会连同层一起被下面的 prune 回收。
-    podman image rm "$CANDIDATE_IMAGE" >/dev/null 2>&1 || true
-  fi
-  prune_stale_images
-  if [[ -n "$WORKTREE_DIR" ]]; then
-    git -C "$REPO_DIR" worktree remove --force "$WORKTREE_DIR" >/dev/null 2>&1 || rm -rf "$WORKTREE_DIR"
   fi
   exit "$status"
 }
@@ -90,9 +80,13 @@ container_running() {
   [[ "$(podman inspect --format '{{.State.Running}}' "$1" 2>/dev/null || printf false)" == "true" ]]
 }
 
-container_revision() {
+container_image_id() {
+  podman inspect --format '{{.Image}}' "$1" 2>/dev/null || true
+}
+
+image_revision() {
   local revision
-  revision="$(podman inspect --format '{{index .Config.Labels "com.hdu-library-sniper.source-revision"}}' "$1" 2>/dev/null || true)"
+  revision="$(podman image inspect --format '{{index .Labels "com.hdu-library-sniper.source-revision"}}' "$1" 2>/dev/null || true)"
   [[ "$revision" == "<no value>" ]] && revision=
   printf '%s' "$revision"
 }
@@ -171,10 +165,7 @@ wait_for_ready() {
 
 require_command curl
 require_command flock
-require_command git
 require_command podman
-
-[[ -d "$REPO_DIR/.git" ]] || die "Git repository not found: $REPO_DIR"
 
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -185,108 +176,100 @@ fi
 # 锁由父 shell 持有。把真正的更新逻辑放进一个子 shell 执行，并在子 shell 内
 # 立刻关闭锁描述符 9，避免脚本通过 podman 启动的 conmon 进程继承这个锁 fd。
 # 否则 conmon 会一直持有锁，导致次日自动更新被误判为 "already running" 而跳过。
-#
-# 清理逻辑也必须放进子 shell：CANDIDATE_CONTAINER / CANDIDATE_VOLUME /
-# WORKTREE_DIR 都在子 shell 内赋值，只有子 shell 里的 cleanup 能看到并正确清理。
 (
   exec 9>&-
   trap cleanup EXIT
 
-git -C "$REPO_DIR" fetch --quiet "$REMOTE" "$BRANCH"
-TARGET_REVISION="$(git -C "$REPO_DIR" rev-parse "$REMOTE/$BRANCH")"
-SHORT_REVISION="${TARGET_REVISION:0:12}"
-CURRENT_REVISION=
-if container_exists "$CONTAINER_NAME"; then
-  CURRENT_REVISION="$(container_revision "$CONTAINER_NAME")"
-fi
+  log "pulling $IMAGE"
+  podman pull --quiet "$IMAGE" >/dev/null \
+    || die "could not pull $IMAGE; check the network and, if the package is private, run 'podman login ghcr.io'"
 
-if [[ "$CURRENT_REVISION" == "$TARGET_REVISION" ]]; then
-  if ! container_running "$CONTAINER_NAME"; then
-    log "current revision is installed but the service is stopped; starting it"
-    podman start "$CONTAINER_NAME" >/dev/null
+  TARGET_IMAGE_ID="$(podman image inspect --format '{{.Id}}' "$IMAGE")" \
+    || die "could not inspect $IMAGE after pull"
+  TARGET_REVISION="$(image_revision "$IMAGE")"
+  SHORT_REVISION="$(short_id "${TARGET_REVISION:-$TARGET_IMAGE_ID}")"
+
+  CURRENT_IMAGE_ID=
+  if container_exists "$CONTAINER_NAME"; then
+    CURRENT_IMAGE_ID="$(container_image_id "$CONTAINER_NAME")"
   fi
-  wait_for_ready "$CONTAINER_NAME" "http://127.0.0.1:${HOST_PORT}/api/health" "production container"
-  log "already running revision $SHORT_REVISION; no update needed"
-  exit 0
-fi
 
-log "updating ${CURRENT_REVISION:-unversioned} -> $TARGET_REVISION"
-WORKTREE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hdu-library-sniper-update.XXXXXX")"
-git -C "$REPO_DIR" worktree add --quiet --detach "$WORKTREE_DIR" "$TARGET_REVISION"
+  if [[ "$CURRENT_IMAGE_ID" == "$TARGET_IMAGE_ID" ]]; then
+    if ! container_running "$CONTAINER_NAME"; then
+      log "current image is installed but the service is stopped; starting it"
+      podman start "$CONTAINER_NAME" >/dev/null
+    fi
+    wait_for_ready "$CONTAINER_NAME" "http://127.0.0.1:${HOST_PORT}/api/health" "production container"
+    reclaim_images
+    log "already running image $SHORT_REVISION; no update needed"
+    exit 0
+  fi
 
-CANDIDATE_IMAGE="${IMAGE_ALIAS%:*}:candidate-${SHORT_REVISION}"
-log "building candidate image $CANDIDATE_IMAGE"
-podman build \
-  --pull=missing \
-  --build-arg "SOURCE_REVISION=$TARGET_REVISION" \
-  --file "$WORKTREE_DIR/Containerfile" \
-  --tag "$CANDIDATE_IMAGE" \
-  "$WORKTREE_DIR"
+  CURRENT_SHORT=
+  if [[ -n "$CURRENT_IMAGE_ID" ]]; then
+    CURRENT_SHORT="$(short_id "$CURRENT_IMAGE_ID")"
+  fi
+  log "updating ${CURRENT_SHORT:-none} -> $SHORT_REVISION"
 
-CANDIDATE_CONTAINER="${CONTAINER_NAME}-candidate-${SHORT_REVISION}"
-CANDIDATE_VOLUME="${VOLUME_NAME}-candidate-${SHORT_REVISION}"
-podman volume create "$CANDIDATE_VOLUME" >/dev/null
-start_container \
-  "$CANDIDATE_IMAGE" \
-  "$CANDIDATE_CONTAINER" \
-  "$CANDIDATE_VOLUME" \
-  "127.0.0.1::8000" \
-  no \
-  "$TARGET_REVISION" >/dev/null
+  CANDIDATE_CONTAINER="${CONTAINER_NAME}-candidate-${SHORT_REVISION}"
+  CANDIDATE_VOLUME="${VOLUME_NAME}-candidate-${SHORT_REVISION}"
+  podman volume create "$CANDIDATE_VOLUME" >/dev/null
+  start_container \
+    "$IMAGE" \
+    "$CANDIDATE_CONTAINER" \
+    "$CANDIDATE_VOLUME" \
+    "127.0.0.1::8000" \
+    no \
+    "$TARGET_REVISION" >/dev/null
 
-CANDIDATE_BINDING="$(podman port "$CANDIDATE_CONTAINER" 8000/tcp | head -n 1)"
-CANDIDATE_PORT="${CANDIDATE_BINDING##*:}"
-[[ "$CANDIDATE_PORT" =~ ^[0-9]+$ ]] || die "could not determine candidate HTTP port: $CANDIDATE_BINDING"
-wait_for_ready "$CANDIDATE_CONTAINER" "http://127.0.0.1:${CANDIDATE_PORT}/api/health" "candidate container"
+  CANDIDATE_BINDING="$(podman port "$CANDIDATE_CONTAINER" 8000/tcp | head -n 1)"
+  CANDIDATE_PORT="${CANDIDATE_BINDING##*:}"
+  [[ "$CANDIDATE_PORT" =~ ^[0-9]+$ ]] || die "could not determine candidate HTTP port: $CANDIDATE_BINDING"
+  wait_for_ready "$CANDIDATE_CONTAINER" "http://127.0.0.1:${CANDIDATE_PORT}/api/health" "candidate container"
 
-podman rm -f "$CANDIDATE_CONTAINER" >/dev/null
-CANDIDATE_CONTAINER=
-podman volume rm -f "$CANDIDATE_VOLUME" >/dev/null
-CANDIDATE_VOLUME=
+  podman rm -f "$CANDIDATE_CONTAINER" >/dev/null
+  CANDIDATE_CONTAINER=
+  podman volume rm -f "$CANDIDATE_VOLUME" >/dev/null
+  CANDIDATE_VOLUME=
 
-PREVIOUS_CONTAINER=
-if container_exists "$CONTAINER_NAME"; then
-  PREVIOUS_CONTAINER="${CONTAINER_NAME}-previous-$(date +%Y%m%d%H%M%S)"
-  log "stopping previous production container"
-  podman stop --time 15 "$CONTAINER_NAME" >/dev/null 2>&1 || true
-  podman rename "$CONTAINER_NAME" "$PREVIOUS_CONTAINER"
-fi
+  PREVIOUS_CONTAINER=
+  if container_exists "$CONTAINER_NAME"; then
+    PREVIOUS_CONTAINER="${CONTAINER_NAME}-previous-$(date +%Y%m%d%H%M%S)"
+    log "stopping previous production container"
+    podman stop --time 15 "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    podman rename "$CONTAINER_NAME" "$PREVIOUS_CONTAINER"
+  fi
 
-if ! start_container \
-  "$CANDIDATE_IMAGE" \
-  "$CONTAINER_NAME" \
-  "$VOLUME_NAME" \
-  "${BIND_ADDRESS}:${HOST_PORT}:8000" \
-  always \
-  "$TARGET_REVISION" >/dev/null; then
-  log "could not start the replacement container"
+  if ! start_container \
+    "$IMAGE" \
+    "$CONTAINER_NAME" \
+    "$VOLUME_NAME" \
+    "${BIND_ADDRESS}:${HOST_PORT}:8000" \
+    always \
+    "$TARGET_REVISION" >/dev/null; then
+    log "could not start the replacement container"
+    if [[ -n "$PREVIOUS_CONTAINER" ]]; then
+      podman rename "$PREVIOUS_CONTAINER" "$CONTAINER_NAME"
+      podman start "$CONTAINER_NAME" >/dev/null || true
+    fi
+    die "rollback attempted after replacement start failure"
+  fi
+
+  if ! wait_for_ready "$CONTAINER_NAME" "http://127.0.0.1:${HOST_PORT}/api/health" "replacement container"; then
+    log "replacement failed its health check; rolling back"
+    podman rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    if [[ -n "$PREVIOUS_CONTAINER" ]]; then
+      podman rename "$PREVIOUS_CONTAINER" "$CONTAINER_NAME"
+      podman start "$CONTAINER_NAME" >/dev/null || true
+      wait_for_ready "$CONTAINER_NAME" "http://127.0.0.1:${HOST_PORT}/api/health" "rolled-back container" || true
+    fi
+    die "update rolled back because the replacement was unhealthy"
+  fi
+
   if [[ -n "$PREVIOUS_CONTAINER" ]]; then
-    podman rename "$PREVIOUS_CONTAINER" "$CONTAINER_NAME"
-    podman start "$CONTAINER_NAME" >/dev/null || true
+    podman rm "$PREVIOUS_CONTAINER" >/dev/null
   fi
-  die "rollback attempted after replacement start failure"
-fi
+  reclaim_images
 
-if ! wait_for_ready "$CONTAINER_NAME" "http://127.0.0.1:${HOST_PORT}/api/health" "replacement container"; then
-  log "replacement failed its health check; rolling back"
-  podman rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
-  if [[ -n "$PREVIOUS_CONTAINER" ]]; then
-    podman rename "$PREVIOUS_CONTAINER" "$CONTAINER_NAME"
-    podman start "$CONTAINER_NAME" >/dev/null || true
-    wait_for_ready "$CONTAINER_NAME" "http://127.0.0.1:${HOST_PORT}/api/health" "rolled-back container" || true
-  fi
-  die "update rolled back because the replacement was unhealthy"
-fi
-
-podman tag "$CANDIDATE_IMAGE" "$IMAGE_ALIAS"
-if [[ -n "$PREVIOUS_CONTAINER" ]]; then
-  podman rm "$PREVIOUS_CONTAINER" >/dev/null
-fi
-
-# 生产容器已切换到稳定 tag，候选镜像和本轮构建残留可以立即回收。
-podman image rm "$CANDIDATE_IMAGE" >/dev/null 2>&1 || true
-CANDIDATE_IMAGE=
-prune_stale_images
-
-log "updated successfully to $TARGET_REVISION"
+  log "updated successfully to $SHORT_REVISION"
 )
