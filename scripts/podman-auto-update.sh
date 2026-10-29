@@ -6,6 +6,10 @@
 # checks it with a disposable data volume, then replaces the production
 # container only after the candidate is healthy. If the replacement fails, the
 # previous container is renamed back and restarted.
+#
+# Candidate images are transient: the promoted image keeps the stable
+# $IMAGE_ALIAS tag, every candidate-<revision> tag is removed afterwards and
+# unused build layers are pruned, so repeated updates do not accumulate images.
 set -Eeuo pipefail
 
 REPO_DIR=${HDU_SNIPER_REPO_DIR:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}
@@ -19,10 +23,12 @@ HOST_PORT=${HDU_SNIPER_HOST_PORT:-8000}
 BIND_ADDRESS=${HDU_SNIPER_BIND_ADDRESS:-0.0.0.0}
 READY_TIMEOUT_SECONDS=${HDU_SNIPER_READY_TIMEOUT_SECONDS:-45}
 LOCK_FILE=${HDU_SNIPER_UPDATE_LOCK_FILE:-/run/hdu-library-sniper-auto-update.lock}
+PRUNE_IMAGES=${HDU_SNIPER_PRUNE_IMAGES:-1}
 
 WORKTREE_DIR=
 CANDIDATE_CONTAINER=
 CANDIDATE_VOLUME=
+CANDIDATE_IMAGE=
 
 log() {
   printf '[hdu-library-sniper auto-update] %s\n' "$*"
@@ -33,6 +39,25 @@ die() {
   exit 1
 }
 
+# 候选镜像是本次更新的临时产物：提升成功后镜像由稳定的 $IMAGE_ALIAS 引用，
+# 因此删掉 candidate-<revision> tag 不会影响生产容器。历史版本留下的候选 tag
+# 和不再被任何镜像引用的构建层都在这里一并回收，避免磁盘随更新次数线性增长。
+# 设置 HDU_SNIPER_PRUNE_IMAGES=0 可以只删除候选 tag、跳过全机悬空镜像清理。
+prune_stale_images() {
+  local prefix="${IMAGE_ALIAS%:*}:candidate-"
+  local tag
+
+  while IFS= read -r tag; do
+    [[ "$tag" == "$prefix"* ]] || continue
+    log "removing stale candidate image tag $tag"
+    podman image rm "$tag" >/dev/null 2>&1 || true
+  done < <(podman images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
+
+  if [[ "$PRUNE_IMAGES" != 0 ]]; then
+    podman image prune --force >/dev/null 2>&1 || true
+  fi
+}
+
 cleanup() {
   local status=$?
   if [[ -n "$CANDIDATE_CONTAINER" ]]; then
@@ -41,6 +66,12 @@ cleanup() {
   if [[ -n "$CANDIDATE_VOLUME" ]]; then
     podman volume rm -f "$CANDIDATE_VOLUME" >/dev/null 2>&1 || true
   fi
+  if [[ -n "$CANDIDATE_IMAGE" ]]; then
+    # 成功更新时镜像仍由 $IMAGE_ALIAS 和运行中的容器引用，这里只解除临时 tag；
+    # 构建失败或回滚时镜像已无人引用，会连同层一起被下面的 prune 回收。
+    podman image rm "$CANDIDATE_IMAGE" >/dev/null 2>&1 || true
+  fi
+  prune_stale_images
   if [[ -n "$WORKTREE_DIR" ]]; then
     git -C "$REPO_DIR" worktree remove --force "$WORKTREE_DIR" >/dev/null 2>&1 || rm -rf "$WORKTREE_DIR"
   fi
@@ -251,6 +282,11 @@ podman tag "$CANDIDATE_IMAGE" "$IMAGE_ALIAS"
 if [[ -n "$PREVIOUS_CONTAINER" ]]; then
   podman rm "$PREVIOUS_CONTAINER" >/dev/null
 fi
+
+# 生产容器已切换到稳定 tag，候选镜像和本轮构建残留可以立即回收。
+podman image rm "$CANDIDATE_IMAGE" >/dev/null 2>&1 || true
+CANDIDATE_IMAGE=
+prune_stale_images
 
 log "updated successfully to $TARGET_REVISION"
 )
