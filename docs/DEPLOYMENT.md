@@ -79,8 +79,22 @@ sudo bun run podman:auto-update:install
 1. 从 `origin/main` 拉取最新代码；
 2. 在临时 Git worktree 中构建候选镜像；
 3. 使用临时数据卷启动候选容器并检查 `/api/health`；
-4. 健康检查通过后替换生产容器；
-5. 替换失败时恢复旧容器。
+4. 健康检查通过后替换生产容器，并删除上一版容器；
+5. 回收候选镜像 tag 与不再被引用的构建层；
+6. 替换失败时恢复旧容器，并删除本轮构建的候选镜像。
+
+候选镜像只是更新过程的临时产物：提升成功后镜像改由稳定的 `HDU_SNIPER_IMAGE`（默认 `localhost/hdu-library-sniper:dev`）引用，`candidate-<revision>` tag 会被删除，悬空构建层也会清理，因此磁盘占用不会随更新次数持续增长。如果宿主机上还跑着其他 Podman 工作负载、不希望执行全局悬空镜像清理，可以在 `/etc/default/hdu-library-sniper-auto-update` 中加入：
+
+```bash
+HDU_SNIPER_PRUNE_IMAGES=0
+```
+
+此时脚本仍会删除候选 tag，但不会执行 `podman image prune`。查看占用与回收存量镜像：
+
+```bash
+podman system df
+podman images -f reference='localhost/hdu-library-sniper:*'
+```
 
 生产数据继续保存在 `hdu-sniper-data` 命名卷中，不会因更新删除。自动更新配置位于：
 
