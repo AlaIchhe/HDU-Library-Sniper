@@ -55,6 +55,8 @@ export class LibraryClient {
   uid = "";
   name = "";
   private refreshPromise: Promise<boolean> | undefined;
+  // 房间类型 → space_category 的映射不会变，缓存后每次查座位图少一次请求。
+  private readonly categoryCache = new Map<string, { category_id: string; content_id: string }>();
 
   constructor(readonly options: LibraryClientOptions = {}) {
     this.jar = options.jar || new CookieJar();
@@ -158,14 +160,18 @@ export class LibraryClient {
   }
 
   private async lookupCategory(roomQuery: string): Promise<{ category_id: string; content_id: string }> {
+    const cached = this.categoryCache.get(roomQuery);
+    if (cached) return cached;
     const detail = await this.request(`/Seat/Index/searchSeats?${roomQuery}&LAB_JSON=1`);
     const data = detail.data as Record<string, unknown> | undefined;
     const category = data?.space_category as Record<string, unknown> | undefined;
     if (!category?.category_id) throw new HduLibraryError("房间详情解析失败");
-    return {
+    const resolved = {
       category_id: String(category.category_id),
       content_id: String(category.content_id || ""),
     };
+    this.categoryCache.set(roomQuery, resolved);
+    return resolved;
   }
 
   async bookings(): Promise<Record<string, unknown>[]> {
