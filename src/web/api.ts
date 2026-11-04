@@ -58,7 +58,10 @@ async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>):
   if (!response.ok) {
     if (isTauri()) {
       const { error, warn } = await import("@tauri-apps/plugin-log");
-      const message = `API 返回错误: ${url} -> ${response.status}`;
+      // 后台的 detail 是唯一能说明失败原因的信息（登录态失效 / 上游超时 /
+      // 网络错误）；不带上它，日志里就只剩一个孤零零的状态码。
+      const detail = body.detail || body.message;
+      const message = `API 返回错误: ${url} -> ${response.status}${detail ? ` (${detail})` : ""}`;
       if (response.status >= 500) error(message);
       else warn(message);
     }

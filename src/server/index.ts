@@ -3,6 +3,8 @@ import { AuthService } from "./auth";
 import { createApi } from "./api";
 import { Scheduler } from "./scheduler";
 import { BookingExecutor } from "./booking";
+import { errorResponse } from "./errors";
+import { AuthenticationExpiredError } from "./library";
 
 const auth = new AuthService();
 const scheduler = new Scheduler(auth, new BookingExecutor(auth.client));
@@ -27,7 +29,19 @@ const server = Bun.serve({
       response = await api(request);
     } catch (error) {
       console.error(error);
-      response = Response.json({ detail: error instanceof Error ? error.message : "内部服务错误" }, { status: 502 });
+      // A dead library session must also clear the persisted identity: a bare
+      // 401 would leave /api/session reporting "authenticated" and bounce the
+      // UI between the login page and its polling queries. logout() keeps the
+      // stored credentials, so an app restart can still refresh the session.
+      if (error instanceof AuthenticationExpiredError) {
+        try {
+          auth.logout();
+        } catch (logoutError) {
+          // Never mask the original failure while cleaning up the session.
+          console.error(logoutError);
+        }
+      }
+      response = errorResponse(error);
     }
     response.headers.set("Access-Control-Allow-Origin", "*");
     return response;
