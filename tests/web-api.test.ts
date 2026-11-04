@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { error as logError } from "@tauri-apps/plugin-log";
 import { api, resolveApiBase } from "../src/web/api";
 
 // The web API now uses @tauri-apps/plugin-http inside Tauri. In the test
@@ -9,14 +10,15 @@ vi.mock("@tauri-apps/plugin-http", () => ({
 }));
 vi.mock("@tauri-apps/plugin-log", () => ({
   attachConsole: () => Promise.resolve(),
-  error: () => undefined,
-  warn: () => undefined,
-  info: () => undefined,
-  debug: () => undefined,
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
 }));
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 
 describe("web API base", () => {
@@ -47,5 +49,21 @@ describe("web API base", () => {
     vi.stubGlobal("__TAURI_INTERNALS__", {});
     vi.stubGlobal("fetch", vi.fn(async () => new Response("<!doctype html><html></html>")));
     await expect(api.session()).rejects.toThrow("后台服务返回格式错误");
+  });
+
+  test("logs the backend detail next to the failing status", async () => {
+    vi.stubGlobal("__TAURI_INTERNALS__", {});
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({ detail: "图书馆登录状态已失效" }), {
+        status: 502,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ));
+
+    await expect(api.nextTarget()).rejects.toThrow("图书馆登录状态已失效");
+
+    expect(vi.mocked(logError)).toHaveBeenCalledWith(
+      "API 返回错误: http://127.0.0.1:8000/api/runtime/next-target -> 502 (图书馆登录状态已失效)",
+    );
   });
 });
