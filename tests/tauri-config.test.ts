@@ -23,4 +23,11 @@ describe("tauri plugin configuration", () => {
       "../dist/hdu-sniper-server.exe": "hdu-sniper-server.exe",
     });
   });
+
+  test("redirects backend output into the app log directory", () => {
+    const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
+    expect(lib).toContain('join("server.log")');
+    expect(lib).toContain(".stdout(Stdio::from(file))");
+    expect(lib).toContain(".stderr(Stdio::from(stderr))");
+  });
 });

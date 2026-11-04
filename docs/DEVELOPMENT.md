@@ -56,6 +56,17 @@ src-tauri/target/release/bundle/msi/
 
 项目只发布 MSI，不发布 NSIS 安装包。MSI 使用 WiX hook 在安装时先清理旧版安装、再覆盖新文件，避免新旧版本并存导致点开仍是旧版本。
 
+## 日志
+
+桌面端有两份日志，都在用户目录下：
+
+```text
+%USERPROFILE%\.hdu-library-sniper\logs\server.log            后端 Bun 服务的 stdout/stderr
+%LOCALAPPDATA%\io.github.alaichhe.hdu-library-sniper\logs\hdu-library-sniper.log   Tauri 与前端日志
+```
+
+后端输出由 Tauri 启动时重定向到文件，超过 5 MiB 轮转为 `server.log.1`；设置 `HDU_SNIPER_HOME` 时日志目录跟着该变量走。GUI 日志按 500 KB 轮转并保留全部历史，轮转文件名里的时间是 UTC。
+
 ## 自动更新与发布
 
 自动更新读取：

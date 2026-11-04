@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::process::{Child, Command};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::{Manager, WindowEvent};
 
@@ -9,17 +12,60 @@ struct Backend(Mutex<Option<Child>>);
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-#[cfg(windows)]
-fn spawn_backend(executable: &std::path::Path) -> std::io::Result<Child> {
-    use std::os::windows::process::CommandExt;
-    Command::new(executable)
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
+/// The backend inherits the GUI's hidden console, so its stdout/stderr would be
+/// discarded on Windows. Persist both streams next to the server data in
+/// `%USERPROFILE%\.hdu-library-sniper\logs\server.log`; `HDU_SNIPER_HOME`
+/// overrides the location exactly like the server's own data dir.
+fn app_home_dir() -> Option<PathBuf> {
+    if let Some(home) = std::env::var_os("HDU_SNIPER_HOME").filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(home));
+    }
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(|home| PathBuf::from(home).join(".hdu-library-sniper"))
 }
 
-#[cfg(not(windows))]
-fn spawn_backend(executable: &std::path::Path) -> std::io::Result<Child> {
-    Command::new(executable).spawn()
+fn backend_log_file() -> Option<File> {
+    let dir = app_home_dir()?.join("logs");
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join("server.log");
+    // 5 MiB per segment with a single rotated segment: backend output is low
+    // volume, this only matters when one error repeats for a long time.
+    if let Ok(metadata) = std::fs::metadata(&path) {
+        if metadata.len() > 5 * 1024 * 1024 {
+            let previous = dir.join("server.log.1");
+            let _ = std::fs::remove_file(&previous);
+            let _ = std::fs::rename(&path, &previous);
+        }
+    }
+    let mut file = OpenOptions::new().create(true).append(true).open(&path).ok()?;
+    let started = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default();
+    let _ = writeln!(file);
+    let _ = writeln!(file, "=== hdu-sniper-server start (unix {started}) ===");
+    let _ = file.flush();
+    Some(file)
+}
+
+fn spawn_backend(executable: &Path) -> std::io::Result<Child> {
+    let mut command = Command::new(executable);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    if let Some(file) = backend_log_file() {
+        match file.try_clone() {
+            Ok(stderr) => {
+                command.stdout(Stdio::from(file));
+                command.stderr(Stdio::from(stderr));
+            }
+            Err(error) => log::warn!("cannot duplicate the backend log handle: {error}"),
+        }
+    }
+    command.spawn()
 }
 
 // 自启项由 MSI 安装阶段的 startup.wxs RegistryValue 组件直接维护。
