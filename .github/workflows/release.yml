@@ -16,11 +16,11 @@ jobs:
   release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~\.bun\install\cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
@@ -37,7 +37,7 @@ jobs:
         run: |
           $config = Get-Content "src-tauri/tauri.conf.json" -Raw
           if ($config.Contains("__TAURI_UPDATER_PUBLIC_KEY__")) { throw "Set the real updater public key in src-tauri/tauri.conf.json" }
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
