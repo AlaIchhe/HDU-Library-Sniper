@@ -99,23 +99,23 @@ export class Scheduler {
 
   private async bookingPrelockTick(anchorAt: Date): Promise<void> {
     if (!listPlanItems().some((item) => item.enabled)) return;
+    // 离 20:00 太近时直接跳过预锁：它是可选的，不能和正式预约抢请求、抢时机。
+    if (anchorAt.getTime() - Date.now() < 8_000) return;
     const deadline = new Date(Math.max(Date.now(), anchorAt.getTime() - 5_000));
     this.statusValue.state = "running";
     try {
-      if (!(await this.auth.restore())) {
+      // 已登录时不再做一次多余的 validate 网络请求：19:59/20:00 的几十毫秒都
+      // 直接影响抢座结果，会话失效由首个请求的 refresh/401 流程兜底。
+      if (!this.auth.authenticated && !(await this.auth.restore())) {
         this.statusValue.state = "auth_required";
         return;
       }
       const result = await this.booking.lockBurst({ deadlineAt: deadline });
       this.statusValue.lastMessage = result.message;
     } catch (error) {
-      if (error instanceof AuthenticationExpiredError && (await this.auth.restore())) {
-        const result = await this.booking.lockBurst({ deadlineAt: deadline });
-        this.statusValue.lastMessage = result.message;
-      } else {
-        this.statusValue.lastMessage = `预锁失败：${String(error)}`;
-        writeAudit("booking_prelock_failed", { error: String(error) });
-      }
+      // 预锁是可选的：失败就放弃，不重试、不影响 20:00 的正式预约。
+      this.statusValue.lastMessage = `预锁已跳过：${String(error)}`;
+      writeAudit("booking_prelock_failed", { error: String(error) });
     } finally {
       if (this.statusValue.state === "running") this.statusValue.state = "idle";
     }
@@ -125,7 +125,7 @@ export class Scheduler {
     if (!listPlanItems().some((item) => item.enabled)) return;
     this.statusValue.state = "running";
     try {
-      if (!(await this.auth.restore())) {
+      if (!this.auth.authenticated && !(await this.auth.restore())) {
         this.statusValue.state = "auth_required";
         return;
       }
@@ -171,7 +171,7 @@ export class Scheduler {
     const release = tryAcquireJobLock("check-in");
     if (!release) return;
     try {
-      if (!(await this.auth.restore())) {
+      if (!this.auth.authenticated && !(await this.auth.restore())) {
         this.statusValue.state = "auth_required";
         return;
       }

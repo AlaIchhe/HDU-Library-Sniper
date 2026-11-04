@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { BookingPlan } from "../src/shared/types";
 import type { LibraryClient } from "../src/server/library";
-import { BookingExecutor, pacing } from "../src/server/booking";
+import { BookingExecutor, burstRetryDelayMs, pacing } from "../src/server/booking";
 
 const mocks = vi.hoisted(() => ({
   plans: [] as unknown[],
@@ -42,7 +42,7 @@ function planFixture(): BookingPlan {
   };
 }
 
-const floorPayload = [{ seatMap: { info: { id: 3 }, POIs: [{ title: "101", id: "seat-1" }] } }];
+const floorPayload = [{ seatMap: { info: { id: 3 }, POIs: [{ title: "101", id: "seat-1" }, { title: "102", id: "seat-2" }] } }];
 
 function fakeClient() {
   return {
@@ -55,6 +55,16 @@ function fakeClient() {
     bookSeat: ReturnType<typeof vi.fn>;
   };
 }
+
+describe("booking retry pacing", () => {
+  test("keeps the fast cadence only during the opening window", () => {
+    expect(burstRetryDelayMs(1100, 0)).toBe(1100);
+    expect(burstRetryDelayMs(1100, 14_999)).toBe(1100);
+    expect(burstRetryDelayMs(1100, 30_000)).toBe(3_000);
+    expect(burstRetryDelayMs(1100, 120_000)).toBe(6_000);
+    expect(burstRetryDelayMs(1100, 600_000)).toBe(12_000);
+  });
+});
 
 describe("BookingExecutor idempotency", () => {
   beforeEach(() => {
@@ -99,5 +109,53 @@ describe("BookingExecutor idempotency", () => {
     const result = await executor.runBurst(false, { intervalMs: 0, timeoutMs: 0 });
     expect(result.success).toBe(false);
     expect(client.bookSeat).toHaveBeenCalledTimes(1);
+  });
+
+  test("runBurst() backs off when the library rate limits booking requests", async () => {
+    const client = fakeClient();
+    client.bookSeat
+      .mockResolvedValueOnce({ CODE: "1", MESSAGE: "操作过于频繁，请稍后再试" })
+      .mockResolvedValue({ CODE: "ok", DATA: { result: "success" } });
+    const pauses: number[] = [];
+    const executor = new BookingExecutor(client, async (ms) => { pauses.push(ms); });
+
+    const result = await executor.runBurst(false, { intervalMs: 1, timeoutMs: 5_000 });
+
+    expect(result.success).toBe(true);
+    expect(pauses[0]).toBeGreaterThanOrEqual(3_000);
+  });
+
+  test("runBurst() keeps booking other members after one member reaches a terminal conflict", async () => {
+    const first = { ...planFixture(), id: "p1", seatNum: "101", startHour: 8, durationHours: 2 };
+    const second = { ...planFixture(), id: "p2", seatNum: "102", startHour: 10, durationHours: 2 };
+    mocks.plans = [{
+      id: "group-1",
+      kind: "group",
+      name: "组合",
+      memberPlanIds: ["p1", "p2"],
+      members: [first, second],
+      weekdays: [1, 2, 3, 4, 5, 6, 7],
+      enabled: true,
+      createdAt: "2026-09-05T00:00:00.000Z",
+      updatedAt: "2026-09-05T00:00:00.000Z",
+    }];
+
+    const client = fakeClient();
+    let secondFailures = 1;
+    client.bookSeat.mockImplementation(async (seatId: string) => {
+      if (seatId === "seat-1") return { CODE: "1", MESSAGE: "已有预约，请勿重复预约！" };
+      if (secondFailures-- > 0) return { CODE: "error", MESSAGE: "未到预约时间" };
+      return { CODE: "ok", DATA: { result: "success" } };
+    });
+    const executor = new BookingExecutor(client, noopPause);
+
+    const result = await executor.runBurst(false, { intervalMs: 0, timeoutMs: 5_000 });
+
+    expect(result.success).toBe(false);
+    expect(result.members[0]?.terminal).toBe(true);
+    expect(result.members[1]?.success).toBe(true);
+    // 终态成员不再重复提交，但同组的另一个成员仍会被继续重试并预约成功。
+    expect(client.bookSeat.mock.calls.filter(([seatId]) => seatId === "seat-1")).toHaveLength(1);
+    expect(client.bookSeat.mock.calls.filter(([seatId]) => seatId === "seat-2")).toHaveLength(2);
   });
 });
