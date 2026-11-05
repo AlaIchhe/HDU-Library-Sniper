@@ -1,11 +1,14 @@
+import path from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   MANAGED_DIRECT_RULES,
   applyDirectRulesToOverride,
   applyDirectRulesToRuntime,
+  controllerAddresses,
   extractJsonBody,
   findRulesOverrideFile,
   parseVergeConfig,
+  rulesOverridePath,
   runtimeHasDirectRules,
 } from "../src/server/clash";
 
@@ -53,6 +56,29 @@ items:
   file: none.yaml
 `;
     expect(findRulesOverrideFile(profiles)).toBeUndefined();
+  });
+});
+
+describe("controllerAddresses", () => {
+  test("prefers the named pipe and falls back to TCP", () => {
+    expect(controllerAddresses({ pipe: "\\\\.\\pipe\\verge-mihomo", tcp: "127.0.0.1:9097" })).toEqual([
+      { unix: "\\\\.\\pipe\\verge-mihomo" },
+      { hostname: "127.0.0.1", port: 9097 },
+    ]);
+    expect(controllerAddresses({ tcp: "http://127.0.0.1:9097" })).toEqual([{ hostname: "127.0.0.1", port: 9097 }]);
+    expect(controllerAddresses({ tcp: "192.168.1.2:9097" })).toEqual([{ hostname: "192.168.1.2", port: 9097 }]);
+  });
+
+  test("rejects endpoints without a usable address", () => {
+    expect(() => controllerAddresses({})).toThrow("Clash 未配置可用的控制接口");
+    expect(() => controllerAddresses({ tcp: "127.0.0.1" })).toThrow();
+  });
+});
+
+describe("rulesOverridePath", () => {
+  test("resolves inside the Verge profiles directory", () => {
+    const dir = path.join("AppData", "verge", "profiles");
+    expect(rulesOverridePath(dir, "rules.yaml")).toBe(path.join(dir, "rules.yaml"));
   });
 });
 

@@ -17,7 +17,31 @@ export type ClashDirectStatus = {
   reason?: string;
 };
 
-type VergePaths = { configPath: string; profilesPath: string };
+type VergePaths = { configPath: string; profilesPath: string; profilesDir: string };
+
+// mihomo 的控制接口同时支持命名管道和 TCP。Clash Verge 在 Windows 上默认两者
+// 都会配置（pipe 优先），这里把可用的地址都列出来，某个连不上时还能退到另一个。
+export function controllerAddresses(endpoint: VergeEndpoint): ControllerAddress[] {
+  const addresses: ControllerAddress[] = [];
+  const pipe = endpoint.pipe?.trim();
+  if (pipe) addresses.push({ unix: pipe });
+  const tcp = endpoint.tcp?.trim().replace(/^https?:\/\//i, "");
+  const match = tcp ? /^\[?([^\]]+?)\]?:(\d+)$/.exec(tcp) : null;
+  const port = match ? Number(match[2]) : NaN;
+  if (match && Number.isInteger(port) && port > 0 && port <= 65535) {
+    addresses.push({ hostname: match[1]!, port });
+  }
+  if (addresses.length === 0) throw new Error("Clash 未配置可用的控制接口");
+  return addresses;
+}
+
+export type ControllerAddress = { unix: string } | { hostname: string; port: number };
+
+// Clash Verge 把 profile 文件（包括 rules override）放在 app_home/profiles/ 下，
+// profiles.yaml 里的 file 字段只是文件名，不能直接拼到配置根目录。
+export function rulesOverridePath(profilesDir: string, file: string): string {
+  return path.join(profilesDir, file);
+}
 
 export function parseVergeConfig(text: string): VergeEndpoint {
   const data = parse(text) as Record<string, unknown> | null;
@@ -89,12 +113,34 @@ function vergePaths(): VergePaths | null {
   const appData = process.env.APPDATA;
   if (process.platform !== "win32" || !appData) return null;
   const dir = path.join(appData, VERGE_DIR_NAME);
-  return { configPath: path.join(dir, "clash-verge.yaml"), profilesPath: path.join(dir, "profiles.yaml") };
+  return {
+    configPath: path.join(dir, "clash-verge.yaml"),
+    profilesPath: path.join(dir, "profiles.yaml"),
+    profilesDir: path.join(dir, "profiles"),
+  };
+}
+
+async function requestOverAddress(address: ControllerAddress, request: string, timeoutMs: number): Promise<string> {
+  return withTimeout(
+    new Promise<string>((resolve, reject) => {
+      const decoder = new TextDecoder();
+      let received = "";
+      const socket = {
+        data(_socket: unknown, chunk: Uint8Array) { received += decoder.decode(chunk, { stream: true }); },
+        end(_socket: unknown) { received += decoder.decode(); resolve(received); },
+        error(_socket: unknown, error: unknown) { reject(error instanceof Error ? error : new Error(String(error))); },
+      };
+      const connecting = "unix" in address
+        ? Bun.connect({ unix: address.unix, socket })
+        : Bun.connect({ hostname: address.hostname, port: address.port, socket });
+      connecting.then((socket) => socket.write(request)).catch(reject);
+    }),
+    timeoutMs,
+    "mihomo 控制请求",
+  );
 }
 
 async function pipeRequest(endpoint: VergeEndpoint, method: string, requestPath: string, body?: unknown): Promise<{ status: number; text: string }> {
-  const target = endpoint.pipe || endpoint.tcp;
-  if (!target) throw new Error("mihomo 控制接口不可用");
   const payload = body === undefined ? "" : JSON.stringify(body);
   const headers = [
     `${method} ${requestPath} HTTP/1.1`,
@@ -104,32 +150,19 @@ async function pipeRequest(endpoint: VergeEndpoint, method: string, requestPath:
     `Content-Length: ${Buffer.byteLength(payload)}`,
     "Connection: close",
   ].filter(Boolean);
-
+  const request = `${headers.join("\r\n")}\r\n\r\n${payload}`;
   const timeoutMs = method === "PUT" ? 15_000 : PIPE_TIMEOUT_MS;
-  const raw = await withTimeout(
-    new Promise<string>((resolve, reject) => {
-      const decoder = new TextDecoder();
-      let received = "";
-      Bun.connect({
-        unix: target,
-        socket: {
-          data(_socket, chunk) { received += decoder.decode(chunk, { stream: true }); },
-          end(socket) {
-            received += decoder.decode();
-            resolve(received);
-            socket.end();
-          },
-          error(_socket, error) { reject(error instanceof Error ? error : new Error(String(error))); },
-        },
-      }).then((socket) => {
-        socket.write(`${headers.join("\r\n")}\r\n\r\n${payload}`);
-      }).catch(reject);
-    }),
-    timeoutMs,
-    "mihomo 管道请求",
-  );
-  const status = Number(raw.split("\r\n")[0]?.split(" ")[1]) || 0;
-  return { status, text: raw };
+  const errors: string[] = [];
+  for (const address of controllerAddresses(endpoint)) {
+    try {
+      const raw = await requestOverAddress(address, request, timeoutMs);
+      const status = Number(raw.split("\r\n")[0]?.split(" ")[1]) || 0;
+      return { status, text: raw };
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  throw new Error(errors[errors.length - 1] || "mihomo 控制接口不可达");
 }
 
 async function pipeJson(endpoint: VergeEndpoint, method: string, requestPath: string, body?: unknown): Promise<unknown> {
@@ -157,7 +190,7 @@ async function readRuntimeRules(endpoint: VergeEndpoint): Promise<unknown> {
 async function fileEnabledState(paths: VergePaths): Promise<boolean> {
   const overrideFile = findRulesOverrideFile(await Bun.file(paths.profilesPath).text());
   if (!overrideFile) return false;
-  const overrideText = await Bun.file(path.join(path.dirname(paths.profilesPath), overrideFile)).text();
+  const overrideText = await Bun.file(rulesOverridePath(paths.profilesDir, overrideFile)).text();
   return runtimeHasDirectRules((parse(overrideText) as { prepend?: unknown } | null)?.prepend);
 }
 
@@ -178,7 +211,13 @@ export async function getClashDirectStatus(): Promise<ClashDirectStatus> {
     const configs = await pipeJson(endpoint, "GET", "/configs") as { mode?: string } | undefined;
     return { available: true, enabled: runtimeHasDirectRules(rules), reloaded: true, mode: configs?.mode };
   } catch {
-    return { available: true, enabled: await fileEnabledState(paths), reloaded: false, reason: "mihomo 管道不可达，显示为配置文件状态" };
+    let enabled = false;
+    try {
+      enabled = await fileEnabledState(paths);
+    } catch {
+      // 控制接口和配置文件都读不到时按“未开启”展示，不要把这个错误抛成 502。
+    }
+    return { available: true, enabled, reloaded: false, reason: "mihomo 控制接口不可达，显示为配置文件状态" };
   }
 }
 
@@ -206,10 +245,10 @@ export async function setClashDirect(enabled: boolean): Promise<ClashDirectStatu
   let persisted = false;
   try {
     if (overrideFile) {
-      const overridePath = path.join(path.dirname(paths.profilesPath), overrideFile);
+      const overridePath = rulesOverridePath(paths.profilesDir, overrideFile);
       const overrideText = await Bun.file(overridePath).text().catch(() => "");
       const patched = applyDirectRulesToOverride(parse(overrideText), enabled);
-      await mkdir(path.dirname(overridePath), { recursive: true });
+      await mkdir(paths.profilesDir, { recursive: true });
       await writeFile(overridePath, stringify(patched), "utf8");
     }
     const runtimePatched = applyDirectRulesToRuntime(runtimeConfig, enabled);
