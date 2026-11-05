@@ -122,6 +122,10 @@ function ClashControl() {
         else toastManager.add({ type: "error", title: updated.reason || "网络刷新失败，请稍后重试" })
         return
       }
+      if (!status.reloaded && status.reason) {
+        toastManager.add({ type: "warning", title: status.reason })
+        return
+      }
       toastManager.add({ type: "success", title: "网络正常：校园域名直连已生效" })
     } catch (cause) {
       toastManager.add({ type: "error", title: cause instanceof Error ? cause.message : "网络检查失败" })

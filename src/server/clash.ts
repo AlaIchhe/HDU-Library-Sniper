@@ -29,7 +29,9 @@ export function controllerAddresses(endpoint: VergeEndpoint): ControllerAddress[
   const match = tcp ? /^\[?([^\]]+?)\]?:(\d+)$/.exec(tcp) : null;
   const port = match ? Number(match[2]) : NaN;
   if (match && Number.isInteger(port) && port > 0 && port <= 65535) {
-    addresses.push({ hostname: match[1]!, port });
+    // 监听 0.0.0.0 / :: 时本机应连 127.0.0.1。
+    const hostname = match[1] === "0.0.0.0" || match[1] === "::" ? "127.0.0.1" : match[1]!;
+    addresses.push({ hostname, port });
   }
   if (addresses.length === 0) throw new Error("Clash 未配置可用的控制接口");
   return addresses;
