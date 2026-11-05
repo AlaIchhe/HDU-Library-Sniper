@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { BookingPlan } from "../src/shared/types";
 import type { LibraryClient } from "../src/server/library";
 import { BookingExecutor, burstRetryDelayMs, pacing } from "../src/server/booking";
+import { RequestTimeoutError } from "../src/server/library";
 
 const mocks = vi.hoisted(() => ({
   plans: [] as unknown[],
@@ -109,6 +110,70 @@ describe("BookingExecutor idempotency", () => {
     const result = await executor.runBurst(false, { intervalMs: 0, timeoutMs: 0 });
     expect(result.success).toBe(false);
     expect(client.bookSeat).toHaveBeenCalledTimes(1);
+  });
+
+  test("run() reports an unverified result when the booking list is unavailable", async () => {
+    const client = fakeClient();
+    client.bookSeat.mockResolvedValue({ CODE: "1", MESSAGE: "已有预约，请勿重复预约！" });
+    client.bookings.mockRejectedValue(new Error("network down"));
+    const executor = new BookingExecutor(client, noopPause);
+
+    const result = await executor.run();
+
+    expect(result.success).toBe(false);
+    expect(result.members[0]?.terminal).toBeFalsy();
+    expect(result.members[0]?.unverified).toBe(true);
+  });
+
+  test("run() treats a timeout with an unavailable booking list as unverified", async () => {
+    const client = fakeClient();
+    client.bookSeat.mockRejectedValue(new RequestTimeoutError("请求超时"));
+    client.bookings.mockRejectedValue(new Error("network down"));
+    const executor = new BookingExecutor(client, noopPause);
+
+    const result = await executor.run();
+
+    expect(result.members[0]?.success).toBe(false);
+    expect(result.members[0]?.unverified).toBe(true);
+  });
+
+  test("run() retries the booking list before giving up on it", async () => {
+    const client = fakeClient();
+    client.bookings.mockRejectedValueOnce(new Error("transient")).mockResolvedValue([]);
+    const executor = new BookingExecutor(client, noopPause);
+
+    const result = await executor.run();
+
+    expect(result.success).toBe(true);
+    expect(client.bookSeat).toHaveBeenCalledTimes(1);
+  });
+
+  test("runBurst() falls back to the prelock booking snapshot when the live list fails", async () => {
+    const client = fakeClient();
+    const target = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
+    target.setDate(target.getDate() + 1); // 自习室提前一天
+    const beginSeconds = Math.floor(new Date(`${target.toISOString().slice(0, 10)}T08:00:00+08:00`).getTime() / 1000);
+    client.bookings.mockResolvedValueOnce([{ time: beginSeconds }]).mockRejectedValue(new Error("network down"));
+    const executor = new BookingExecutor(client, noopPause);
+
+    await executor.lockBurst({ timeoutMs: 100 });
+    const result = await executor.runBurst(false, { intervalMs: 0, timeoutMs: 100 });
+
+    expect(result.success).toBe(true);
+    expect(client.bookSeat).not.toHaveBeenCalled();
+  });
+
+  test("runBurst() stops retrying a member whose result stays unverified", async () => {
+    const client = fakeClient();
+    client.bookSeat.mockResolvedValue({ CODE: "1", MESSAGE: "已有预约，请勿重复预约！" });
+    client.bookings.mockRejectedValue(new Error("network down"));
+    const executor = new BookingExecutor(client, noopPause);
+
+    const result = await executor.runBurst(false, { intervalMs: 0, timeoutMs: 60_000 });
+
+    expect(result.members[0]?.unverified).toBe(true);
+    expect(result.members[0]?.terminal).toBe(true);
+    expect(client.bookSeat).toHaveBeenCalledTimes(3);
   });
 
   test("runBurst() backs off when the library rate limits booking requests", async () => {
