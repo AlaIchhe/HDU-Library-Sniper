@@ -24,11 +24,13 @@ export function usePlans() {
 
 export function useBookings() {
   const authenticated = useAuthenticated();
-  return useQuery({ queryKey: queryKeys.bookings, queryFn: api.bookings, refetchInterval: 30_000, enabled: authenticated });
+  // 不后台轮询：进入「当前预约」页时才请求；操作成功、后台任务结束后由调用方主动 invalidate。
+  return useQuery({ queryKey: queryKeys.bookings, queryFn: api.bookings, refetchOnMount: "always", enabled: authenticated });
 }
 export function useNextTarget() {
   const authenticated = useAuthenticated();
-  return useQuery({ queryKey: queryKeys.nextTarget, queryFn: api.nextTarget, refetchInterval: 30_000, enabled: authenticated });
+  // 侧边栏的“下一次执行”在启动、方案变更、任务结束时刷新即可，不需要 30s 轮询。
+  return useQuery({ queryKey: queryKeys.nextTarget, queryFn: api.nextTarget, enabled: authenticated });
 }
 export function useRuntime() {
   const authenticated = useAuthenticated();
@@ -54,7 +56,10 @@ export function useDurations(roomQuery: string, startHour: string, roomType?: st
 
 export function usePlanMutations() {
   const client = useQueryClient();
-  const refresh = () => client.invalidateQueries({ queryKey: queryKeys.plans });
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: queryKeys.plans });
+    void client.invalidateQueries({ queryKey: queryKeys.nextTarget });
+  };
   return {
     create: useMutation({ mutationFn: api.createPlan, onSuccess: refresh }),
     update: useMutation({ mutationFn: ({ id, patch }: { id: string; patch: Parameters<typeof api.updatePlan>[1] }) => api.updatePlan(id, patch), onSuccess: refresh }),
@@ -72,5 +77,11 @@ export function useBookingAction() {
 
 export function useCheckinMutation() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: ({ enabled, agreed }: { enabled: boolean; agreed?: boolean }) => api.setCheckin(enabled, agreed), onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.checkin }) });
+  return useMutation({
+    mutationFn: ({ enabled, agreed }: { enabled: boolean; agreed?: boolean }) => api.setCheckin(enabled, agreed),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.checkin });
+      void client.invalidateQueries({ queryKey: queryKeys.nextTarget });
+    },
+  });
 }
