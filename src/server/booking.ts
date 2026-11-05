@@ -1,5 +1,6 @@
 import type { BookingPlan, PlanListItem, Weekday } from "../shared/types";
 import { bookingDayOffset, bookingDayOffsetFor, timezone } from "./config";
+import { nextBackoffMs } from "./backoff";
 import { writeAudit } from "./db";
 import { tryAcquireJobLock } from "./lock";
 import { AuthenticationExpiredError, LibraryClient, RequestTimeoutError } from "./library";
@@ -49,14 +50,7 @@ const burstRequestIntervalMs = 1100;
 const burstTimeoutMs = 10 * 60_000;
 const prelockTimeoutMs = 90_000;
 
-// 抢座重试节奏：开窗后的头 15 秒保持快速重试，之后逐步放慢。
-// 10 分钟 burst 若一直按 1.1s 硬刷，会发出上千次请求，既没用又容易触发风控。
-export function burstRetryDelayMs(baseMs: number, elapsedMs: number): number {
-  if (elapsedMs < 15_000) return baseMs;
-  if (elapsedMs < 60_000) return Math.max(baseMs, 3_000);
-  if (elapsedMs < 180_000) return Math.max(baseMs, 6_000);
-  return Math.max(baseMs, 12_000);
-}
+
 
 // 预约路径发出的所有馆方请求共享一个节拍器：任意两次请求的实际间隔不低于 intervalMs。
 export const pacing = {
@@ -452,18 +446,19 @@ export class BookingExecutor {
         return result;
       }
       const throttled = result.members.some((member) => !member.success && isRateLimitedMessage(member.message));
-      let delay: number;
-      if (throttled) {
-        backoff = Math.min(Math.max(backoff * 2, 3_000), 30_000);
-        delay = backoff;
-        bookingLog(`rate limited, backing off ${delay}ms`);
-      } else {
+      const progressed = result.members.some((member) => member.success);
+      if (progressed) {
+        // 有成员约上了，说明链路正常，重置退避。
         backoff = intervalMs;
-        // 开窗头 15 秒保持 1.1s 快节奏，之后逐步放慢到 12s，避免 10 分钟里
-        // 反复请求把账号刷进风控。
-        delay = burstRetryDelayMs(intervalMs, Date.now() - startedAt);
+      } else if (throttled) {
+        backoff = Math.min(Math.max(backoff * 2, 3_000), 30_000);
+        bookingLog(`rate limited, backing off ${backoff}ms`);
+      } else {
+        // 连续失败按指数退避：1.1s → 2.2s → 4.4s → 8.8s → 17.6s → 30s。
+        backoff = nextBackoffMs(backoff, intervalMs, 30_000);
+        bookingLog(`retrying in ${backoff}ms`);
       }
-      await this.pause(delay);
+      await this.pause(backoff);
     }
   }
 

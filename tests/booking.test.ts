@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { BookingPlan } from "../src/shared/types";
 import type { LibraryClient } from "../src/server/library";
-import { BookingExecutor, burstRetryDelayMs, pacing } from "../src/server/booking";
+import { BookingExecutor, pacing } from "../src/server/booking";
+import { nextBackoffMs } from "../src/server/backoff";
 import { RequestTimeoutError } from "../src/server/library";
 
 const mocks = vi.hoisted(() => ({
@@ -57,13 +58,13 @@ function fakeClient() {
   };
 }
 
-describe("booking retry pacing", () => {
-  test("keeps the fast cadence only during the opening window", () => {
-    expect(burstRetryDelayMs(1100, 0)).toBe(1100);
-    expect(burstRetryDelayMs(1100, 14_999)).toBe(1100);
-    expect(burstRetryDelayMs(1100, 30_000)).toBe(3_000);
-    expect(burstRetryDelayMs(1100, 120_000)).toBe(6_000);
-    expect(burstRetryDelayMs(1100, 600_000)).toBe(12_000);
+describe("exponential backoff", () => {
+  test("doubles the delay and caps it", () => {
+    expect(nextBackoffMs(1100, 1100, 30_000)).toBe(2_200);
+    expect(nextBackoffMs(4_400, 1100, 30_000)).toBe(8_800);
+    expect(nextBackoffMs(30_000, 1100, 30_000)).toBe(30_000);
+    expect(nextBackoffMs(60_000, 60_000, 900_000)).toBe(120_000);
+    expect(nextBackoffMs(480_000, 60_000, 900_000)).toBe(900_000);
   });
 });
 

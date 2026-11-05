@@ -275,9 +275,22 @@ export function AppShell() {
   useEffect(() => {
     if (!authenticated) return
     let active = true
-    const poll = async () => { try { const result = await api.audit(50); if (active) await notifyAuditEvents(result.events) } catch { /* backend may not be ready yet */ } }
-    void poll(); const timer = window.setInterval(() => void poll(), 15_000)
-    return () => { active = false; window.clearInterval(timer) }
+    const poll = async () => {
+      try {
+        const result = await api.audit(50)
+        if (active) await notifyAuditEvents(result.events)
+      } catch { /* backend may not be ready yet */ }
+    }
+    // 不轮询：登录后、窗口重新获得焦点/可见时检查一次新事件。
+    const refresh = () => { if (document.visibilityState === "visible") void poll() }
+    void poll()
+    window.addEventListener("focus", refresh)
+    document.addEventListener("visibilitychange", refresh)
+    return () => {
+      active = false
+      window.removeEventListener("focus", refresh)
+      document.removeEventListener("visibilitychange", refresh)
+    }
   }, [authenticated])
 
   // 后台任务结束（抢座/签到跑完）后刷新预约列表和“下一次执行”；平时不轮询。

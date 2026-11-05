@@ -34,7 +34,8 @@ export function useNextTarget() {
 }
 export function useRuntime() {
   const authenticated = useAuthenticated();
-  return useQuery({ queryKey: queryKeys.runtime, queryFn: api.runtime, refetchInterval: 15_000, enabled: authenticated });
+  // 不轮询：进入/聚焦应用、或发生操作时刷新即可。
+  return useQuery({ queryKey: queryKeys.runtime, queryFn: api.runtime, enabled: authenticated });
 }
 export function useCheckin() {
   const authenticated = useAuthenticated();
