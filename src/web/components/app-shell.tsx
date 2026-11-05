@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import { CalendarDays, ExternalLink, Library, ListChecks, LogOut, Network, RefreshCw, Settings } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
@@ -279,6 +279,17 @@ export function AppShell() {
     void poll(); const timer = window.setInterval(() => void poll(), 15_000)
     return () => { active = false; window.clearInterval(timer) }
   }, [authenticated])
+
+  // 后台任务结束（抢座/签到跑完）后刷新预约列表和“下一次执行”；平时不轮询。
+  const lastRunAt = runtime.data?.lastRunAt
+  const previousRunAt = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const previous = previousRunAt.current
+    previousRunAt.current = lastRunAt
+    if (!lastRunAt || previous === undefined || previous === lastRunAt) return
+    void queryClient.invalidateQueries({ queryKey: queryKeys.bookings })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.nextTarget })
+  }, [lastRunAt, queryClient])
 
   useEffect(() => {
     if (!session && pathname !== "/") navigate({ to: "/", replace: true })
