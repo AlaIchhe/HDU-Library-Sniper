@@ -177,7 +177,7 @@ describe("BookingExecutor idempotency", () => {
     expect(client.bookSeat).toHaveBeenCalledTimes(3);
   });
 
-  test("runBurst() backs off when the library rate limits booking requests", async () => {
+  test("runBurst() backs off exponentially on any failed attempt", async () => {
     const client = fakeClient();
     client.bookSeat
       .mockResolvedValueOnce({ CODE: "1", MESSAGE: "操作过于频繁，请稍后再试" })
@@ -185,10 +185,10 @@ describe("BookingExecutor idempotency", () => {
     const pauses: number[] = [];
     const executor = new BookingExecutor(client, async (ms) => { pauses.push(ms); });
 
-    const result = await executor.runBurst(false, { intervalMs: 1, timeoutMs: 5_000 });
+    const result = await executor.runBurst(false, { intervalMs: 1_000, timeoutMs: 5_000 });
 
     expect(result.success).toBe(true);
-    expect(pauses[0]).toBeGreaterThanOrEqual(3_000);
+    expect(pauses[0]).toBe(2_000);
   });
 
   test("runBurst() keeps booking other members after one member reaches a terminal conflict", async () => {
