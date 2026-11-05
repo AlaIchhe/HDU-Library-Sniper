@@ -48,6 +48,8 @@ export type BookingLockResult = {
 // 不间断重试，直到成功、发现已有预约或超时。间隔同时用于避免高频请求触发馆方风控。
 const burstRequestIntervalMs = 1100;
 const burstTimeoutMs = 10 * 60_000;
+// 抢座失败后的退避上限：任何一轮有失败就翻倍，最多等 5 分钟。
+const burstMaxBackoffMs = 5 * 60_000;
 const prelockTimeoutMs = 90_000;
 
 
@@ -111,12 +113,6 @@ function lockSucceeded(response: Record<string, unknown>): boolean {
 
 function isDuplicateMessage(message: string): boolean {
   return /已有预约|请勿重复|重复预约/.test(message);
-}
-
-// 馆方对预约请求有频率限制。被限流时继续按 1.1s 硬刷只会一直撞墙，
-// 必须退避后再试（参考同类抢座脚本对「频繁/人数过多」的处理）。
-function isRateLimitedMessage(message: string): boolean {
-  return /频繁|人数过多|稍后再试|请求过多|操作过快/.test(message);
 }
 
 function planMembers(enabled: PlanListItem): BookingPlan[] {
@@ -445,20 +441,12 @@ export class BookingExecutor {
         if (result.success) this.lockedSeats = [];
         return result;
       }
-      const throttled = result.members.some((member) => !member.success && isRateLimitedMessage(member.message));
-      const progressed = result.members.some((member) => member.success);
-      if (progressed) {
-        // 有成员约上了，说明链路正常，重置退避。
-        backoff = intervalMs;
-      } else if (throttled) {
-        backoff = Math.min(Math.max(backoff * 2, 3_000), 30_000);
-        bookingLog(`rate limited, backing off ${backoff}ms`);
-      } else {
-        // 连续失败按指数退避：1.1s → 2.2s → 4.4s → 8.8s → 17.6s → 30s。
-        backoff = nextBackoffMs(backoff, intervalMs, 30_000);
-        bookingLog(`retrying in ${backoff}ms`);
-      }
-      await this.pause(backoff);
+      // 只要这一轮还有失败（包括部分成员失败、任务锁占用、结果未确认），
+      // 就继续按指数退避；不再因为个别成员成功而重置。
+      backoff = nextBackoffMs(backoff, intervalMs, burstMaxBackoffMs);
+      bookingLog(`failed, retrying in ${backoff}ms`);
+      // 最后一次等待不要睡过头，避免 burst 拖到 deadline 之后很久。
+      await this.pause(Math.min(backoff, Math.max(0, deadline - Date.now())));
     }
   }
 
