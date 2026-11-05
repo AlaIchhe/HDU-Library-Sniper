@@ -1,12 +1,21 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { useReducedMotion } from "motion/react"
+import { createContext, useContext, useMemo, useState } from "react"
+import {
+  AnimatePresence,
+  Reorder,
+  useDragControls,
+  useReducedMotion,
+  type DragControls,
+} from "motion/react"
 import {
   CalendarDays,
   CalendarRange,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  GripVertical,
   ListChecks,
   Pencil,
   Plus,
@@ -95,9 +104,12 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { toastManager } from "@/components/ui/toast"
+import { cn } from "@/lib/utils"
 import type { BookingPlan, BookingGroup, PlanListItem, Weekday } from "../../shared/types"
 import { weekdayLabels } from "../../shared/types"
 import { useDurations, useFloors, usePlanMutations, usePlans, useRoomTypes } from "../queries"
+import { useRefreshSignal } from "../store"
+import { undoToast } from "../undo-toast"
 import { Busy, Failure, groupSchema, NoData, planSchema } from "../shared"
 
 function SelectField({
@@ -145,8 +157,7 @@ function SelectField({
   )
 }
 
-function SearchableField({
-  label,
+function SearchableField({  label,
   value,
   onChange,
   options,
@@ -378,6 +389,92 @@ function PlanEditor({
   )
 }
 
+function SortableRow({
+  value,
+  index,
+  total,
+  label,
+  onMove,
+}: {
+  value: string
+  index: number
+  total: number
+  label: string
+  onMove: (from: number, to: number) => void
+}) {
+  // controls 必须在这里创建并交给手柄，手柄才能驱动这一行的拖拽
+  const controls = useDragControls()
+  const reduced = useReducedMotion()
+  // 不用 whileDrag：它结束时要回退到「初始值」，而 boxShadow 没有初始值，
+  // 用手柄启动拖拽时会一直卡在放大 + 阴影的状态。改用显式状态给出终点。
+  const [dragging, setDragging] = useState(false)
+
+  return (
+    <Reorder.Item
+      value={value}
+      dragListener={false}
+      dragControls={controls}
+      onDragStart={() => setDragging(true)}
+      onDragEnd={() => setDragging(false)}
+      animate={{ scale: dragging && !reduced ? 1.02 : 1 }}
+      transition={{ type: "spring", stiffness: 500, damping: 32 }}
+      className={cn(
+        "relative flex items-center gap-2 rounded-lg border bg-card p-2 text-xs transition-shadow duration-200",
+        dragging && "z-10 shadow-lg",
+      )}
+    >
+      <DragHandleContext.Provider value={controls}>
+        <ReorderHandle label={`拖动排序：${label}`} />
+      </DragHandleContext.Provider>
+      <Badge variant="secondary">{index + 1}</Badge>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <Button
+        type="button"
+        size="icon-xs"
+        variant="ghost"
+        disabled={index === 0}
+        aria-label={`上移 ${label}`}
+        onClick={() => onMove(index, index - 1)}
+      >
+        <ChevronUp />
+      </Button>
+      <Button
+        type="button"
+        size="icon-xs"
+        variant="ghost"
+        disabled={index === total - 1}
+        aria-label={`下移 ${label}`}
+        onClick={() => onMove(index, index + 1)}
+      >
+        <ChevronDown />
+      </Button>
+    </Reorder.Item>
+  )
+}
+
+/**
+ * 拖拽手柄。`Reorder.Item` 用 dragListener={false} 关掉了整行拖动，
+ * 只有按在这里才发起拖拽——否则行内的上下移按钮会被误判为拖动。
+ *
+ * dragControls 由父级 Item 创建后经 context 传进来，手柄自己不调用
+ * useDragControls()：那样得到的 controls 与 Item 无关，拖不动。
+ */
+const DragHandleContext = createContext<DragControls | null>(null)
+
+function ReorderHandle({ label }: { label: string }) {  const controls = useContext(DragHandleContext)
+
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      className="grid size-6 shrink-0 cursor-grab touch-none place-items-center rounded-md text-muted-foreground/60 outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+      onPointerDown={(event) => controls?.start(event)}
+    >
+      <GripVertical className="size-3.5" />
+    </button>
+  )
+}
+
 function GroupEditor({
   singles,
   initial,
@@ -445,41 +542,37 @@ function GroupEditor({
         )}
       </Field>
       <div className="grid gap-2">
-        <span className="text-sm font-medium">执行顺序</span>
-        {ordered.map((plan, index) => (
-          <div key={plan.id} className="flex items-center gap-2 rounded-lg border p-2 text-xs">
-            <Badge variant="secondary">{index + 1}</Badge>
-            <span className="flex-1">
-              {plan.roomType} · {plan.seatNum}
-            </span>
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              disabled={index === 0}
-              onClick={() => {
-                const next = [...ids]
-                ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
-                form.setValue("ids", next)
-              }}
-            >
-              ↑
-            </Button>
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              disabled={index === ordered.length - 1}
-              onClick={() => {
-                const next = [...ids]
-                ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
-                form.setValue("ids", next)
-              }}
-            >
-              ↓
-            </Button>
-          </div>
-        ))}
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-sm font-medium">执行顺序</span>
+          <span className="text-xs text-muted-foreground">拖动排序，或用箭头微调</span>
+        </div>
+        {ordered.length ? (
+          <Reorder.Group
+            axis="y"
+            values={ids}
+            onReorder={(next) => form.setValue("ids", next, { shouldValidate: true })}
+            className="grid gap-2"
+          >
+            {ordered.map((plan, index) => (
+              <SortableRow
+                key={plan.id}
+                value={plan.id}
+                index={index}
+                total={ordered.length}
+                label={`${plan.roomType} · 座位 ${plan.seatNum}`}
+                onMove={(from, to) => {
+                  const next = [...ids]
+                  ;[next[from], next[to]] = [next[to], next[from]]
+                  form.setValue("ids", next, { shouldValidate: true })
+                }}
+              />
+            ))}
+          </Reorder.Group>
+        ) : (
+          <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+            勾选上方的单条方案后，这里会显示执行顺序。
+          </p>
+        )}
       </div>
       <DialogFooter variant="bare" className="px-0">
         <DialogClose render={<Button type="button" variant="outline" />}>
@@ -503,6 +596,9 @@ export function PlansPage() {
   const [deleteTarget, setDeleteTarget] = useState<PlanListItem | null>(null)
   const items = plans.data?.plans || []
 
+  // ⌘K 面板 / `r` 快捷键请求刷新时，重拉方案与「下一次执行」
+  useRefreshSignal(() => void plans.refetch())
+
   const allSingles = useMemo(
     () => items.filter((item): item is BookingPlan => item.kind === "single"),
     [items],
@@ -515,10 +611,46 @@ export function PlansPage() {
   }, [allSingles, items])
 
   async function toggle(item: PlanListItem) {
-    // 同时只能启用一个方案：启用新方案时由后端自动停用当前方案，无需用户确认
+    // 同时只能启用一个方案：启用新方案时由后端自动停用当前方案。
+    // 停用的结果可撤销，所以不做事前确认，而是事后给一个「撤销」入口。
     try {
-      await mutations.toggle.mutateAsync({ id: item.id, enabled: !item.enabled })
-      toastManager.add({ type: "success", title: !item.enabled ? "方案已启用" : "方案已停用" })
+      const result = await mutations.toggle.mutateAsync({ id: item.id, enabled: !item.enabled })
+
+      if (item.enabled) {
+        toastManager.add({ type: "success", title: "方案已停用" })
+        return
+      }
+
+      // 把被顶掉的方案还给用户：后端在 disabledPlanIds 里已经说清是哪些
+      const displaced = (result?.disabledPlanIds || []).filter((id) => id !== item.id)
+      if (!displaced.length) {
+        toastManager.add({ type: "success", title: "方案已启用" })
+        return
+      }
+
+      const names = displaced
+        .map((id) => items.find((entry) => entry.id === id))
+        .map((entry) => (entry?.kind === "group" ? entry.name : entry ? `${entry.roomType} · ${entry.seatNum}` : null))
+        .filter((name): name is string => Boolean(name))
+
+      undoToast({
+        title: names.length === 1 ? `已启用，之前启用的「${names[0]}」已停用` : `已启用，${names.length} 个原方案已停用`,
+        onUndo: async () => {
+          try {
+            // 先停用当前方案再恢复旧的，避免「同时只能启用一个」被破坏
+            await mutations.toggle.mutateAsync({ id: item.id, enabled: false })
+            for (const id of displaced) {
+              await mutations.toggle.mutateAsync({ id, enabled: true })
+            }
+            toastManager.add({ type: "success", title: "已撤销" })
+          } catch (cause) {
+            toastManager.add({
+              type: "error",
+              title: cause instanceof Error ? cause.message : "撤销失败",
+            })
+          }
+        },
+      })
     } catch (cause) {
       toastManager.add({ type: "error", title: cause instanceof Error ? cause.message : "状态更新失败" })
     }
@@ -546,8 +678,10 @@ export function PlansPage() {
           </AnimatedShinyText>
         </div>
         <div className="flex flex-wrap gap-2">
+          {/* InteractiveHoverButton 自带圆点 + 悬停箭头作为 affordance；
+              children 会被放进一个 inline-block 的 span，再塞图标会让「+」
+              和文字分成两行。这里只传纯文本，accessible name 保持「创建方案」。 */}
           <InteractiveHoverButton onClick={() => setDialog("type")}>
-            <Plus className="size-4" />
             创建方案
           </InteractiveHoverButton>
         </div>
@@ -685,7 +819,17 @@ export function PlansPage() {
               </TableBody>
             </Table>
           ) : (
-            <NoData icon={ListChecks} title="还没有预约方案" />
+            <NoData
+              icon={ListChecks}
+              title="还没有预约方案"
+              description="创建方案后启用它，后台会在开放时间自动提交预约。"
+              action={
+                <Button onClick={() => setDialog("type")}>
+                  <Plus className="size-4" />
+                  创建第一个方案
+                </Button>
+              }
+            />
           )}
         </CardContent>
       </Card>
@@ -700,11 +844,20 @@ export function PlansPage() {
             <AlertDialogClose render={<Button variant="outline" />}>取消</AlertDialogClose>
             <Button
               variant="destructive"
+              loading={mutations.remove.isPending}
               onClick={async () => {
                 if (!deleteTarget) return
-                await mutations.remove.mutateAsync(deleteTarget.id)
-                setDeleteTarget(null)
-                toastManager.add({ type: "success", title: "方案已删除" })
+                const target = deleteTarget
+                try {
+                  await mutations.remove.mutateAsync(target.id)
+                  setDeleteTarget(null)
+                  toastManager.add({ type: "success", title: "方案已删除" })
+                } catch (cause) {
+                  toastManager.add({
+                    type: "error",
+                    title: cause instanceof Error ? cause.message : "删除失败",
+                  })
+                }
               }}
             >
               删除

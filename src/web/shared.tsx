@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react"
+import type { ReactNode } from "react"
 import { CircleAlert } from "lucide-react"
 import { z } from "zod"
 
@@ -6,6 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -75,10 +77,13 @@ export function NoData({
   icon: Icon,
   title,
   description = "完成配置后，后台会持续处理任务。",
+  action,
 }: {
   icon: LucideIcon
   title: string
   description?: string
+  /** 可选的操作区。空状态是死胡同还是入口，区别就在这里。 */
+  action?: ReactNode
 }) {
   return (
     <Empty>
@@ -89,6 +94,7 @@ export function NoData({
         <EmptyTitle>{title}</EmptyTitle>
         <EmptyDescription>{description}</EmptyDescription>
       </EmptyHeader>
+      {action ? <EmptyContent>{action}</EmptyContent> : null}
     </Empty>
   )
 }

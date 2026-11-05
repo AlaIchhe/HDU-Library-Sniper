@@ -64,6 +64,8 @@ export function usePlanMutations() {
   return {
     create: useMutation({ mutationFn: api.createPlan, onSuccess: refresh }),
     update: useMutation({ mutationFn: ({ id, patch }: { id: string; patch: Parameters<typeof api.updatePlan>[1] }) => api.updatePlan(id, patch), onSuccess: refresh }),
+    // 返回值里的 disabledPlanIds 是「启用新方案时被自动停用的方案」，
+    // 调用方靠它做撤销，所以这里必须把后端响应透出去。
     toggle: useMutation({ mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.setEnabled(id, enabled), onSuccess: refresh }),
     remove: useMutation({ mutationFn: api.deletePlan, onSuccess: refresh }),
     createGroup: useMutation({ mutationFn: ({ name, ids }: { name: string; ids: string[] }) => api.createGroup(name, ids), onSuccess: refresh }),
