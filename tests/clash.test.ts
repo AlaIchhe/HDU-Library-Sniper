@@ -67,6 +67,7 @@ describe("controllerAddresses", () => {
     ]);
     expect(controllerAddresses({ tcp: "http://127.0.0.1:9097" })).toEqual([{ hostname: "127.0.0.1", port: 9097 }]);
     expect(controllerAddresses({ tcp: "192.168.1.2:9097" })).toEqual([{ hostname: "192.168.1.2", port: 9097 }]);
+    expect(controllerAddresses({ tcp: "0.0.0.0:9097" })).toEqual([{ hostname: "127.0.0.1", port: 9097 }]);
   });
 
   test("rejects endpoints without a usable address", () => {
