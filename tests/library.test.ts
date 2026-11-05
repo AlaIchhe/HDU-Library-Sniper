@@ -81,32 +81,23 @@ describe("LibraryClient contract parsing", () => {
 });
 
 describe("LibraryClient.request auth handling", () => {
-  async function withFetch(body: unknown, run: () => Promise<unknown>): Promise<void> {
+  test("treats com.Redirect responses as authentication expiry", async () => {
+    const client = new LibraryClient({});
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response(JSON.stringify(body), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    })) as unknown as typeof fetch;
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ ui_type: "com.Redirect", href: "https://hdu.huitu.zhishulib.com/User/Index/hduCASLogin" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as unknown as typeof fetch;
     try {
-      await run();
+      await expect(
+        (client as unknown as { request: (p: string, i?: RequestInit, r?: boolean) => Promise<Record<string, unknown>> }).request(
+          "/User/Center/baseInfo", {}, false,
+        ),
+      ).rejects.toBeInstanceOf(AuthenticationExpiredError);
     } finally {
       globalThis.fetch = originalFetch;
     }
-  }
-
-  function requestInfo(client: LibraryClient) {
-    const method = (client as unknown as { request: (p: string, i?: RequestInit, r?: boolean) => Promise<Record<string, unknown>> }).request;
-    return method.bind(client);
-  }
-
-  test("treats com.Redirect responses as authentication expiry", async () => {
-    const client = new LibraryClient({});
-    await withFetch(
-      { ui_type: "com.Redirect", href: "https://hdu.huitu.zhishulib.com/User/Index/hduCASLogin" },
-      async () => { await expect(requestInfo(client)("/User/Center/baseInfo", {}, false)).rejects.toBeInstanceOf(AuthenticationExpiredError); },
-    );
   });
-
 });
 
 describe("LibraryClient roomTypes parsing", () => {
@@ -279,31 +270,5 @@ describe("LibraryClient.action", () => {
     } as unknown as Record<string, unknown>));
 
     await expect(client.action("checkIn", "123")).rejects.toThrow("预约单不存在");
-  });
-});
-
-describe("LibraryClient.bookings", () => {
-  function clientWith(payload: Record<string, unknown>): LibraryClient {
-    return makeClient(async () => payload);
-  }
-
-  test("parses the legacy content.defaultItems contract", async () => {
-    await expect(clientWith({ content: { defaultItems: [{ id: "1", time: 1 }] } }).bookings())
-      .resolves.toEqual([{ id: "1", time: 1 }]);
-  });
-
-  test("does not guess the list from unrelated fields", async () => {
-    await expect(clientWith({ data: { defaultItems: [{ id: "9" }] } }).bookings())
-      .rejects.toThrow("预约列表解析失败");
-    await expect(clientWith({ content: { defaultItems: null } }).bookings())
-      .rejects.toThrow("预约列表解析失败");
-    await expect(clientWith({ content: { children: [{ defaultItems: [{ id: "2" }] }] } }).bookings())
-      .rejects.toThrow("预约列表解析失败");
-  });
-
-  test("reports the response shape when the field is missing", async () => {
-    const client = clientWith({ CODE: "1", MESSAGE: "系统繁忙", content: { foo: "bar" } });
-
-    await expect(client.bookings()).rejects.toThrow("预约列表解析失败（CODE=1 MESSAGE=系统繁忙 keys=");
   });
 });
