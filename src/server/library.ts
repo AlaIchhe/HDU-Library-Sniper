@@ -13,19 +13,6 @@ export class AuthenticationExpiredError extends Error {}
 export class HduLibraryError extends Error {}
 export class RequestTimeoutError extends HduLibraryError {}
 
-// 预约列表字段是明确的（content.defaultItems）。这里不猜结构，解析失败时把
-// 实际响应形状带进错误，便于第一时间判断是契约变化、空列表还是别的问题。
-function describePayload(body: Record<string, unknown>): string {
-  const shape = (value: unknown): string => {
-    if (value === null || value === undefined) return "null";
-    if (Array.isArray(value)) return `array(${value.length})`;
-    if (typeof value !== "object") return typeof value;
-    return Object.keys(value as Record<string, unknown>).slice(0, 8).join("|");
-  };
-  const message = String(body.MESSAGE || body.message || "").slice(0, 60);
-  return `CODE=${String(body.CODE ?? "")} MESSAGE=${message} keys=${shape(body)} content=${shape(body.content)}`;
-}
-
 function findNonEmptyDefaultItems(node: unknown): unknown[] | undefined {
   if (Array.isArray(node)) {
     for (const value of node) {
@@ -189,11 +176,8 @@ export class LibraryClient {
 
   async bookings(): Promise<Record<string, unknown>[]> {
     const body = await this.request("/Seat/Index/myBookingList?fromType=web&LAB_JSON=1");
-    const items = (body.content as Record<string, unknown> | undefined)?.defaultItems;
-    if (!Array.isArray(items)) {
-      console.error("[huitu] myBookingList unexpected payload", JSON.stringify(body).slice(0, 800));
-      throw new HduLibraryError(`预约列表解析失败（${describePayload(body)}）`);
-    }
+    const items = (body.content as Record<string, unknown>)?.defaultItems;
+    if (!Array.isArray(items)) throw new HduLibraryError("预约列表解析失败");
     return items as Record<string, unknown>[];
   }
 
