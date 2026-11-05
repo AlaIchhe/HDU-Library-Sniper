@@ -1,6 +1,7 @@
 import type { RuntimeStatus } from "../shared/types";
 import { AuthService } from "./auth";
 import { getMeta, setMeta, writeAudit } from "./db";
+import { nextBackoffMs } from "./backoff";
 import { bookingAnchorDelaySeconds, bookingPrelockDelaySeconds, timezone } from "./config";
 import { tryAcquireJobLock } from "./lock";
 import { BookingExecutor } from "./booking";
@@ -15,6 +16,8 @@ export class Scheduler {
   private timer: Timer | undefined;
   private bookingTimer: Timer | undefined;
   private bookingPrelockTimer: Timer | undefined;
+  /** 签到失败后的指数退避等待；成功或跳过时清零。 */
+  private checkInRetryMs = 0;
   private nextPollAt: string | undefined;
   private running = false;
   private statusValue: RuntimeStatus = {
@@ -151,29 +154,44 @@ export class Scheduler {
     return Number(parts.find((part) => part.type === "hour")?.value || 0) * 60 + Number(parts.find((part) => part.type === "minute")?.value || 0);
   }
 
-  private scheduleNextPoll(): void {
+  private scheduleNextPoll(retry = false): void {
     if (!this.timer && this.statusValue.scheduler !== "running") return;
     const now = new Date();
-    const next = new Date(now.getTime() + checkInIntervalMs);
-    next.setSeconds(0, 0);
-    const minutes = next.getMinutes();
-    next.setMinutes(Math.ceil(minutes / 15) * 15);
-    this.nextPollAt = next.toISOString();
+    let delayMs: number;
+    if (retry) {
+      // 签到失败后指数退避：1min → 2min → 4min → 8min → 15min 封顶。
+      this.checkInRetryMs = this.checkInRetryMs
+        ? nextBackoffMs(this.checkInRetryMs, 60_000, checkInIntervalMs)
+        : 60_000;
+      delayMs = this.checkInRetryMs;
+    } else {
+      this.checkInRetryMs = 0;
+      const next = new Date(now.getTime() + checkInIntervalMs);
+      next.setSeconds(0, 0);
+      const minutes = next.getMinutes();
+      next.setMinutes(Math.ceil(minutes / 15) * 15);
+      delayMs = Math.max(1_000, next.getTime() - now.getTime());
+    }
+    this.nextPollAt = new Date(now.getTime() + delayMs).toISOString();
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.checkInTick().finally(() => this.scheduleNextPoll());
-    }, Math.max(1_000, next.getTime() - now.getTime()));
+      void this.checkInTick()
+        .then((ok) => this.scheduleNextPoll(!ok))
+        .catch(() => this.scheduleNextPoll(true));
+    }, delayMs);
   }
 
-  private async checkInTick(): Promise<void> {
+  /** 返回 true 表示本轮正常（含没有可签到项），false 表示需要按指数退避尽快重试。 */
+  private async checkInTick(): Promise<boolean> {
     const minutes = this.localMinutes();
-    if (!this.autoCheckInEnabled || minutes < checkInStartMinutes || minutes > checkInEndMinutes) return;
+    if (!this.autoCheckInEnabled || minutes < checkInStartMinutes || minutes > checkInEndMinutes) return true;
     const release = tryAcquireJobLock("check-in");
-    if (!release) return;
+    if (!release) return false;
+    let ok = true;
     try {
       if (!this.auth.authenticated && !(await this.auth.restore())) {
         this.statusValue.state = "auth_required";
-        return;
+        return false;
       }
       const bookings = await this.auth.client.bookings();
       for (const booking of bookings) {
@@ -183,14 +201,23 @@ export class Scheduler {
           current >= begin - Number(booking.limitSignAgo || 0) &&
           current <= begin + Number(booking.limitSignBack || 0);
         if (!available || !booking.id) continue;
-        await this.auth.client.action("checkIn", String(booking.id));
-        writeAudit("checkin_succeeded", { bookingId: String(booking.id) });
+        try {
+          await this.auth.client.action("checkIn", String(booking.id));
+          writeAudit("checkin_succeeded", { bookingId: String(booking.id) });
+        } catch (error) {
+          if (error instanceof AuthenticationExpiredError) throw error;
+          ok = false;
+          this.statusValue.lastMessage = String(error);
+          writeAudit("checkin_failed", { bookingId: String(booking.id), error: String(error) });
+        }
       }
     } catch (error) {
+      ok = false;
       this.statusValue.lastMessage = String(error);
       writeAudit("checkin_failed", { error: String(error) });
     } finally {
       release();
     }
+    return ok;
   }
 }
