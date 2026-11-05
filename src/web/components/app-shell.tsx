@@ -5,6 +5,15 @@ import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-route
 import { CalendarDays, ExternalLink, Library, ListChecks, LogOut, Network, RefreshCw, Settings } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
 
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern"
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -40,29 +49,22 @@ import { LightRays } from "@/components/ui/light-rays"
 import { api } from "../api"
 import { notifyAuditEvents } from "../notifications"
 import { isTauri, openExternalUrl } from "../tauri"
-import { checkForUpdate, installUpdate } from "../updater"
+import { checkForUpdate, installUpdate, type UpdateState } from "../updater"
 
 function CheckinControl() {
   const { data, isLoading } = useCheckin()
   const mutation = useCheckinMutation()
+  const [pending, setPending] = useState<boolean | null>(null)
 
-  async function toggle() {
-    if (!data) return
-    const enabled = !data.enabled
-    if (
-      !window.confirm(
-        enabled
-          ? "自动签到会在服务端签到窗口内提交签到请求。继续启用吗？"
-          : "关闭自动签到吗？",
-      )
-    )
-      return
+  async function confirm() {
+    if (pending === null) return
     try {
-      await mutation.mutateAsync({ enabled, agreed: enabled })
+      await mutation.mutateAsync({ enabled: pending, agreed: pending })
       toastManager.add({
         type: "success",
-        title: enabled ? "自动签到已启用" : "自动签到已关闭",
+        title: pending ? "自动签到已启用" : "自动签到已关闭",
       })
+      setPending(null)
     } catch (cause) {
       toastManager.add({
         type: "error",
@@ -72,37 +74,112 @@ function CheckinControl() {
   }
 
   return (
-    <Button
-      variant={data?.enabled ? "secondary" : "outline"}
-      size="sm"
-      disabled={isLoading || mutation.isPending}
-      onClick={() => void toggle()}
-    >
-      <span
-        className={
-          data?.enabled ? "text-success" : "text-muted-foreground/40"
-        }
+    <>
+      <Button
+        variant={data?.enabled ? "secondary" : "outline"}
+        size="sm"
+        disabled={isLoading || mutation.isPending}
+        onClick={() => { if (data) setPending(!data.enabled) }}
       >
-        ●
-      </span>
-      {data?.enabled ? "自动签到已开" : "自动签到已关"}
-    </Button>
+        <span className={data?.enabled ? "text-success" : "text-muted-foreground/40"}>
+          ●
+        </span>
+        {data?.enabled ? "自动签到已开" : "自动签到已关"}
+      </Button>
+
+      <AlertDialog
+        open={pending !== null}
+        onOpenChange={(open) => { if (!open && !mutation.isPending) setPending(null) }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{pending ? "启用自动签到？" : "关闭自动签到？"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pending
+                ? "自动签到会在服务端签到窗口内提交签到请求。继续启用吗？"
+                : "关闭后不会再自动提交签到，已有预约仍可手动签到。确定关闭吗？"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" disabled={mutation.isPending} />}>
+              取消
+            </AlertDialogClose>
+            <Button loading={mutation.isPending} onClick={() => void confirm()}>
+              {pending ? "启用" : "关闭"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
+    </>
   )
 }
 
 function UpdateControl() {
   const [busy, setBusy] = useState(false)
+  const [pending, setPending] = useState<UpdateState | null>(null)
+
   async function check() {
     setBusy(true)
     try {
       const result = await checkForUpdate()
       if (result.error) toastManager.add({ type: "error", title: `更新检查失败：${result.error}` })
       else if (!result.available) toastManager.add({ type: "success", title: "当前已是最新版本" })
-      else if (window.confirm(`发现新版本 ${result.version}，现在安装吗？`)) { await installUpdate(); toastManager.add({ type: "success", title: "更新已安装，请重启应用" }) }
-    } catch (error) { toastManager.add({ type: "error", title: error instanceof Error ? error.message : "更新安装失败" }) }
-    finally { setBusy(false) }
+      else setPending(result)
+    } finally {
+      setBusy(false)
+    }
   }
-  return <Button variant="ghost" size="sm" disabled={busy} onClick={() => void check()} title="检查更新" aria-label="检查更新"><RefreshCw className={busy ? "animate-spin" : ""} /></Button>
+
+  async function install() {
+    if (!pending) return
+    setBusy(true)
+    try {
+      await installUpdate()
+      setPending(null)
+      toastManager.add({ type: "success", title: "更新已安装，请重启应用" })
+    } catch (error) {
+      toastManager.add({ type: "error", title: error instanceof Error ? error.message : "更新安装失败" })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={busy}
+        onClick={() => void check()}
+        title="检查更新"
+        aria-label="检查更新"
+      >
+        <RefreshCw className={busy ? "animate-spin" : ""} />
+      </Button>
+
+      <AlertDialog
+        open={!!pending}
+        onOpenChange={(open) => { if (!open && !busy) setPending(null) }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>发现新版本 {pending?.version}</AlertDialogTitle>
+            <AlertDialogDescription className="max-h-60 overflow-auto whitespace-pre-wrap">
+              {pending?.body || "安装后应用会自动重启。"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" disabled={busy} />}>
+              稍后
+            </AlertDialogClose>
+            <Button loading={busy} onClick={() => void install()}>
+              立即更新
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
+    </>
+  )
 }
 
 function ClashControl() {
