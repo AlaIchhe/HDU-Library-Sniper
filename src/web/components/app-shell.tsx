@@ -1,9 +1,25 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
-import { CalendarDays, ExternalLink, Library, ListChecks, LogOut, Network, RefreshCw, Settings } from "lucide-react"
-import { motion, useReducedMotion } from "motion/react"
+import {
+  CalendarDays,
+  CheckCircle2,
+  ChevronRight,
+  Command as CommandIcon,
+  ExternalLink,
+  Library,
+  ListChecks,
+  LogOut,
+  Moon,
+  Network,
+  RefreshCw,
+  Settings,
+  Sun,
+  Timer,
+  Zap,
+} from "lucide-react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 
 import {
   AlertDialog,
@@ -18,7 +34,16 @@ import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern"
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@/components/ui/menu"
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuShortcut,
+  MenuTrigger,
+} from "@/components/ui/menu"
 import { Separator } from "@/components/ui/separator"
 import {
   Sidebar,
@@ -36,6 +61,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { toastManager, ToastProvider } from "@/components/ui/toast"
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "../store"
 import {
@@ -50,6 +76,100 @@ import { api } from "../api"
 import { notifyAuditEvents } from "../notifications"
 import { isTauri, openExternalUrl } from "../tauri"
 import { checkForUpdate, installUpdate, type UpdateState } from "../updater"
+import { CommandPalette } from "./command-palette"
+import { useHotkeys } from "../hooks/use-hotkeys"
+import { useCountdown } from "../hooks/use-countdown"
+import type { Command } from "../commands"
+
+/** 统一的语义色状态点：颜色由 tone 决定，切换时用 spring 过渡而非硬切。 */
+function StatusDot({ tone, pulse = false }: { tone: "ok" | "warn" | "bad" | "idle"; pulse?: boolean }) {
+  const reduced = useReducedMotion()
+  const color = {
+    ok: "bg-success",
+    warn: "bg-warning",
+    bad: "bg-destructive",
+    idle: "bg-muted-foreground/50",
+  }[tone]
+
+  return (
+    <span className="relative grid size-2 shrink-0 place-items-center">
+      {pulse && tone !== "idle" && !reduced && (
+        <motion.span
+          aria-hidden
+          className={`absolute inset-0 rounded-full ${color}`}
+          initial={{ scale: 1, opacity: 0 }}
+          animate={{ scale: [1, 2.6], opacity: [0.5, 0] }}
+          transition={{
+            type: "spring",
+            visualDuration: 1.4,
+            bounce: 0,
+            repeat: Infinity,
+            repeatDelay: 0.6,
+          }}
+        />
+      )}
+      <motion.span
+        className={`absolute inset-0 rounded-full ${color}`}
+        initial={false}
+        animate={{ scale: 1 }}
+        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      />
+    </span>
+  )
+}
+
+/**
+ * 顶栏状态区：一眼看清「后台在不在线、下一次什么时候动」。
+ *
+ * 倒计时只用本地 timer 重算，不发网络请求。
+ */
+function StatusBar({ runtimeState }: { runtimeState: string | undefined }) {
+  const target = useNextTarget()
+  const countdown = useCountdown(target.data?.at)
+  const reduced = useReducedMotion()
+
+  const tone: "ok" | "warn" | "bad" | "idle" =
+    runtimeState === "error"
+      ? "bad"
+      : runtimeState === "auth_required"
+        ? "warn"
+        : runtimeState === "running"
+          ? "ok"
+          : target.data?.kind && target.data.kind !== "none"
+            ? "ok"
+            : "idle"
+
+  const label = target.data?.label || "等待方案启用"
+
+  return (
+    <div className="flex min-w-0 items-center gap-2.5 rounded-full border bg-card/60 py-1 ps-2.5 pe-3 text-xs shadow-xs/5 backdrop-blur">
+      <StatusDot tone={tone} pulse={runtimeState === "running"} />
+
+      <div className="flex min-w-0 items-baseline gap-2">
+        <span className="shrink-0 text-muted-foreground">下一次</span>
+        <span className="max-w-[16rem] truncate font-medium text-foreground" title={label}>
+          {label}
+        </span>
+      </div>
+
+      <AnimatePresence mode="popLayout" initial={false}>
+        {target.data?.at ? (
+          <motion.span
+            key={countdown?.text ?? "loading"}
+            initial={reduced ? false : { opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.14 }}
+            className="flex shrink-0 items-center gap-1 tabular-nums text-muted-foreground"
+          >
+            <Timer className="size-3" />
+            {countdown?.text ?? "…"}
+          </motion.span>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  )
+}
 
 function CheckinControl() {
   const { data, isLoading } = useCheckin()
@@ -76,15 +196,16 @@ function CheckinControl() {
   return (
     <>
       <Button
-        variant={data?.enabled ? "secondary" : "outline"}
+        variant={data?.enabled ? "secondary" : "ghost"}
         size="sm"
         disabled={isLoading || mutation.isPending}
         onClick={() => { if (data) setPending(!data.enabled) }}
+        title={data?.enabled ? "自动签到已开启，点击关闭" : "自动签到已关闭，点击开启"}
       >
-        <span className={data?.enabled ? "text-success" : "text-muted-foreground/40"}>
-          ●
+        <StatusDot tone={data?.enabled ? "ok" : "idle"} />
+        <span className="max-sm:hidden">
+          {data?.enabled ? "自动签到" : "未开签到"}
         </span>
-        {data?.enabled ? "自动签到已开" : "自动签到已关"}
       </Button>
 
       <AlertDialog
@@ -146,16 +267,10 @@ function UpdateControl() {
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={busy}
-        onClick={() => void check()}
-        title="检查更新"
-        aria-label="检查更新"
-      >
+      <MenuItem disabled={busy} onClick={() => void check()}>
         <RefreshCw className={busy ? "animate-spin" : ""} />
-      </Button>
+        检查更新
+      </MenuItem>
 
       <AlertDialog
         open={!!pending}
@@ -212,39 +327,10 @@ function ClashControl() {
   }
 
   return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      title="检查网络"
-      aria-label="检查网络"
-      disabled={busy}
-      onClick={() => void check()}
-    >
+    <MenuItem disabled={busy} onClick={() => void check()}>
       <Network className={busy ? "animate-pulse" : ""} />
-    </Button>
-  )
-}
-
-function NextBlock({
-  label,
-  at,
-}: {
-  label?: string
-  at?: string
-}) {
-  return (
-    <div className="min-w-0 px-2 py-1 text-xs">
-      <div className="flex min-w-0 items-center gap-2 font-medium text-sidebar-foreground">
-        <Settings className="size-3.5 shrink-0 text-muted-foreground" />
-        <span>下一次执行</span>
-      </div>
-      <strong className="mt-2 block truncate font-medium">
-        {label || "正在计算..."}
-      </strong>
-      {at ? (
-        <span className="mt-0.5 block truncate text-muted-foreground">{at}</span>
-      ) : null}
-    </div>
+      检查网络
+    </MenuItem>
   )
 }
 
@@ -259,9 +345,11 @@ export function AppShell() {
   const theme = useAppStore((state) => state.theme)
   const notice = useAppStore((state) => state.notice)
   const setNotice = useAppStore((state) => state.setNotice)
-  const target = useNextTarget()
+  const refreshRequest = useAppStore((state) => state.refreshRequest)
+  const requestRefresh = useAppStore((state) => state.requestRefresh)
   const runtime = useRuntime()
   const reduced = useReducedMotion()
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const authenticated = Boolean(session?.authenticated)
 
   useEffect(() => {
@@ -317,7 +405,93 @@ export function AppShell() {
     setNotice(null)
   }, [notice, setNotice])
 
+  const logout = useCallback(async () => {
+    try {
+      await api.logout()
+      // 清掉 session 查询缓存，避免登录页用陈旧缓存复活已登出的会话
+      queryClient.removeQueries({ queryKey: queryKeys.session })
+      setSession(null)
+      navigate({ to: "/", replace: true })
+    } catch (cause) {
+      toastManager.add({
+        type: "error",
+        title: cause instanceof Error ? cause.message : "退出登录失败",
+      })
+    }
+  }, [navigate, queryClient, setSession])
+
+  /** 刷新当前页：通过 store 广播，各页自行响应，不做 DOM 查询。 */
+  const refreshCurrentPage = useCallback(() => {
+    requestRefresh()
+    void queryClient.invalidateQueries({ queryKey: queryKeys.nextTarget })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.runtime })
+  }, [queryClient, requestRefresh])
+
+  useHotkeys(
+    {
+      "g p": () => void navigate({ to: "/plans" }),
+      "g b": () => void navigate({ to: "/bookings" }),
+      r: refreshCurrentPage,
+    },
+    { enabled: authenticated },
+  )
+
+  const commands: Command[] = [
+    {
+      id: "go-plans",
+      label: "预约方案",
+      group: "导航",
+      icon: ListChecks,
+      keywords: ["plans", "yuyue", "fangan"],
+      shortcut: "G P",
+      run: () => void navigate({ to: "/plans" }),
+    },
+    {
+      id: "go-bookings",
+      label: "当前预约",
+      group: "导航",
+      icon: CalendarDays,
+      keywords: ["bookings", "dangqian"],
+      shortcut: "G B",
+      run: () => void navigate({ to: "/bookings" }),
+    },
+    {
+      id: "refresh",
+      label: "刷新当前页",
+      group: "操作",
+      icon: RefreshCw,
+      keywords: ["refresh", "shuaxin"],
+      shortcut: "R",
+      run: refreshCurrentPage,
+    },
+    {
+      id: "theme",
+      label: theme === "dark" ? "切换到浅色主题" : "切换到深色主题",
+      group: "操作",
+      icon: theme === "dark" ? Sun : Moon,
+      keywords: ["theme", "dark", "light", "zhuti", "shense", "qianse", "qiehuan", "huan"],
+      run: () => useAppStore.getState().toggleTheme(),
+    },
+    {
+      id: "changelog",
+      label: "查看更新日志",
+      group: "操作",
+      icon: ExternalLink,
+      keywords: ["changelog", "release", "gengxin"],
+      run: () => void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases"),
+    },
+    {
+      id: "logout",
+      label: "退出登录",
+      group: "账户",
+      icon: LogOut,
+      keywords: ["logout", "tuichu", "dengchu"],
+      run: () => void logout(),
+    },
+  ]
+
   const errorState = runtime.data?.state === "error"
+  const authRequired = runtime.data?.state === "auth_required"
 
   return (
     <div className="relative min-h-dvh min-w-0 overflow-x-hidden bg-background text-foreground">
@@ -329,9 +503,15 @@ export function AppShell() {
         className="fixed inset-0 -z-10"
       />
       <AnimatedGridPattern
-        numSquares={36}
+        numSquares={18}
         maxOpacity={0.06}
         className="fixed inset-0 -z-10 [mask-image:radial-gradient(ellipse_at_center,white,transparent_72%)]"
+      />
+
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        commands={commands}
       />
 
       {pathname === "/" ? (
@@ -363,6 +543,7 @@ export function AppShell() {
                       <SidebarMenuItem>
                         <SidebarMenuButton
                           isActive={pathname === "/plans"}
+                          tooltip="预约方案（G P）"
                           className="transition-[width,height,padding,background-color,color,box-shadow,transform] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-xs focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar data-[active=true]:shadow-xs"
                           render={<Link to="/plans" />}
                         >
@@ -373,6 +554,7 @@ export function AppShell() {
                       <SidebarMenuItem>
                         <SidebarMenuButton
                           isActive={pathname === "/bookings"}
+                          tooltip="当前预约（G B）"
                           className="transition-[width,height,padding,background-color,color,box-shadow,transform] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-xs focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar data-[active=true]:shadow-xs"
                           render={<Link to="/bookings" />}
                         >
@@ -385,40 +567,60 @@ export function AppShell() {
                 </SidebarGroup>
               </SidebarContent>
               <SidebarFooter>
-                <NextBlock
-                  label={target.data?.label}
-                  at={target.data?.at}
-                />
-                <div className="mt-2 flex min-w-0 items-center gap-2 px-2 text-xs text-muted-foreground">
-                  <span
-                    className={
-                      errorState
-                        ? "size-2 shrink-0 rounded-full bg-destructive"
-                        : "size-2 shrink-0 rounded-full bg-success"
-                    }
-                  />
-                  <span className="truncate">后台服务在线</span>
+                <div className="flex min-w-0 flex-col gap-1.5 rounded-xl border bg-card/50 px-3 py-2.5">
+                  <div className="flex min-w-0 items-center gap-2 text-xs">
+                    <StatusDot
+                      tone={errorState ? "bad" : authRequired ? "warn" : "ok"}
+                      pulse={!errorState && !authRequired}
+                    />
+                    <span className="truncate text-muted-foreground">
+                      {errorState
+                        ? "后台服务异常"
+                        : authRequired
+                          ? "需要重新登录"
+                          : "后台服务在线"}
+                    </span>
+                  </div>
+                  <p className="truncate text-[0.6875rem] leading-4 text-muted-foreground/72">
+                    {runtime.data?.lastMessage || "自动预约与签到由本地服务执行"}
+                  </p>
                 </div>
               </SidebarFooter>
             </Sidebar>
             <SidebarInset className="min-w-0 max-w-full overflow-x-hidden">
-              <header className="flex min-h-14 min-w-0 items-center gap-3 border-b bg-background/82 px-3 backdrop-blur sm:px-6">
+              <header className="sticky top-0 z-20 flex min-h-14 min-w-0 items-center gap-3 border-b bg-background/82 px-3 backdrop-blur sm:px-6">
                 <SidebarTrigger />
                 <Separator orientation="vertical" className="h-5" />
-                <nav className="hidden items-center gap-2 text-sm text-muted-foreground sm:flex">
-                  <Library className="size-4" />
-                  HDU Library
-                  <span>/</span>
-                  <strong className="text-foreground">
-                    {pathname === "/bookings" ? "当前预约" : "预约方案"}
-                  </strong>
-                </nav>
+                <StatusBar runtimeState={runtime.data?.state} />
                 <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setPaletteOpen(true)}
+                  >
+                    <CommandIcon className="size-3.5" />
+                    <span className="max-lg:hidden">搜索命令</span>
+                    <MenuShortcut className="me-0 max-lg:hidden">⌘K</MenuShortcut>
+                  </Button>
                   <CheckinControl />
-                  {isTauri() && <ClashControl />}
-                  <UpdateControl />
+                  <Menu>
+                    <MenuTrigger
+                      className="grid size-8 place-items-center rounded-full border text-foreground/80 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label="更多设置"
+                    >
+                      <Settings className="size-4" />
+                    </MenuTrigger>
+                    <MenuPopup align="end">
+                      <MenuGroup>
+                        <MenuGroupLabel>诊断</MenuGroupLabel>
+                        <UpdateControl />
+                        {isTauri() && <ClashControl />}
+                      </MenuGroup>
+                    </MenuPopup>
+                  </Menu>
                   <AnimatedThemeToggler
-                    className="grid size-9 place-items-center rounded-full border text-foreground/80 transition-colors hover:bg-muted hover:text-foreground [&_svg]:size-4"
+                    className="grid size-8 place-items-center rounded-full border text-foreground/80 transition-colors hover:bg-muted hover:text-foreground [&_svg]:size-4"
                     theme={theme}
                     onThemeChange={(nextTheme) =>
                       useAppStore.getState().setTheme(nextTheme)
@@ -433,29 +635,17 @@ export function AppShell() {
                       </Avatar>
                     </MenuTrigger>
                     <MenuPopup align="end">
-                      <MenuItem
-                        onClick={() => void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases")}
-                      >
-                        <ExternalLink />
-                        更新日志
-                      </MenuItem>
-                      <MenuItem
-                        variant="destructive"
-                        onClick={async () => {
-                          try {
-                            await api.logout()
-                            // 清掉 session 查询缓存，避免登录页用陈旧缓存复活已登出的会话
-                            queryClient.removeQueries({ queryKey: queryKeys.session })
-                            setSession(null)
-                            navigate({ to: "/", replace: true })
-                          } catch (cause) {
-                            toastManager.add({
-                              type: "error",
-                              title: cause instanceof Error ? cause.message : "退出登录失败",
-                            })
-                          }
-                        }}
-                      >
+                      <MenuGroup>
+                        <MenuGroupLabel>{session?.name || "已登录"}</MenuGroupLabel>
+                        <MenuItem
+                          onClick={() => void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases")}
+                        >
+                          <ExternalLink />
+                          更新日志
+                        </MenuItem>
+                      </MenuGroup>
+                      <MenuSeparator />
+                      <MenuItem variant="destructive" onClick={() => void logout()}>
                         <LogOut />
                         退出登录
                       </MenuItem>
@@ -473,8 +663,17 @@ export function AppShell() {
                   <Outlet />
                 </motion.div>
               </main>
-              <footer className="px-4 pb-4 text-xs text-muted-foreground sm:px-8">
+              <footer className="flex items-center gap-2 px-4 pb-4 text-xs text-muted-foreground sm:px-8">
+                <Zap className="size-3" />
                 自动预约与无头签到由本地后台服务持续执行
+                <ChevronRight className="size-3" />
+                <button
+                  type="button"
+                  className="cursor-pointer underline-offset-4 hover:text-foreground hover:underline"
+                  onClick={() => setPaletteOpen(true)}
+                >
+                  按 ⌘K 查看全部命令
+                </button>
               </footer>
             </SidebarInset>
           </SidebarProvider>
