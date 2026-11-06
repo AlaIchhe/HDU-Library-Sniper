@@ -25,6 +25,27 @@ export function bookingAnchorDelaySeconds(secondsOfDay: number): number {
   return delay;
 }
 
+// 上海时区的「当日秒数」——20:00 锚点的换算、签到窗口判断都以此为准，
+// 不受容器 TZ 影响。
+export function shanghaiSecondsOfDay(now: Date = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+  return value("hour") * 3600 + value("minute") * 60 + value("second");
+}
+
+// 下一次 20:00 抢座锚点：后台真正发请求的时刻。
+// 它是「执行时刻」，与 bookingDayOffsetFor 的「预约目标日」不是一回事，
+// 混用会把展示出来的下一次动作整整推后 1~2 天。
+export function nextBookingAnchor(now: Date = new Date()): Date {
+  return new Date(now.getTime() + bookingAnchorDelaySeconds(shanghaiSecondsOfDay(now)) * 1000);
+}
+
 // 预约开放前先预锁的提前量。窗口必须远小于馆方 15 分钟释放时间。
 export const bookingPrelockLeadSeconds = 60;
 
