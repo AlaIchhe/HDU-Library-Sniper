@@ -28,6 +28,24 @@ export function resolveApiBase(): string {
   return "";
 }
 
+// 启动探针：首次安装后后端可能还在启动（杀毒软件会扫新 exe），
+// 这里只问 /api/health，不写日志、不触发 401 清理。
+export async function pingBackend(): Promise<boolean> {
+  const url = `${resolveApiBase()}/api/health`;
+  try {
+    const fetcher = isTauri()
+      ? (await import("@tauri-apps/plugin-http")).fetch
+      : globalThis.fetch.bind(globalThis);
+    const response = await fetcher(url, { headers: { "Content-Type": "application/json" } });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// 本地后台不可达（还没启动 / 正在重启）：与馆方 5xx 区分开，允许查询自动重试。
+export class BackendUnavailableError extends Error {}
+
 const sessionSchema = z.object({ authenticated: z.boolean(), uid: z.string().optional(), name: z.string().optional(), refreshing: z.boolean(), lastError: z.string().optional() });
 const checkinSchema = z.object({ enabled: z.boolean(), consentVersion: z.string(), consentedAt: z.string().optional(), lastAttemptAt: z.string().optional(), lastSuccessAt: z.string().optional(), lastMessage: z.string().optional() });
 
@@ -46,7 +64,7 @@ async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>):
       const { error } = await import("@tauri-apps/plugin-log");
       error(`API 请求失败: ${url} -> ${cause instanceof Error ? cause.message : String(cause)}`);
     }
-    throw new Error("无法连接本地后台服务，请确认服务已启动");
+    throw new BackendUnavailableError("无法连接本地后台服务，请确认服务已启动");
   }
 
   const text = await response.text();
