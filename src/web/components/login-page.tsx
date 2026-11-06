@@ -5,18 +5,13 @@ import { useNavigate } from "@tanstack/react-router"
 import { KeyRound, LogIn, QrCode, RefreshCw, ShieldCheck } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { z } from "zod"
+import type { z } from "zod"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldLabel, FormError } from "@/components/ui/field"
 import { Form } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
@@ -125,10 +120,13 @@ function LoginPage() {
     // 到期自动换码：在安全窗口到期前提前刷新。
     const ttl = Math.max(20, currentQr.ttlSeconds || 90)
     const lead = Math.min(10, Math.floor(ttl / 4))
-    expiryTimer.current = setTimeout(() => {
-      if (loop.current.stopped || cancelled) return
-      void loadQr()
-    }, Math.max(0, (ttl - lead) * 1000))
+    expiryTimer.current = setTimeout(
+      () => {
+        if (loop.current.stopped || cancelled) return
+        void loadQr()
+      },
+      Math.max(0, (ttl - lead) * 1000),
+    )
 
     return () => {
       cancelled = true
@@ -183,15 +181,14 @@ function LoginPage() {
         <CardHeader className="min-w-0">
           <div className="mb-4 flex items-center gap-3">
             <Avatar className="size-11 rounded-lg">
-              <AvatarFallback className="rounded-lg bg-primary text-primary-foreground">
-                H
-              </AvatarFallback>
+              <AvatarFallback className="rounded-lg bg-primary text-primary-foreground">H</AvatarFallback>
             </Avatar>
             <div>
               <CardTitle>HDU Sniper</CardTitle>
               <CardDescription>预约工作台</CardDescription>
             </div>
           </div>
+          {/* biome-ignore lint/a11y/useHeadingContent: CardTitle 把 children 渲染进 h1，静态分析看不到 */}
           <CardTitle render={<h1 />} className="text-3xl">
             登录图书馆账户
           </CardTitle>
@@ -247,11 +244,7 @@ function LoginPage() {
             </div>
             <div className="relative mx-auto aspect-square w-full max-w-60 overflow-hidden rounded-xl border bg-background">
               {showQr ? (
-                <img
-                  src={qr.image}
-                  alt="SSO 登录二维码"
-                  className="size-full object-contain"
-                />
+                <img src={qr.image} alt="SSO 登录二维码" className="size-full object-contain" />
               ) : null}
               {qrBusy && (
                 <div className="absolute inset-0 grid place-items-center gap-2 bg-background/85 text-xs text-muted-foreground">
@@ -297,7 +290,12 @@ function LoginPage() {
                 autoComplete="off"
                 spellCheck={false}
               />
-              <Button type="button" variant="secondary" loading={openidBusy} onClick={() => void submitOpenid()}>
+              <Button
+                type="button"
+                variant="secondary"
+                loading={openidBusy}
+                onClick={() => void submitOpenid()}
+              >
                 <KeyRound className="size-4" />
                 使用 OpenID 登录
               </Button>

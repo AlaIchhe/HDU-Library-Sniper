@@ -14,7 +14,6 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import type { AuditEvent } from "../shared/types"
 
 export const loginSchema = z.object({
   studentId: z.string().trim().min(1, "请输入学号"),
@@ -38,7 +37,6 @@ export const groupSchema = z.object({
   ids: z.array(z.string()).min(2, "至少选择两个方案"),
 })
 
-
 export function Busy({ label = "正在加载..." }: { label?: string }) {
   return (
     <div className="flex min-h-52 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
@@ -48,13 +46,7 @@ export function Busy({ label = "正在加载..." }: { label?: string }) {
   )
 }
 
-export function Failure({
-  message,
-  retry,
-}: {
-  message: string
-  retry?: () => void
-}) {
+export function Failure({ message, retry }: { message: string; retry?: () => void }) {
   return (
     <Alert variant="error">
       <CircleAlert size={18} />

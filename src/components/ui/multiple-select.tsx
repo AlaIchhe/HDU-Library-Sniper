@@ -1,13 +1,7 @@
 "use client";
 
 import type * as React from "react";
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export type MultipleSelectOption = { value: string; label: string };
 

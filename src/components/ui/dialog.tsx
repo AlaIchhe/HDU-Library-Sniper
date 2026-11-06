@@ -9,30 +9,15 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-export const DialogCreateHandle: typeof DialogPrimitive.createHandle =
-  DialogPrimitive.createHandle;
-
 export const Dialog: typeof DialogPrimitive.Root = DialogPrimitive.Root;
 
-export const DialogPortal: typeof DialogPrimitive.Portal =
-  DialogPrimitive.Portal;
+export const DialogPortal: typeof DialogPrimitive.Portal = DialogPrimitive.Portal;
 
-export function DialogTrigger(
-  props: DialogPrimitive.Trigger.Props,
-): React.ReactElement {
-  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
-}
-
-export function DialogClose(
-  props: DialogPrimitive.Close.Props,
-): React.ReactElement {
+export function DialogClose(props: DialogPrimitive.Close.Props): React.ReactElement {
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
-export function DialogBackdrop({
-  className,
-  ...props
-}: DialogPrimitive.Backdrop.Props): React.ReactElement {
+export function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop.Props): React.ReactElement {
   return (
     <DialogPrimitive.Backdrop
       className={cn(
@@ -45,16 +30,10 @@ export function DialogBackdrop({
   );
 }
 
-export function DialogViewport({
-  className,
-  ...props
-}: DialogPrimitive.Viewport.Props): React.ReactElement {
+export function DialogViewport({ className, ...props }: DialogPrimitive.Viewport.Props): React.ReactElement {
   return (
     <DialogPrimitive.Viewport
-      className={cn(
-        "fixed inset-0 z-50 grid grid-rows-[1fr_auto_3fr] justify-items-center p-4",
-        className,
-      )}
+      className={cn("fixed inset-0 z-50 grid grid-rows-[1fr_auto_3fr] justify-items-center p-4", className)}
       data-slot="dialog-viewport"
       {...props}
     />
@@ -79,10 +58,7 @@ export function DialogPopup({
     <DialogPortal {...portalProps}>
       <DialogBackdrop />
       <DialogViewport
-        className={cn(
-          bottomStickOnMobile &&
-            "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12",
-        )}
+        className={cn(bottomStickOnMobile && "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12")}
       >
         <DialogPrimitive.Popup
           className={cn(
@@ -143,8 +119,7 @@ export function DialogFooter({
     className: cn(
       "flex flex-col-reverse gap-2 px-6 sm:flex-row sm:justify-end sm:rounded-b-[calc(var(--radius-2xl)-1px)]",
       variant === "default" && "border-t bg-muted/72 py-4",
-      variant === "bare" &&
-        "in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pt-3 pt-4 pb-6",
+      variant === "bare" && "in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pt-3 pt-4 pb-6",
       className,
     ),
     "data-slot": "dialog-footer",
@@ -157,16 +132,10 @@ export function DialogFooter({
   });
 }
 
-export function DialogTitle({
-  className,
-  ...props
-}: DialogPrimitive.Title.Props): React.ReactElement {
+export function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props): React.ReactElement {
   return (
     <DialogPrimitive.Title
-      className={cn(
-        "font-heading font-semibold text-xl leading-none",
-        className,
-      )}
+      className={cn("font-heading font-semibold text-xl leading-none", className)}
       data-slot="dialog-title"
       {...props}
     />
@@ -213,8 +182,4 @@ export function DialogPanel({
   );
 }
 
-export {
-  DialogPrimitive,
-  DialogBackdrop as DialogOverlay,
-  DialogPopup as DialogContent,
-};
+export { DialogPrimitive, DialogBackdrop as DialogOverlay, DialogPopup as DialogContent };
