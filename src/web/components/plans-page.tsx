@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useMemo, useState } from "react"
+import { createContext, useContext, useMemo, useRef, useState } from "react"
 import {
   AnimatePresence,
   Reorder,
@@ -610,13 +610,20 @@ export function PlansPage() {
     return allSingles.filter((item) => !referenced.has(item.id))
   }, [allSingles, items])
 
-  async function toggle(item: PlanListItem) {
+  // 同一方案的切换在请求返回前只接受一次点击：开关是受控的，
+  // 列表刷新前 item.enabled 还是旧值，连点两次会发出两个相同方向的请求。
+  const toggleInFlight = useRef(new Set<string>())
+
+  async function toggle(item: PlanListItem, nextEnabled?: boolean) {
+    if (toggleInFlight.current.has(item.id)) return
+    const enabled = nextEnabled ?? !item.enabled
     // 同时只能启用一个方案：启用新方案时由后端自动停用当前方案。
     // 停用的结果可撤销，所以不做事前确认，而是事后给一个「撤销」入口。
+    toggleInFlight.current.add(item.id)
     try {
-      const result = await mutations.toggle.mutateAsync({ id: item.id, enabled: !item.enabled })
+      const result = await mutations.toggle.mutateAsync({ id: item.id, enabled })
 
-      if (item.enabled) {
+      if (!enabled) {
         toastManager.add({ type: "success", title: "方案已停用" })
         return
       }
@@ -653,6 +660,8 @@ export function PlansPage() {
       })
     } catch (cause) {
       toastManager.add({ type: "error", title: cause instanceof Error ? cause.message : "状态更新失败" })
+    } finally {
+      toggleInFlight.current.delete(item.id)
     }
   }
 
@@ -788,7 +797,7 @@ export function PlansPage() {
                       <div className="flex justify-end gap-2">
                         <Switch
                           checked={item.enabled}
-                          onCheckedChange={() => void toggle(item)}
+                          onCheckedChange={(checked) => void toggle(item, checked)}
                           disabled={mutations.toggle.isPending}
                           aria-label={item.enabled ? "停用方案" : "启用方案"}
                         />

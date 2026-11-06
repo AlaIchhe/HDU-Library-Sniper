@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { useAppStore } from "./store";
+import type { PlanListItem } from "../shared/types";
 
 const useAuthenticated = () => useAppStore((state) => state.session?.authenticated ?? false);
 
@@ -66,7 +67,28 @@ export function usePlanMutations() {
     update: useMutation({ mutationFn: ({ id, patch }: { id: string; patch: Parameters<typeof api.updatePlan>[1] }) => api.updatePlan(id, patch), onSuccess: refresh }),
     // 返回值里的 disabledPlanIds 是「启用新方案时被自动停用的方案」，
     // 调用方靠它做撤销，所以这里必须把后端响应透出去。
-    toggle: useMutation({ mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.setEnabled(id, enabled), onSuccess: refresh }),
+    // 同时先乐观更新开关：本地后端一个来回虽然快，但网络抖动时开关不动，
+    // 用户会以为没点上而重复点击；失败时再回滚。
+    toggle: useMutation({
+      mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.setEnabled(id, enabled),
+      onMutate: async ({ id, enabled }) => {
+        await client.cancelQueries({ queryKey: queryKeys.plans });
+        const previous = client.getQueryData<{ plans: PlanListItem[] }>(queryKeys.plans);
+        if (previous) {
+          client.setQueryData<{ plans: PlanListItem[] }>(queryKeys.plans, {
+            plans: previous.plans.map((item) => {
+              if (item.id === id) return { ...item, enabled } as PlanListItem;
+              return enabled ? ({ ...item, enabled: false } as PlanListItem) : item;
+            }),
+          });
+        }
+        return { previous };
+      },
+      onError: (_error, _variables, context) => {
+        if (context?.previous) client.setQueryData(queryKeys.plans, context.previous);
+      },
+      onSettled: refresh,
+    }),
     remove: useMutation({ mutationFn: api.deletePlan, onSuccess: refresh }),
     createGroup: useMutation({ mutationFn: ({ name, ids }: { name: string; ids: string[] }) => api.createGroup(name, ids), onSuccess: refresh }),
     updateGroup: useMutation({ mutationFn: ({ id, name, ids }: { id: string; name: string; ids: string[] }) => api.updateGroup(id, name, ids), onSuccess: refresh }),
