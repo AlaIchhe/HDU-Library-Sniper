@@ -84,9 +84,7 @@ export function useHotkeys(map: HotkeyMap, options?: { enabled?: boolean }) {
         return
       }
 
-      const startsSequence = Object.keys(hotkeys).some((combo) =>
-        combo.startsWith(`${key} `),
-      )
+      const startsSequence = Object.keys(hotkeys).some((combo) => combo.startsWith(`${key} `))
       if (startsSequence) {
         pending = key
         timer = setTimeout(clearPending, SEQUENCE_TIMEOUT_MS)

@@ -37,7 +37,9 @@ function StartupGate({ children }: { children: ReactNode }) {
       window.setTimeout(check, 400)
     }
     void check()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   if (ready) return <>{children}</>

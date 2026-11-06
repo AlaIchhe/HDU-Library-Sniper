@@ -53,10 +53,12 @@ export class CookieJar {
   headerFor(urlString: string): string {
     const url = new URL(urlString);
     return this.all
-      .filter((cookie) =>
-        (url.hostname === cookie.domain || url.hostname.endsWith(`.${cookie.domain}`)) &&
-        url.pathname.startsWith(cookie.path) &&
-        (!cookie.secure || url.protocol === "https:"))
+      .filter(
+        (cookie) =>
+          (url.hostname === cookie.domain || url.hostname.endsWith(`.${cookie.domain}`)) &&
+          url.pathname.startsWith(cookie.path) &&
+          (!cookie.secure || url.protocol === "https:"),
+      )
       .map((cookie) => `${cookie.name}=${cookie.value}`)
       .join("; ");
   }
@@ -71,16 +73,20 @@ export class CookieJar {
   }
 
   merge(headers: Headers, requestUrl: string): boolean {
-    const setCookies = typeof headers.getSetCookie === "function"
-      ? headers.getSetCookie()
-      : (headers.get("set-cookie") || "").split(/,(?=[^;]+=[^;]+)/g).filter(Boolean);
+    const setCookies =
+      typeof headers.getSetCookie === "function"
+        ? headers.getSetCookie()
+        : (headers.get("set-cookie") || "").split(/,(?=[^;]+=[^;]+)/g).filter(Boolean);
     let changed = false;
     for (const header of setCookies) {
       const parsed = parseSetCookie(header, requestUrl);
       if (!parsed) continue;
-      this.cookies = this.cookies.filter((cookie) =>
-        !(cookie.name === parsed.name && cookie.domain === parsed.domain && cookie.path === parsed.path));
-      if (!/^$/.test(parsed.value) && (parsed.expiresAt === null || parsed.expiresAt > Date.now())) this.cookies.push(parsed);
+      this.cookies = this.cookies.filter(
+        (cookie) =>
+          !(cookie.name === parsed.name && cookie.domain === parsed.domain && cookie.path === parsed.path),
+      );
+      if (!/^$/.test(parsed.value) && (parsed.expiresAt === null || parsed.expiresAt > Date.now()))
+        this.cookies.push(parsed);
       changed = true;
     }
     return changed;

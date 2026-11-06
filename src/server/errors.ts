@@ -11,10 +11,7 @@ import { AuthenticationExpiredError, RequestTimeoutError } from "./library";
  */
 export function errorResponse(error: unknown): Response {
   const detail = error instanceof Error ? error.message : "内部服务错误";
-  const status = error instanceof AuthenticationExpiredError
-    ? 401
-    : error instanceof RequestTimeoutError
-      ? 504
-      : 502;
+  const status =
+    error instanceof AuthenticationExpiredError ? 401 : error instanceof RequestTimeoutError ? 504 : 502;
   return Response.json({ detail }, { status });
 }

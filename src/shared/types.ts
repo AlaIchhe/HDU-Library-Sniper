@@ -118,7 +118,6 @@ export const weekdayLabels: Record<Weekday, string> = {
   7: "周日",
 };
 
-
 export type QrLoginStart = {
   uuid: string;
   image: string;

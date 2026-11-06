@@ -20,9 +20,7 @@ export function matchesQuery(command: Command, query: string): boolean {
   const needle = query.trim().toLowerCase()
   if (!needle) return true
 
-  const haystack = [command.label, ...(command.keywords ?? [])]
-    .join(" ")
-    .toLowerCase()
+  const haystack = [command.label, ...(command.keywords ?? [])].join(" ").toLowerCase()
 
   if (haystack.includes(needle)) return true
 

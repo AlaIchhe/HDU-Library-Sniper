@@ -56,15 +56,17 @@ function group(members: BookingPlan[]): PlanListItem {
   };
 }
 
-const floorPayload = [{
-  seatMap: {
-    info: { id: 3 },
-    POIs: [
-      { title: "101", id: "lock-101" },
-      { title: "102", id: "lock-102" },
-    ],
+const floorPayload = [
+  {
+    seatMap: {
+      info: { id: 3 },
+      POIs: [
+        { title: "101", id: "lock-101" },
+        { title: "102", id: "lock-102" },
+      ],
+    },
   },
-}];
+];
 
 function fakeClient() {
   const calls: Array<{ action: string; seatId?: string }> = [];
@@ -100,7 +102,8 @@ describe("booking prelock", () => {
     mocks.plans = [group([plan("a", 8, "101"), plan("b", 10, "102")])];
     const { client } = fakeClient();
     client.lockSeat.mockImplementation(async (seatId: string) => {
-      if (seatId === "lock-102") return { CODE: "1", MESSAGE: "座位已被锁定" } as unknown as Record<string, unknown>;
+      if (seatId === "lock-102")
+        return { CODE: "1", MESSAGE: "座位已被锁定" } as unknown as Record<string, unknown>;
       return { CODE: "ok", DATA: { time: 1 } } as unknown as Record<string, unknown>;
     });
     const executor = new BookingExecutor(client as unknown as LibraryClient, noopPause);
@@ -110,7 +113,10 @@ describe("booking prelock", () => {
     // 预锁只是尽力而为：每人只试一次，101 成功、102 失败但保留座位提示。
     expect(client.lockSeat.mock.calls.map((call) => call[0])).toEqual(["lock-101", "lock-102"]);
     expect(result.success).toBe(false);
-    expect(result.locks.map((lock) => [lock.seatNum, lock.locked])).toEqual([["101", true], ["102", false]]);
+    expect(result.locks.map((lock) => [lock.seatNum, lock.locked])).toEqual([
+      ["101", true],
+      ["102", false],
+    ]);
     expect(client.unlockAllSeats).not.toHaveBeenCalled();
     expect(client.bookings).toHaveBeenCalledTimes(1);
   });
@@ -118,7 +124,10 @@ describe("booking prelock", () => {
   test("never retries prelocking when the library keeps rejecting", async () => {
     mocks.plans = [group([plan("a", 8, "101"), plan("b", 10, "102")])];
     const { client } = fakeClient();
-    client.lockSeat.mockResolvedValue({ CODE: "1", MESSAGE: "座位已被锁定" } as unknown as Record<string, unknown>);
+    client.lockSeat.mockResolvedValue({ CODE: "1", MESSAGE: "座位已被锁定" } as unknown as Record<
+      string,
+      unknown
+    >);
     const executor = new BookingExecutor(client as unknown as LibraryClient, noopPause);
 
     const result = await executor.lockBurst({ timeoutMs: 5_000 });
@@ -134,9 +143,13 @@ describe("booking prelock", () => {
     mocks.plans = [group([plan("a", 8, "101"), plan("b", 10, "102")])];
     const { client } = fakeClient();
     let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     let started: () => void = () => {};
-    const firstLock = new Promise<void>((resolve) => { started = resolve; });
+    const firstLock = new Promise<void>((resolve) => {
+      started = resolve;
+    });
     client.lockSeat.mockImplementation(async () => {
       started();
       await gate;
@@ -158,7 +171,10 @@ describe("booking prelock", () => {
   test("keeps the resolved seat as a hint when the library refuses to lock", async () => {
     mocks.plans = [plan("p1", 8, "101", ["102"])];
     const { client } = fakeClient();
-    client.lockSeat.mockResolvedValue({ CODE: "1", MESSAGE: "座位尚未开放" } as unknown as Record<string, unknown>);
+    client.lockSeat.mockResolvedValue({ CODE: "1", MESSAGE: "座位尚未开放" } as unknown as Record<
+      string,
+      unknown
+    >);
     const executor = new BookingExecutor(client as unknown as LibraryClient, noopPause);
 
     const locked = await executor.lockBurst({ timeoutMs: 5_000 });
@@ -194,7 +210,8 @@ describe("booking prelock", () => {
     const { client, calls } = fakeClient();
     client.bookSeat.mockImplementation(async (seatId: string) => {
       calls.push({ action: "book", seatId });
-      if (seatId === "lock-101") return { CODE: "1", MESSAGE: "座位已被预约" } as unknown as Record<string, unknown>;
+      if (seatId === "lock-101")
+        return { CODE: "1", MESSAGE: "座位已被预约" } as unknown as Record<string, unknown>;
       return { CODE: "ok", DATA: { result: "success" } } as unknown as Record<string, unknown>;
     });
     const executor = new BookingExecutor(client as unknown as LibraryClient, noopPause);

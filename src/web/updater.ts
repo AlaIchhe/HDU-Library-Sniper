@@ -11,8 +11,14 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, message: string)
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), ms)
     promise.then(
-      (value) => { clearTimeout(timer); resolve(value) },
-      (error) => { clearTimeout(timer); reject(error) },
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
     )
   })
 }
@@ -26,8 +32,8 @@ export async function checkForUpdate(): Promise<UpdateState> {
     return { available: true, version: update.version, body: update.body || undefined }
   } catch (error) {
     if (isTauri()) {
-      const { error: logError } = await import("@tauri-apps/plugin-log");
-      logError(`检查更新失败: ${error instanceof Error ? error.message : String(error)}`);
+      const { error: logError } = await import("@tauri-apps/plugin-log")
+      logError(`检查更新失败: ${error instanceof Error ? error.message : String(error)}`)
     }
     return { available: false, error: error instanceof Error ? error.message : String(error) }
   }
@@ -49,8 +55,8 @@ export async function installUpdate(): Promise<void> {
   } catch (error) {
     await invoke("start_backend").catch(() => undefined)
     if (isTauri()) {
-      const { error: logError } = await import("@tauri-apps/plugin-log");
-      logError(`安装更新失败: ${error instanceof Error ? error.message : String(error)}`);
+      const { error: logError } = await import("@tauri-apps/plugin-log")
+      logError(`安装更新失败: ${error instanceof Error ? error.message : String(error)}`)
     }
     throw error
   }

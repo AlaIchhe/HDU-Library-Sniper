@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { BookingPlan } from "../src/shared/types";
 import type { LibraryClient } from "../src/server/library";
 import { BookingExecutor, pacing } from "../src/server/booking";
@@ -44,7 +44,17 @@ function planFixture(): BookingPlan {
   };
 }
 
-const floorPayload = [{ seatMap: { info: { id: 3 }, POIs: [{ title: "101", id: "seat-1" }, { title: "102", id: "seat-2" }] } }];
+const floorPayload = [
+  {
+    seatMap: {
+      info: { id: 3 },
+      POIs: [
+        { title: "101", id: "seat-1" },
+        { title: "102", id: "seat-2" },
+      ],
+    },
+  },
+];
 
 function fakeClient() {
   return {
@@ -109,7 +119,9 @@ describe("BookingExecutor idempotency", () => {
     const client = fakeClient();
     client.bookSeat.mockResolvedValue({ CODE: "1", MESSAGE: "请求过于频繁，请10分钟后再试" });
     const pauses: number[] = [];
-    const executor = new BookingExecutor(client, async (ms) => { pauses.push(ms); });
+    const executor = new BookingExecutor(client, async (ms) => {
+      pauses.push(ms);
+    });
 
     const result = await executor.runBurst(false, { intervalMs: 1_000, timeoutMs: 60_000 });
 
@@ -127,7 +139,9 @@ describe("BookingExecutor idempotency", () => {
       .mockResolvedValueOnce({ CODE: "1", MESSAGE: "请求太频繁了，请稍后再试" })
       .mockResolvedValue({ CODE: "ok", DATA: { result: "success" } });
     const pauses: number[] = [];
-    const executor = new BookingExecutor(client, async (ms) => { pauses.push(ms); });
+    const executor = new BookingExecutor(client, async (ms) => {
+      pauses.push(ms);
+    });
 
     const result = await executor.runBurst(false, { intervalMs: 1_000, timeoutMs: 60_000 });
 
@@ -185,8 +199,12 @@ describe("BookingExecutor idempotency", () => {
     const client = fakeClient();
     const target = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
     target.setDate(target.getDate() + 1); // 自习室提前一天
-    const beginSeconds = Math.floor(new Date(`${target.toISOString().slice(0, 10)}T08:00:00+08:00`).getTime() / 1000);
-    client.bookings.mockResolvedValueOnce([{ time: beginSeconds }]).mockRejectedValue(new Error("network down"));
+    const beginSeconds = Math.floor(
+      new Date(`${target.toISOString().slice(0, 10)}T08:00:00+08:00`).getTime() / 1000,
+    );
+    client.bookings
+      .mockResolvedValueOnce([{ time: beginSeconds }])
+      .mockRejectedValue(new Error("network down"));
     const executor = new BookingExecutor(client, noopPause);
 
     await executor.lockBurst({ timeoutMs: 100 });
@@ -215,7 +233,9 @@ describe("BookingExecutor idempotency", () => {
       .mockResolvedValueOnce({ CODE: "1", MESSAGE: "操作过于频繁，请稍后再试" })
       .mockResolvedValue({ CODE: "ok", DATA: { result: "success" } });
     const pauses: number[] = [];
-    const executor = new BookingExecutor(client, async (ms) => { pauses.push(ms); });
+    const executor = new BookingExecutor(client, async (ms) => {
+      pauses.push(ms);
+    });
 
     const result = await executor.runBurst(false, { intervalMs: 1_000, timeoutMs: 5_000 });
 
@@ -226,17 +246,19 @@ describe("BookingExecutor idempotency", () => {
   test("runBurst() keeps booking other members after one member reaches a terminal conflict", async () => {
     const first = { ...planFixture(), id: "p1", seatNum: "101", startHour: 8, durationHours: 2 };
     const second = { ...planFixture(), id: "p2", seatNum: "102", startHour: 10, durationHours: 2 };
-    mocks.plans = [{
-      id: "group-1",
-      kind: "group",
-      name: "组合",
-      memberPlanIds: ["p1", "p2"],
-      members: [first, second],
-      weekdays: [1, 2, 3, 4, 5, 6, 7],
-      enabled: true,
-      createdAt: "2026-09-05T00:00:00.000Z",
-      updatedAt: "2026-09-05T00:00:00.000Z",
-    }];
+    mocks.plans = [
+      {
+        id: "group-1",
+        kind: "group",
+        name: "组合",
+        memberPlanIds: ["p1", "p2"],
+        members: [first, second],
+        weekdays: [1, 2, 3, 4, 5, 6, 7],
+        enabled: true,
+        createdAt: "2026-09-05T00:00:00.000Z",
+        updatedAt: "2026-09-05T00:00:00.000Z",
+      },
+    ];
 
     const client = fakeClient();
     let secondFailures = 1;

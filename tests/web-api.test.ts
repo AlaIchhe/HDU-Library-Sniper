@@ -30,35 +30,40 @@ describe("web API base", () => {
     vi.stubGlobal("__TAURI_INTERNALS__", {});
     expect(resolveApiBase()).toBe("http://127.0.0.1:8000");
 
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ authenticated: false, refreshing: false }), {
-        headers: { "Content-Type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ authenticated: false, refreshing: false }), {
+          headers: { "Content-Type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     await api.session();
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:8000/api/session",
-      expect.anything(),
-    );
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8000/api/session", expect.anything());
   });
 
   test("does not expose an HTML SPA response as a JSON parse error", async () => {
     vi.stubGlobal("__TAURI_INTERNALS__", {});
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("<!doctype html><html></html>")));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<!doctype html><html></html>")),
+    );
     await expect(api.session()).rejects.toThrow("后台服务返回格式错误");
   });
 
   test("logs the backend detail next to the failing status", async () => {
     vi.stubGlobal("__TAURI_INTERNALS__", {});
-    vi.stubGlobal("fetch", vi.fn(async () =>
-      new Response(JSON.stringify({ detail: "图书馆登录状态已失效" }), {
-        status: 502,
-        headers: { "Content-Type": "application/json" },
-      }),
-    ));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ detail: "图书馆登录状态已失效" }), {
+            status: 502,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
 
     await expect(api.nextTarget()).rejects.toThrow("图书馆登录状态已失效");
 

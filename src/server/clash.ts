@@ -51,19 +51,19 @@ export function parseVergeConfig(text: string): VergeEndpoint {
   return {
     pipe: clean(data?.["external-controller-pipe"]),
     tcp: clean(data?.["external-controller"]),
-    secret: clean(data?.["secret"]),
-    mode: clean(data?.["mode"]),
+    secret: clean(data?.secret),
+    mode: clean(data?.mode),
   };
 }
 
 export function findRulesOverrideFile(profilesText: string): string | undefined {
   const data = parse(profilesText) as { current?: string; items?: Array<Record<string, unknown>> } | null;
   const items = data?.items ?? [];
-  const current = items.find((item) => item["uid"] === data?.current);
-  const rulesUid = (current?.["option"] as Record<string, unknown> | undefined)?.["rules"];
+  const current = items.find((item) => item.uid === data?.current);
+  const rulesUid = (current?.option as Record<string, unknown> | undefined)?.rules;
   if (typeof rulesUid !== "string") return undefined;
-  const override = items.find((item) => item["uid"] === rulesUid && item["type"] === "rules");
-  const file = override?.["file"];
+  const override = items.find((item) => item.uid === rulesUid && item.type === "rules");
+  const file = override?.file;
   return typeof file === "string" ? file : undefined;
 }
 
@@ -71,7 +71,9 @@ export function applyDirectRulesToOverride(input: unknown, enabled: boolean): Re
   const source = (input ?? {}) as Record<string, unknown>;
   const pick = (key: string): string[] => {
     if (!Array.isArray(source[key])) return [];
-    return source[key].filter((rule): rule is string => typeof rule === "string" && !MANAGED_DIRECT_RULES.includes(rule));
+    return source[key].filter(
+      (rule): rule is string => typeof rule === "string" && !MANAGED_DIRECT_RULES.includes(rule),
+    );
   };
   const result = { prepend: pick("prepend"), append: pick("append"), delete: pick("delete") };
   if (enabled) result.prepend = [...MANAGED_DIRECT_RULES, ...result.prepend];
@@ -80,8 +82,10 @@ export function applyDirectRulesToOverride(input: unknown, enabled: boolean): Re
 
 export function applyDirectRulesToRuntime(input: unknown, enabled: boolean): Record<string, unknown> {
   const config = (input ?? {}) as Record<string, unknown>;
-  const rules = Array.isArray(config["rules"])
-    ? config["rules"].filter((rule): rule is string => typeof rule === "string" && !MANAGED_DIRECT_RULES.includes(rule))
+  const rules = Array.isArray(config.rules)
+    ? config.rules.filter(
+        (rule): rule is string => typeof rule === "string" && !MANAGED_DIRECT_RULES.includes(rule),
+      )
     : [];
   return { ...config, rules: enabled ? [...MANAGED_DIRECT_RULES, ...rules] : rules };
 }
@@ -92,15 +96,19 @@ export function runtimeHasDirectRules(rules: unknown): boolean {
     if (typeof rule === "string") return [rule];
     if (rule && typeof rule === "object") {
       const record = rule as Record<string, unknown>;
-      if (typeof record["type"] === "string" && typeof record["payload"] === "string") {
-        return [`${record["type"]},${record["payload"]}`];
+      if (typeof record.type === "string" && typeof record.payload === "string") {
+        return [`${record.type},${record.payload}`];
       }
     }
     return [];
   });
   return MANAGED_DIRECT_RULES.every((managed) => {
     const [type, payload] = managed.split(",");
-    return texts.some((text) => text.toLowerCase() === managed.toLowerCase() || text.toLowerCase() === `${type},${payload}`.toLowerCase());
+    return texts.some(
+      (text) =>
+        text.toLowerCase() === managed.toLowerCase() ||
+        text.toLowerCase() === `${type},${payload}`.toLowerCase(),
+    );
   });
 }
 
@@ -122,19 +130,31 @@ function vergePaths(): VergePaths | null {
   };
 }
 
-async function requestOverAddress(address: ControllerAddress, request: string, timeoutMs: number): Promise<string> {
+async function requestOverAddress(
+  address: ControllerAddress,
+  request: string,
+  timeoutMs: number,
+): Promise<string> {
   return withTimeout(
     new Promise<string>((resolve, reject) => {
       const decoder = new TextDecoder();
       let received = "";
       const socket = {
-        data(_socket: unknown, chunk: Uint8Array) { received += decoder.decode(chunk, { stream: true }); },
-        end(_socket: unknown) { received += decoder.decode(); resolve(received); },
-        error(_socket: unknown, error: unknown) { reject(error instanceof Error ? error : new Error(String(error))); },
+        data(_socket: unknown, chunk: Uint8Array) {
+          received += decoder.decode(chunk, { stream: true });
+        },
+        end(_socket: unknown) {
+          received += decoder.decode();
+          resolve(received);
+        },
+        error(_socket: unknown, error: unknown) {
+          reject(error instanceof Error ? error : new Error(String(error)));
+        },
       };
-      const connecting = "unix" in address
-        ? Bun.connect({ unix: address.unix, socket })
-        : Bun.connect({ hostname: address.hostname, port: address.port, socket });
+      const connecting =
+        "unix" in address
+          ? Bun.connect({ unix: address.unix, socket })
+          : Bun.connect({ hostname: address.hostname, port: address.port, socket });
       connecting.then((socket) => socket.write(request)).catch(reject);
     }),
     timeoutMs,
@@ -142,7 +162,12 @@ async function requestOverAddress(address: ControllerAddress, request: string, t
   );
 }
 
-async function pipeRequest(endpoint: VergeEndpoint, method: string, requestPath: string, body?: unknown): Promise<{ status: number; text: string }> {
+async function pipeRequest(
+  endpoint: VergeEndpoint,
+  method: string,
+  requestPath: string,
+  body?: unknown,
+): Promise<{ status: number; text: string }> {
   const payload = body === undefined ? "" : JSON.stringify(body);
   const headers = [
     `${method} ${requestPath} HTTP/1.1`,
@@ -167,7 +192,12 @@ async function pipeRequest(endpoint: VergeEndpoint, method: string, requestPath:
   throw new Error(errors[errors.length - 1] || "mihomo 控制接口不可达");
 }
 
-async function pipeJson(endpoint: VergeEndpoint, method: string, requestPath: string, body?: unknown): Promise<unknown> {
+async function pipeJson(
+  endpoint: VergeEndpoint,
+  method: string,
+  requestPath: string,
+  body?: unknown,
+): Promise<unknown> {
   const response = await pipeRequest(endpoint, method, requestPath, body);
   if (response.status >= 400) throw new Error(`mihomo 返回 ${response.status}`);
   if (response.status === 204) return undefined;
@@ -178,14 +208,20 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`${label}超时`)), ms);
     promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (error) => { clearTimeout(timer); reject(error instanceof Error ? error : new Error(String(error))); },
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
     );
   });
 }
 
 async function readRuntimeRules(endpoint: VergeEndpoint): Promise<unknown> {
-  const data = await pipeJson(endpoint, "GET", "/rules") as { rules?: unknown } | undefined;
+  const data = (await pipeJson(endpoint, "GET", "/rules")) as { rules?: unknown } | undefined;
   return data?.rules;
 }
 
@@ -198,7 +234,8 @@ async function fileEnabledState(paths: VergePaths): Promise<boolean> {
 
 export async function getClashDirectStatus(): Promise<ClashDirectStatus> {
   const paths = vergePaths();
-  if (!paths) return { available: false, enabled: false, reloaded: false, reason: "仅支持 Windows 上的 Clash Verge" };
+  if (!paths)
+    return { available: false, enabled: false, reloaded: false, reason: "仅支持 Windows 上的 Clash Verge" };
   let endpoint: VergeEndpoint;
   try {
     endpoint = parseVergeConfig(await Bun.file(paths.configPath).text());
@@ -206,11 +243,16 @@ export async function getClashDirectStatus(): Promise<ClashDirectStatus> {
     return { available: false, enabled: false, reloaded: false, reason: "未找到 Clash Verge 配置" };
   }
   if (!endpoint.pipe && !endpoint.tcp) {
-    return { available: false, enabled: false, reloaded: false, reason: "未检测到 Clash 控制接口，请在 Clash Verge 开启外部控制" };
+    return {
+      available: false,
+      enabled: false,
+      reloaded: false,
+      reason: "未检测到 Clash 控制接口，请在 Clash Verge 开启外部控制",
+    };
   }
   try {
     const rules = await readRuntimeRules(endpoint);
-    const configs = await pipeJson(endpoint, "GET", "/configs") as { mode?: string } | undefined;
+    const configs = (await pipeJson(endpoint, "GET", "/configs")) as { mode?: string } | undefined;
     return { available: true, enabled: runtimeHasDirectRules(rules), reloaded: true, mode: configs?.mode };
   } catch {
     let enabled = false;
@@ -225,7 +267,8 @@ export async function getClashDirectStatus(): Promise<ClashDirectStatus> {
 
 export async function setClashDirect(enabled: boolean): Promise<ClashDirectStatus> {
   const paths = vergePaths();
-  if (!paths) return { available: false, enabled: false, reloaded: false, reason: "仅支持 Windows 上的 Clash Verge" };
+  if (!paths)
+    return { available: false, enabled: false, reloaded: false, reason: "仅支持 Windows 上的 Clash Verge" };
   let endpoint: VergeEndpoint;
   let runtimeConfig: Record<string, unknown>;
   let overrideFile: string | undefined;
@@ -241,14 +284,21 @@ export async function setClashDirect(enabled: boolean): Promise<ClashDirectStatu
     return { available: false, enabled: false, reloaded: false, reason: "未找到 Clash Verge 配置" };
   }
   if (!endpoint.pipe && !endpoint.tcp) {
-    return { available: false, enabled: false, reloaded: false, reason: "未检测到 Clash 控制接口，请在 Clash Verge 开启外部控制" };
+    return {
+      available: false,
+      enabled: false,
+      reloaded: false,
+      reason: "未检测到 Clash 控制接口，请在 Clash Verge 开启外部控制",
+    };
   }
 
   let persisted = false;
   try {
     if (overrideFile) {
       const overridePath = rulesOverridePath(paths.profilesDir, overrideFile);
-      const overrideText = await Bun.file(overridePath).text().catch(() => "");
+      const overrideText = await Bun.file(overridePath)
+        .text()
+        .catch(() => "");
       const patched = applyDirectRulesToOverride(parse(overrideText), enabled);
       await mkdir(paths.profilesDir, { recursive: true });
       await writeFile(overridePath, stringify(patched), "utf8");
@@ -257,7 +307,12 @@ export async function setClashDirect(enabled: boolean): Promise<ClashDirectStatu
     await writeFile(paths.configPath, stringify(runtimePatched), "utf8");
     persisted = true;
   } catch (error) {
-    return { available: true, enabled: !enabled, reloaded: false, reason: `写入 Clash 配置失败：${error instanceof Error ? error.message : String(error)}` };
+    return {
+      available: true,
+      enabled: !enabled,
+      reloaded: false,
+      reason: `写入 Clash 配置失败：${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 
   let reloaded = false;
@@ -274,6 +329,13 @@ export async function setClashDirect(enabled: boolean): Promise<ClashDirectStatu
       reason: `配置已保存，但热重载失败（重启 Clash Verge 后生效）：${error instanceof Error ? error.message : String(error)}`,
     };
   }
-  const reason = !persisted && overrideFile === undefined ? "未找到规则覆盖文件，仅对当前运行时生效" : undefined;
-  return { available: true, enabled: runtimeEnabled || (!reloaded && enabled), reloaded, mode: endpoint.mode, reason };
+  const reason =
+    !persisted && overrideFile === undefined ? "未找到规则覆盖文件，仅对当前运行时生效" : undefined;
+  return {
+    available: true,
+    enabled: runtimeEnabled || (!reloaded && enabled),
+    reloaded,
+    mode: endpoint.mode,
+    reason,
+  };
 }

@@ -31,7 +31,13 @@ function findNonEmptyDefaultItems(node: unknown): unknown[] | undefined {
   return undefined;
 }
 
-function apiToken(seatId: string, uid: string, beginTime: number, duration: number, apiTime = Math.floor(Date.now() / 1000)): string {
+function apiToken(
+  seatId: string,
+  uid: string,
+  beginTime: number,
+  duration: number,
+  apiTime = Math.floor(Date.now() / 1000),
+): string {
   const source = `post&/Seat/Index/bookSeats?LAB_JSON=1&api_time${apiTime}&beginTime${beginTime}&duration${duration}&is_recommend0&seatBookers[0]${uid}&seats[0]${seatId}`;
   return btoa(createHash("md5").update(source).digest("hex"));
 }
@@ -64,31 +70,44 @@ export class LibraryClient {
     this.jar = options.jar || new CookieJar();
   }
 
-  private async request(path: string, init: RequestInit = {}, retry = true): Promise<Record<string, unknown>> {
+  private async request(
+    path: string,
+    init: RequestInit = {},
+    retry = true,
+  ): Promise<Record<string, unknown>> {
     const url = path.startsWith("http") ? path : `${BASE}${path}`;
     const requestHeaders = new Headers(headers);
     const cookie = this.jar.headerFor(url);
     if (cookie) requestHeaders.set("Cookie", cookie);
-    if (init.headers) new Headers(init.headers).forEach((value, key) => requestHeaders.set(key, value));
+    if (init.headers) {
+      new Headers(init.headers).forEach((value, key) => {
+        requestHeaders.set(key, value);
+      });
+    }
     let response: Response;
     try {
-      response = await fetch(url, { ...init, headers: requestHeaders, signal: init.signal || AbortSignal.timeout(30_000) });
+      response = await fetch(url, {
+        ...init,
+        headers: requestHeaders,
+        signal: init.signal || AbortSignal.timeout(30_000),
+      });
     } catch (error) {
-      if (error instanceof DOMException && error.name === "TimeoutError") throw new RequestTimeoutError("请求超时");
+      if (error instanceof DOMException && error.name === "TimeoutError")
+        throw new RequestTimeoutError("请求超时");
       throw new HduLibraryError(`请求失败: ${String(error)}`);
     }
     if (this.jar.merge(response.headers, url)) await this.options.onJarChange?.(this.jar);
     if (!response.ok) throw new HduLibraryError(`请求失败: HTTP ${response.status}`);
     let body: Record<string, unknown>;
     try {
-      body = await response.json() as Record<string, unknown>;
+      body = (await response.json()) as Record<string, unknown>;
     } catch {
       throw new HduLibraryError("慧图响应格式无效");
     }
     // 慧图未登录时返回 com.Redirect 到 CAS 登录页；这是登录态失效的真实契约。
     const href = String(body.href || "");
     if (body.ui_type === "com.Redirect" && href.includes("/User/Index/hduCASLogin")) {
-      if (retry && await this.refreshAuth()) return this.request(path, init, false);
+      if (retry && (await this.refreshAuth())) return this.request(path, init, false);
       throw new AuthenticationExpiredError("图书馆登录状态已失效");
     }
     return body;
@@ -96,7 +115,9 @@ export class LibraryClient {
 
   private async refreshAuth(): Promise<boolean> {
     if (!this.options.onAuthExpired) return false;
-    this.refreshPromise ||= this.options.onAuthExpired().finally(() => { this.refreshPromise = undefined; });
+    this.refreshPromise ||= this.options.onAuthExpired().finally(() => {
+      this.refreshPromise = undefined;
+    });
     return this.refreshPromise;
   }
 
@@ -109,7 +130,9 @@ export class LibraryClient {
         this.name = String((data.user_info as Record<string, unknown> | undefined)?.name || "");
         return true;
       }
-    } catch { /* caller decides whether to reauthenticate */ }
+    } catch {
+      /* caller decides whether to reauthenticate */
+    }
     return false;
   }
 
@@ -131,7 +154,9 @@ export class LibraryClient {
     });
   }
 
-  async bookingRange(roomQuery: string): Promise<{ minBeginTime: number; maxEndTime: number; minDuration: number; maxDuration: number }> {
+  async bookingRange(
+    roomQuery: string,
+  ): Promise<{ minBeginTime: number; maxEndTime: number; minDuration: number; maxDuration: number }> {
     const detail = await this.request(`/Seat/Index/searchSeats?${roomQuery}&LAB_JSON=1`);
     const data = detail.data as Record<string, unknown> | undefined;
     const range = data?.range as Record<string, unknown> | undefined;
@@ -155,8 +180,12 @@ export class LibraryClient {
     });
     const map = await this.request("/Seat/Index/searchSeats?LAB_JSON=1", { method: "POST", body: payload });
     const allContent = map.allContent as Record<string, unknown> | undefined;
-    const container = ((allContent?.children as unknown[] | undefined)?.[2] as Record<string, unknown> | undefined);
-    const floors = ((container?.children as Record<string, unknown> | undefined)?.children as unknown[] | undefined);
+    const container = (allContent?.children as unknown[] | undefined)?.[2] as
+      | Record<string, unknown>
+      | undefined;
+    const floors = (container?.children as Record<string, unknown> | undefined)?.children as
+      | unknown[]
+      | undefined;
     if (!Array.isArray(floors)) throw new HduLibraryError("座位图解析失败");
     return floors;
   }
@@ -233,7 +262,10 @@ export class LibraryClient {
     }
   }
 
-  async action(kind: "cancel" | "checkIn" | "comeBack" | "leave" | "signOut", bookingId: string): Promise<Record<string, unknown>> {
+  async action(
+    kind: "cancel" | "checkIn" | "comeBack" | "leave" | "signOut",
+    bookingId: string,
+  ): Promise<Record<string, unknown>> {
     const encodedId = encodeURIComponent(bookingId);
     // 前端请求拦截器默认给所有 xH 请求追加 LAB_JSON=1。
     if (kind === "leave") {
@@ -249,16 +281,18 @@ export class LibraryClient {
       }
 
       // 前端由用户在弹出层中选择返回时间；本地后端无交互时选择服务端给出的最晚时间。
-      const body = await this.request(
-        `/Seat/Index/stepOut?bookingId=${encodedId}&LAB_JSON=1`,
-        { method: "POST", body: new URLSearchParams({ comeBackTime: String(comeBackTime) }) },
-      );
+      const body = await this.request(`/Seat/Index/stepOut?bookingId=${encodedId}&LAB_JSON=1`, {
+        method: "POST",
+        body: new URLSearchParams({ comeBackTime: String(comeBackTime) }),
+      });
       this.assertActionSuccess(body);
       return body;
     }
 
     const endpoint = kind === "signOut" ? "checkOut" : kind;
-    const body = await this.request(`${ACTION_ENDPOINTS[endpoint]}?bookingId=${encodedId}&LAB_JSON=1`, { method: "POST" });
+    const body = await this.request(`${ACTION_ENDPOINTS[endpoint]}?bookingId=${encodedId}&LAB_JSON=1`, {
+      method: "POST",
+    });
     this.assertActionSuccess(body);
     return body;
   }

@@ -11,13 +11,17 @@ test("shows floor validation error when floors fail to load", async ({ page }) =
     else await route.fulfill({ json: {} });
   });
   await page.route("**/api/session", async (route) =>
-    route.fulfill({ json: { authenticated: true, uid: "304174", name: "23320116", refreshing: false } }));
+    route.fulfill({ json: { authenticated: true, uid: "304174", name: "23320116", refreshing: false } }),
+  );
   await page.route("**/api/plans", async (route) =>
-    route.request().method() === "GET" ? route.fulfill({ json: { plans: [] } }) : route.fulfill({ json: {} }));
+    route.request().method() === "GET" ? route.fulfill({ json: { plans: [] } }) : route.fulfill({ json: {} }),
+  );
   await page.route("**/api/catalog/room-types", async (route) =>
-    route.fulfill({ json: { options: [{ id: "q=76", name: "阅览室", query: "q=76" }] } }));
+    route.fulfill({ json: { options: [{ id: "q=76", name: "阅览室", query: "q=76" }] } }),
+  );
   await page.route("**/api/catalog/floors**", async (route) =>
-    route.fulfill({ status: 502, json: { detail: "该房间类型当前没有可预约楼层" } }));
+    route.fulfill({ status: 502, json: { detail: "该房间类型当前没有可预约楼层" } }),
+  );
 
   await page.goto("/");
   // 侧边栏折叠时其内部链接在视口外，isVisible 仍为 true；必须按几何位置判断并先展开

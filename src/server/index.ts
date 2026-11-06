@@ -23,7 +23,14 @@ const server = Bun.serve({
       const shell = Bun.file("dist/web/index.html");
       if (await shell.exists()) return new Response(shell);
     }
-    if (request.method === "OPTIONS") return new Response(null, { headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS" } });
+    if (request.method === "OPTIONS")
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+        },
+      });
     let response: Response;
     try {
       response = await api(request);

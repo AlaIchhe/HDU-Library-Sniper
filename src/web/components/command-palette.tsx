@@ -82,9 +82,7 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
     }
     if (event.key === "ArrowUp") {
       event.preventDefault()
-      setActiveIndex((index) =>
-        results.length ? (index - 1 + results.length) % results.length : 0,
-      )
+      setActiveIndex((index) => (results.length ? (index - 1 + results.length) % results.length : 0))
       return
     }
     if (event.key === "Enter") {
@@ -151,9 +149,7 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
               ))}
             </motion.ul>
           ) : (
-            <p className="px-3 py-8 text-center text-sm text-muted-foreground">
-              没有匹配的命令
-            </p>
+            <p className="px-3 py-8 text-center text-sm text-muted-foreground">没有匹配的命令</p>
           )}
         </DialogPanel>
       </DialogPopup>
@@ -201,9 +197,7 @@ function CommandRow({
         )}
         <Icon className="size-4 shrink-0 opacity-80" />
         <span className="min-w-0 flex-1 truncate">{command.label}</span>
-        {command.shortcut ? (
-          <MenuShortcut className="me-0 shrink-0">{command.shortcut}</MenuShortcut>
-        ) : null}
+        {command.shortcut ? <MenuShortcut className="me-0 shrink-0">{command.shortcut}</MenuShortcut> : null}
       </button>
     </motion.li>
   )

@@ -41,9 +41,7 @@ export function useCountdown(iso?: string): Countdown | null {
   const targetMs = iso ? new Date(iso).getTime() : null
   const valid = targetMs !== null && Number.isFinite(targetMs)
 
-  const [state, setState] = useState<Countdown | null>(() =>
-    valid ? compute(targetMs, Date.now()) : null,
-  )
+  const [state, setState] = useState<Countdown | null>(() => (valid ? compute(targetMs, Date.now()) : null))
 
   useEffect(() => {
     if (!valid) {
@@ -56,10 +54,13 @@ export function useCountdown(iso?: string): Countdown | null {
 
     // 秒级对齐：先对齐到下一个整秒，再按 1s 走，避免秒数跳动
     let interval: ReturnType<typeof setInterval> | undefined
-    const align = window.setTimeout(() => {
-      tick()
-      interval = setInterval(tick, 1000)
-    }, 1000 - (Date.now() % 1000))
+    const align = window.setTimeout(
+      () => {
+        tick()
+        interval = setInterval(tick, 1000)
+      },
+      1000 - (Date.now() % 1000),
+    )
 
     return () => {
       window.clearTimeout(align)
