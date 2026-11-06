@@ -104,7 +104,10 @@ export function useCheckinMutation() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ enabled, agreed }: { enabled: boolean; agreed?: boolean }) => api.setCheckin(enabled, agreed),
-    onSuccess: () => {
+    // 接口返回的就是最新状态：先写进缓存，保证按钮立刻更新；
+    // 再 invalidate 兜底（刷新失败时 UI 也不会停留在旧状态）。
+    onSuccess: (data) => {
+      client.setQueryData(queryKeys.checkin, data);
       void client.invalidateQueries({ queryKey: queryKeys.checkin });
       void client.invalidateQueries({ queryKey: queryKeys.nextTarget });
     },
