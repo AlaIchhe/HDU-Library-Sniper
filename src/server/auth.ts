@@ -7,10 +7,11 @@ import type { SessionStatus } from "../shared/types";
 const LIBRARY_BASE = "https://hdu.huitu.zhishulib.com";
 const LOGIN_ENTRY = "https://hdu.huitu.zhishulib.com/User/Index/hduCASLogin";
 // 微信端入口按 UA 分流：openid 兑换必须用微信/小程序 UA，否则会被重定向到 OAuth。
-const OPENID_USER_AGENT = "Mozilla/5.0 (Linux; Android 11; SM-G9910 wv) AppleWebKit/537.36 (KHTML, like Gecko) "
-  + "Version/4.0 Chrome/86.0.4240.99 XWEB/4375 MMWEBSDK/20221012 Mobile Safari/537.36 "
-  + "MicroMessenger/8.0.30.2260(0x28001E55) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64 "
-  + "miniProgram/wx5e72fc4ec15ca4e8";
+const OPENID_USER_AGENT =
+  "Mozilla/5.0 (Linux; Android 11; SM-G9910 wv) AppleWebKit/537.36 (KHTML, like Gecko) " +
+  "Version/4.0 Chrome/86.0.4240.99 XWEB/4375 MMWEBSDK/20221012 Mobile Safari/537.36 " +
+  "MicroMessenger/8.0.30.2260(0x28001E55) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64 " +
+  "miniProgram/wx5e72fc4ec15ca4e8";
 const OPENID_PATTERN = /^[A-Za-z0-9_-]{10,128}$/;
 
 /** 既接受裸 openid，也接受微信端完整链接（/content/index/startUp/openid/<openid>/）。 */
@@ -75,8 +76,17 @@ export class AuthService {
   readonly client: LibraryClient;
 
   constructor() {
-    const row = db.query("SELECT cookies, uid, name, student_id, password FROM session WHERE id = 1").get() as { cookies?: string; uid?: string; name?: string; student_id?: string; password?: string } | null;
-    if (row?.student_id && row.password) this.credentials = { studentId: row.student_id, password: row.password };
+    const row = db
+      .query("SELECT cookies, uid, name, student_id, password FROM session WHERE id = 1")
+      .get() as {
+      cookies?: string;
+      uid?: string;
+      name?: string;
+      student_id?: string;
+      password?: string;
+    } | null;
+    if (row?.student_id && row.password)
+      this.credentials = { studentId: row.student_id, password: row.password };
     const jar = new CookieJar(row?.cookies ? JSON.parse(row.cookies) : []);
     this.client = new LibraryClient({
       jar,
@@ -87,8 +97,17 @@ export class AuthService {
     this.client.name = row?.name || "";
   }
 
-  get authenticated(): boolean { return Boolean(this.client.uid); }
-  status(): SessionStatus { return { authenticated: this.authenticated, uid: this.client.uid || undefined, name: this.client.name || undefined, refreshing: false }; }
+  get authenticated(): boolean {
+    return Boolean(this.client.uid);
+  }
+  status(): SessionStatus {
+    return {
+      authenticated: this.authenticated,
+      uid: this.client.uid || undefined,
+      name: this.client.name || undefined,
+      refreshing: false,
+    };
+  }
 
   private async followRedirects(url: string, init: RequestInit = {}): Promise<Response> {
     let currentUrl = url;
@@ -97,21 +116,38 @@ export class AuthService {
       const requestHeaders = new Headers(currentInit.headers);
       const cookie = this.client.jar.headerFor(currentUrl);
       if (cookie) requestHeaders.set("Cookie", cookie);
-      const response = await fetch(currentUrl, { ...currentInit, headers: requestHeaders, redirect: "manual" });
+      const response = await fetch(currentUrl, {
+        ...currentInit,
+        headers: requestHeaders,
+        redirect: "manual",
+      });
       if (this.client.jar.merge(response.headers, currentUrl)) {
-        await this.client["options"]?.onJarChange?.(this.client.jar);
+        await this.client.options?.onJarChange?.(this.client.jar);
       }
       const location = response.headers.get("location");
       if (!location || ![301, 302, 303, 307, 308].includes(response.status)) return response;
       currentUrl = new URL(location, currentUrl).toString();
-      currentInit = response.status === 303 || (response.status === 302 && currentInit.method === "POST")
-        ? { method: "GET" }
-        : currentInit;
+      currentInit =
+        response.status === 303 || (response.status === 302 && currentInit.method === "POST")
+          ? { method: "GET" }
+          : currentInit;
     }
     throw new Error("SSO 重定向次数过多");
   }
 
+  /** 进行中的恢复请求；启动阶段 index.ts 与调度器可能同时调用，合并成一次。 */
+  private restoring: Promise<boolean> | undefined;
+
   async restore(): Promise<boolean> {
+    if (!this.restoring) {
+      this.restoring = this.restoreOnce().finally(() => {
+        this.restoring = undefined;
+      });
+    }
+    return this.restoring;
+  }
+
+  private async restoreOnce(): Promise<boolean> {
     if (await this.client.validate()) return true;
     if (this.credentials) return this.refresh();
     return false;
@@ -126,11 +162,14 @@ export class AuthService {
       const response = await this.followRedirects(LOGIN_ENTRY, { headers: { "User-Agent": USER_AGENT } });
       if (!response.ok) return { success: false, message: `登录入口不可用: ${response.status}` };
       const html = await response.text();
-      const key = html.match(/id=["']login-croypto["'][^>]*>([^<]+)</i)?.[1]?.trim()
-        || html.match(/id=["']login-croypto["'][^>]*value=["']([^"']+)/i)?.[1];
-      const execution = html.match(/id=["']login-page-flowkey["'][^>]*>([^<]+)</i)?.[1]?.trim()
-        || html.match(/name=["']execution["'][^>]*value=["']([^"']+)/i)?.[1];
-      const action = html.match(/<form[^>]+id=["']normalLoginForm["'][^>]+action=["']([^"']+)/i)?.[1] || "/login";
+      const key =
+        html.match(/id=["']login-croypto["'][^>]*>([^<]+)</i)?.[1]?.trim() ||
+        html.match(/id=["']login-croypto["'][^>]*value=["']([^"']+)/i)?.[1];
+      const execution =
+        html.match(/id=["']login-page-flowkey["'][^>]*>([^<]+)</i)?.[1]?.trim() ||
+        html.match(/name=["']execution["'][^>]*value=["']([^"']+)/i)?.[1];
+      const action =
+        html.match(/<form[^>]+id=["']normalLoginForm["'][^>]+action=["']([^"']+)/i)?.[1] || "/login";
       if (!key || !execution) return { success: false, message: "SSO 页面缺少登录参数" };
       const form = new URLSearchParams({
         username: studentId,
@@ -151,17 +190,31 @@ export class AuthService {
       }
       await this.client.validate();
       if (!this.client.uid) return { success: false, message: "Cookie 无效或登录态未生效" };
-      await db.query("INSERT INTO session(id,cookies,uid,name,student_id,password,updated_at) VALUES(1,?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id=excluded.student_id,password=excluded.password,updated_at=excluded.updated_at")
-        .run(JSON.stringify(this.client.jar.all), this.client.uid, this.client.name, studentId, password, new Date().toISOString());
+      await db
+        .query(
+          "INSERT INTO session(id,cookies,uid,name,student_id,password,updated_at) VALUES(1,?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id=excluded.student_id,password=excluded.password,updated_at=excluded.updated_at",
+        )
+        .run(
+          JSON.stringify(this.client.jar.all),
+          this.client.uid,
+          this.client.name,
+          studentId,
+          password,
+          new Date().toISOString(),
+        );
       return { success: true, message: `认证成功${this.client.name ? `：${this.client.name}` : ""}` };
     } catch (error) {
-      return { success: false, message: `登录请求失败：${error instanceof Error ? error.message : String(error)}` };
+      return {
+        success: false,
+        message: `登录请求失败：${error instanceof Error ? error.message : String(error)}`,
+      };
     }
   }
 
   private async persistJar(jar = this.client.jar): Promise<void> {
-    db.query("INSERT INTO session(id,cookies,uid,name,updated_at) VALUES(1,?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,updated_at=excluded.updated_at")
-      .run(JSON.stringify(jar.all), this.client.uid, this.client.name, new Date().toISOString());
+    db.query(
+      "INSERT INTO session(id,cookies,uid,name,updated_at) VALUES(1,?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,updated_at=excluded.updated_at",
+    ).run(JSON.stringify(jar.all), this.client.uid, this.client.name, new Date().toISOString());
   }
 
   /**
@@ -201,16 +254,32 @@ export class AuthService {
         return { success: false, message: "openid 无效或登录态未生效" };
       }
       // openid 会话与学号密码无关：清掉旧凭据，避免 refresh() 又用 CAS 登回另一个账号。
-      await db.query("INSERT INTO session(id,cookies,uid,name,student_id,password,updated_at) VALUES(1,?1,?2,?3,'','',?4) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id='',password='',updated_at=excluded.updated_at")
-        .run(JSON.stringify(this.client.jar.all), this.client.uid, this.client.name, new Date().toISOString());
+      await db
+        .query(
+          "INSERT INTO session(id,cookies,uid,name,student_id,password,updated_at) VALUES(1,?1,?2,?3,'','',?4) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id='',password='',updated_at=excluded.updated_at",
+        )
+        .run(
+          JSON.stringify(this.client.jar.all),
+          this.client.uid,
+          this.client.name,
+          new Date().toISOString(),
+        );
       return { success: true, message: `认证成功${this.client.name ? `：${this.client.name}` : ""}` };
     } catch (error) {
       await this.rollbackJar(snapshot);
-      return { success: false, message: `openid 登录失败：${error instanceof Error ? error.message : String(error)}` };
+      return {
+        success: false,
+        message: `openid 登录失败：${error instanceof Error ? error.message : String(error)}`,
+      };
     }
   }
 
-  private async rollbackJar(snapshot: { cookies: StoredCookie[]; uid: string; name: string; credentials?: { studentId: string; password: string } }): Promise<void> {
+  private async rollbackJar(snapshot: {
+    cookies: StoredCookie[];
+    uid: string;
+    name: string;
+    credentials?: { studentId: string; password: string };
+  }): Promise<void> {
     this.client.jar.replaceAll(snapshot.cookies);
     this.client.uid = snapshot.uid;
     this.client.name = snapshot.name;
@@ -228,7 +297,9 @@ export class AuthService {
       const key = script.match(/Csrf-Key['"]?\s*,\s*['"]([^'"]+)['"]/)?.[1];
       const value = script.match(/Csrf-Value['"]?\s*,\s*['"]([^'"]+)['"]/)?.[1];
       if (key && value) this.csrf = { key, value };
-    } catch { /* 使用随发布脚本一致的默认值 */ }
+    } catch {
+      /* 使用随发布脚本一致的默认值 */
+    }
   }
 
   private ssoHeaders(referer: string): HeadersInit {
@@ -251,7 +322,7 @@ export class AuthService {
   }
 
   private async readSsoJson(response: Response): Promise<SsoResponseBody> {
-    const body = await response.json() as SsoResponseBody;
+    const body = (await response.json()) as SsoResponseBody;
     // SSO 用 408/wait 表示“已完成一个长轮询周期且码未变化”，
     // 保留该语义，调用方据此判定该码已失效（而非“仍在等待”）。
     if (body.code !== 200) throw new Error(String(body.message || "SSO 接口返回异常"));
@@ -268,13 +339,16 @@ export class AuthService {
     const uuid = typeof body.data === "string" && body.data ? body.data : "";
     if (!uuid) throw new Error("二维码 ID 无效");
 
-    const imageResponse = await this.followRedirects(`${SSO_BASE}/api/public/qrlogin/qrgen/${encodeURIComponent(uuid)}/dingDingQr?t=${Date.now()}`, {
-      headers: {
-        Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        "User-Agent": USER_AGENT,
-        Referer: referer,
+    const imageResponse = await this.followRedirects(
+      `${SSO_BASE}/api/public/qrlogin/qrgen/${encodeURIComponent(uuid)}/dingDingQr?t=${Date.now()}`,
+      {
+        headers: {
+          Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+          "User-Agent": USER_AGENT,
+          Referer: referer,
+        },
       },
-    });
+    );
     if (!imageResponse.ok) throw new Error(`二维码生成失败: ${imageResponse.status}`);
     const buffer = Buffer.from(await imageResponse.arrayBuffer());
     if (!buffer.length) throw new Error("二维码内容为空");
@@ -311,8 +385,14 @@ export class AuthService {
     await this.client.validate();
     if (!this.client.uid) throw new Error("扫码登录后 Cookie 无效");
 
-    const row = db.query("SELECT student_id, password FROM session WHERE id = 1").get() as { student_id?: string; password?: string } | null;
-    await db.query("INSERT INTO session(id,cookies,uid,name,student_id,password,updated_at) VALUES(1,?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id=excluded.student_id,password=excluded.password,updated_at=excluded.updated_at")
+    const row = db.query("SELECT student_id, password FROM session WHERE id = 1").get() as {
+      student_id?: string;
+      password?: string;
+    } | null;
+    await db
+      .query(
+        "INSERT INTO session(id,cookies,uid,name,student_id,password,updated_at) VALUES(1,?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id=excluded.student_id,password=excluded.password,updated_at=excluded.updated_at",
+      )
       .run(
         JSON.stringify(this.client.jar.all),
         this.client.uid,
@@ -325,8 +405,14 @@ export class AuthService {
 
   pollQrLogin(uuid: string): QrLoginStatusResult {
     const entry = uuid ? this.qrSessions.get(uuid) : undefined;
-    if (!entry) return { status: "error", message: "二维码已失效，请刷新", ttlSeconds: QR_POLL_SESSION_TTL_S };
-    return { status: entry.status, message: entry.message, session: entry.session, ttlSeconds: QR_POLL_SESSION_TTL_S };
+    if (!entry)
+      return { status: "error", message: "二维码已失效，请刷新", ttlSeconds: QR_POLL_SESSION_TTL_S };
+    return {
+      status: entry.status,
+      message: entry.message,
+      session: entry.session,
+      ttlSeconds: QR_POLL_SESSION_TTL_S,
+    };
   }
 
   /**
@@ -343,10 +429,13 @@ export class AuthService {
     try {
       for (let attempt = 0; attempt <= QR_STATUS_RETRIES; attempt += 1) {
         try {
-          const response = await this.followRedirects(`${SSO_BASE}/api/protected/qrlogin/scan/${encodeURIComponent(uuid)}?${Date.now()}`, {
-            headers: this.ssoHeaders(referer),
-            signal: controller.signal,
-          });
+          const response = await this.followRedirects(
+            `${SSO_BASE}/api/protected/qrlogin/scan/${encodeURIComponent(uuid)}?${Date.now()}`,
+            {
+              headers: this.ssoHeaders(referer),
+              signal: controller.signal,
+            },
+          );
           if (!response.ok) throw new Error(`扫码状态请求失败: ${response.status}`);
           const body = await this.readSsoJson(response);
           if (typeof body.data === "string" && body.data) return body.data;
@@ -379,12 +468,16 @@ export class AuthService {
     const budget = Date.now() + QR_POLL_SESSION_TTL_S * 1000;
     while (Date.now() < budget) {
       const entry = this.qrSessions.get(uuid);
-      if (!entry || entry.status !== "waiting") return;
+      if (entry?.status !== "waiting") return;
       try {
         const token = await this.pollQrRoundForToken(uuid, QR_POLL_ROUND_MS);
         if (token === null) continue;
         await this.completeQrLogin(token);
-        this.qrSessions.set(uuid, { createdAt: entry.createdAt, status: "confirmed", session: this.status() });
+        this.qrSessions.set(uuid, {
+          createdAt: entry.createdAt,
+          status: "confirmed",
+          session: this.status(),
+        });
         return;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -404,8 +497,9 @@ export class AuthService {
     this.client.uid = "";
     this.client.name = "";
     this.client.jar.clear();
-    db.query("UPDATE session SET uid = '', name = '', cookies = '[]', updated_at = ?1 WHERE id = 1")
-      .run(new Date().toISOString());
+    db.query("UPDATE session SET uid = '', name = '', cookies = '[]', updated_at = ?1 WHERE id = 1").run(
+      new Date().toISOString(),
+    );
   }
 
   async refresh(): Promise<boolean> {

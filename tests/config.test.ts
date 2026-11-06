@@ -1,5 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { bookingAnchorDelaySeconds, bookingDayOffset, bookingDayOffsetFor, bookingPrelockDelaySeconds } from "../src/server/config";
+import {
+  bookingAnchorDelaySeconds,
+  bookingDayOffset,
+  bookingDayOffsetFor,
+  bookingPrelockDelaySeconds,
+  nextBookingAnchor,
+  shanghaiSecondsOfDay,
+} from "../src/server/config";
 
 describe("booking day offset", () => {
   test("living-area rooms are reservable one day ahead", () => {
@@ -25,6 +32,27 @@ describe("booking anchor delay", () => {
   test("waits for tomorrow 20:00 once the anchor moment has arrived", () => {
     expect(bookingAnchorDelaySeconds(20 * 3600)).toBe(24 * 3600);
     expect(bookingAnchorDelaySeconds(21 * 3600)).toBe(23 * 3600);
+  });
+});
+
+describe("next booking anchor", () => {
+  test("points at 20:00 today when the anchor has not passed", () => {
+    expect(nextBookingAnchor(new Date("2026-11-06T14:48:00+08:00")).toISOString()).toBe(
+      new Date("2026-11-06T20:00:00+08:00").toISOString(),
+    );
+  });
+
+  test("rolls to 20:00 tomorrow once the anchor has arrived", () => {
+    expect(nextBookingAnchor(new Date("2026-11-06T20:00:00+08:00")).toISOString()).toBe(
+      new Date("2026-11-07T20:00:00+08:00").toISOString(),
+    );
+    expect(nextBookingAnchor(new Date("2026-11-06T23:30:00+08:00")).toISOString()).toBe(
+      new Date("2026-11-07T20:00:00+08:00").toISOString(),
+    );
+  });
+
+  test("reads the wall clock in Shanghai time whatever the host timezone is", () => {
+    expect(shanghaiSecondsOfDay(new Date("2026-11-06T06:48:00Z"))).toBe(14 * 3600 + 48 * 60);
   });
 });
 
