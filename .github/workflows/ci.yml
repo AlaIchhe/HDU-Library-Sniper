@@ -10,6 +10,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Biome（lint + format）
+        run: ./node_modules/.bin/biome ci .
+      - name: Typecheck
+        run: bun run typecheck
+
   warmup:
     runs-on: windows-latest
     steps:

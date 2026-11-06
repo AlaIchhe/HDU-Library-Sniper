@@ -25,9 +25,13 @@ describe("session credential persistence", () => {
     expect(columns.map((column) => column.name)).toContain("password");
 
     const { AuthService } = await import("../src/server/auth");
-    db.query("INSERT INTO session(id,uid,name,student_id,password,cookies,updated_at) VALUES(1,'123','测试','stu001','secret','[]','now')").run();
+    db.query(
+      "INSERT INTO session(id,uid,name,student_id,password,cookies,updated_at) VALUES(1,'123','测试','stu001','secret','[]','now')",
+    ).run();
     const auth = new AuthService();
-    expect((auth as unknown as { credentials?: { studentId: string; password: string } }).credentials).toEqual({
+    expect(
+      (auth as unknown as { credentials?: { studentId: string; password: string } }).credentials,
+    ).toEqual({
       studentId: "stu001",
       password: "secret",
     });
@@ -36,7 +40,9 @@ describe("session credential persistence", () => {
   test("logout clears session but keeps credentials", async () => {
     const { db } = await import("../src/server/db");
     const { AuthService } = await import("../src/server/auth");
-    db.query("UPDATE session SET uid='456', name='张三', cookies='[]', student_id='stu002', password='secret2' WHERE id=1").run();
+    db.query(
+      "UPDATE session SET uid='456', name='张三', cookies='[]', student_id='stu002', password='secret2' WHERE id=1",
+    ).run();
     const auth = new AuthService();
     auth.client.uid = "456";
     auth.client.name = "张三";
@@ -45,7 +51,9 @@ describe("session credential persistence", () => {
     auth.logout();
 
     expect(auth.status()).toEqual({ authenticated: false, refreshing: false });
-    const row = db.query("SELECT uid, name, cookies, student_id, password FROM session WHERE id = 1").get() as Record<string, string>;
+    const row = db
+      .query("SELECT uid, name, cookies, student_id, password FROM session WHERE id = 1")
+      .get() as Record<string, string>;
     expect(row.uid).toBe("");
     expect(row.name).toBe("");
     expect(JSON.parse(row.cookies)).toEqual([]);

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { AuthenticationExpiredError, LibraryClient } from "../src/server/library";
 
-function makeClient(request: (path: string, init?: RequestInit) => Promise<Record<string, unknown>>): LibraryClient {
+function makeClient(
+  request: (path: string, init?: RequestInit) => Promise<Record<string, unknown>>,
+): LibraryClient {
   const client = new LibraryClient({});
   // `request` is private in the type system, but the runtime method is what
   // library.floors / lookupCategory rely on; override it for the test.
@@ -15,16 +17,16 @@ describe("LibraryClient contract parsing", () => {
     const client = makeClient(async (path) => {
       // The first GET returns the space_category; the POST returns the seat map.
       if (path.includes("space_category[")) {
-        return { data: { space_category: { category_id: "1", content_id: "91" } } as Record<string, unknown> } as unknown as Record<string, unknown>;
+        return {
+          data: { space_category: { category_id: "1", content_id: "91" } } as Record<string, unknown>,
+        } as unknown as Record<string, unknown>;
       }
       return {
         allContent: {
           children: [
             { children: {} },
             {
-              children: [
-                { roomName: "废弃节点" },
-              ],
+              children: [{ roomName: "废弃节点" }],
             },
             {
               children: {
@@ -40,7 +42,11 @@ describe("LibraryClient contract parsing", () => {
         },
       };
     });
-    const floors = await client.floors("space_category[category_id]=1&space_category[content_id]=91", new Date(), 1);
+    const floors = await client.floors(
+      "space_category[category_id]=1&space_category[content_id]=91",
+      new Date(),
+      1,
+    );
     expect(floors).toHaveLength(1);
     expect((floors[0] as Record<string, unknown>).roomName).toBe("四楼");
   });
@@ -54,26 +60,30 @@ describe("LibraryClient contract parsing", () => {
         } as unknown as Record<string, unknown>;
       }
       postBody = init?.body instanceof URLSearchParams ? init.body : undefined;
-        return {
-          allContent: {
-            children: [
-              { children: {} },
-              { children: {} },
-              {
-                children: {
-                  children: [
-                    {
-                      roomName: "三楼",
-                      seatMap: { info: { id: "42" }, POIs: [{ title: "101" }] },
-                    },
-                  ],
-                },
+      return {
+        allContent: {
+          children: [
+            { children: {} },
+            { children: {} },
+            {
+              children: {
+                children: [
+                  {
+                    roomName: "三楼",
+                    seatMap: { info: { id: "42" }, POIs: [{ title: "101" }] },
+                  },
+                ],
               },
-            ],
-          },
-        };
+            },
+          ],
+        },
+      };
     });
-    const floors = await client.floors("space_category[category_id]=7&space_category[content_id]=12", new Date(), 1);
+    const floors = await client.floors(
+      "space_category[category_id]=7&space_category[content_id]=12",
+      new Date(),
+      1,
+    );
     expect(floors).toHaveLength(1);
     expect(postBody?.get("space_category[category_id]")).toBe("7");
     expect(postBody?.get("space_category[content_id]")).toBe("12");
@@ -84,15 +94,21 @@ describe("LibraryClient.request auth handling", () => {
   test("treats com.Redirect responses as authentication expiry", async () => {
     const client = new LibraryClient({});
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response(
-      JSON.stringify({ ui_type: "com.Redirect", href: "https://hdu.huitu.zhishulib.com/User/Index/hduCASLogin" }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    )) as unknown as typeof fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ui_type: "com.Redirect",
+          href: "https://hdu.huitu.zhishulib.com/User/Index/hduCASLogin",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as unknown as typeof fetch;
     try {
       await expect(
-        (client as unknown as { request: (p: string, i?: RequestInit, r?: boolean) => Promise<Record<string, unknown>> }).request(
-          "/User/Center/baseInfo", {}, false,
-        ),
+        (
+          client as unknown as {
+            request: (p: string, i?: RequestInit, r?: boolean) => Promise<Record<string, unknown>>;
+          }
+        ).request("/User/Center/baseInfo", {}, false),
       ).rejects.toBeInstanceOf(AuthenticationExpiredError);
     } finally {
       globalThis.fetch = originalFetch;
@@ -111,7 +127,12 @@ describe("LibraryClient roomTypes parsing", () => {
             {
               name: "B",
               defaultItems: [
-                { name: "自习室", link: { url: "/Seat/Index/searchSeats?space_category[category_id]=1&space_category[content_id]=91" } },
+                {
+                  name: "自习室",
+                  link: {
+                    url: "/Seat/Index/searchSeats?space_category[category_id]=1&space_category[content_id]=91",
+                  },
+                },
               ],
             },
           ],
@@ -119,7 +140,9 @@ describe("LibraryClient roomTypes parsing", () => {
       };
     });
     const types = await client.roomTypes();
-    expect(types).toEqual([{ name: "自习室", query: "space_category[category_id]=1&space_category[content_id]=91" }]);
+    expect(types).toEqual([
+      { name: "自习室", query: "space_category[category_id]=1&space_category[content_id]=91" },
+    ]);
   });
 
   test("skips empty category nodes returned before room types", async () => {
@@ -128,9 +151,17 @@ describe("LibraryClient roomTypes parsing", () => {
         children: [
           { name: "空分类", defaultItems: [] },
           { name: "暂未加载", defaultItems: [] },
-          { name: "房间分类", defaultItems: [
-            { name: "自习室", link: { url: "/Seat/Index/searchSeats?space_category[category_id]=2&space_category[content_id]=92" } },
-          ] },
+          {
+            name: "房间分类",
+            defaultItems: [
+              {
+                name: "自习室",
+                link: {
+                  url: "/Seat/Index/searchSeats?space_category[category_id]=2&space_category[content_id]=92",
+                },
+              },
+            ],
+          },
         ],
       },
     }));
@@ -143,14 +174,20 @@ describe("LibraryClient roomTypes parsing", () => {
   test("finds room types in nested category nodes", async () => {
     const client = makeClient(async () => ({
       content: {
-        children: [{
-          children: [{
-            defaultItems: [{
-              name: "自习室",
-              link: "/Seat/Index/searchSeats?space_category[category_id]=3&space_category[content_id]=93",
-            }],
-          }],
-        }],
+        children: [
+          {
+            children: [
+              {
+                defaultItems: [
+                  {
+                    name: "自习室",
+                    link: "/Seat/Index/searchSeats?space_category[category_id]=3&space_category[content_id]=93",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       },
     }));
 
@@ -263,11 +300,14 @@ describe("LibraryClient.action", () => {
   });
 
   test("prefers DATA.msg for business failures", async () => {
-    const client = makeClient(async () => ({
-      CODE: "ok",
-      MESSAGE: "顶层信息",
-      DATA: { result: "fail", msg: "预约单不存在" },
-    } as unknown as Record<string, unknown>));
+    const client = makeClient(
+      async () =>
+        ({
+          CODE: "ok",
+          MESSAGE: "顶层信息",
+          DATA: { result: "fail", msg: "预约单不存在" },
+        }) as unknown as Record<string, unknown>,
+    );
 
     await expect(client.action("checkIn", "123")).rejects.toThrow("预约单不存在");
   });

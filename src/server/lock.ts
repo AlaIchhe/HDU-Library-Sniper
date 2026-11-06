@@ -14,14 +14,24 @@ export function tryAcquireJobLock(owner: "booking" | "check-in"): (() => void) |
       if (Date.now() - Number(content.acquiredAt || 0) < lockTtlMs) return undefined;
       unlinkSync(lockPath);
     } catch {
-      try { unlinkSync(lockPath); } catch { return undefined; }
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        return undefined;
+      }
     }
   }
   try {
     const fd = openSync(lockPath, "wx");
     writeFileSync(fd, JSON.stringify({ owner, acquiredAt: Date.now(), pid: process.pid }), "utf8");
     closeSync(fd);
-    return () => { try { unlinkSync(lockPath); } catch { /* stale lock cleanup handles crashes */ } };
+    return () => {
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        /* stale lock cleanup handles crashes */
+      }
+    };
   } catch {
     return undefined;
   }

@@ -33,10 +33,17 @@ bun run server
 常用检查命令：
 
 ```bash
-bun run typecheck
-bun run test
-bun run build
+bun run typecheck      # TypeScript 类型检查
+bun run lint           # Biome 静态检查（只读）
+bun run format:check   # Biome 格式检查（只读）
+bun run check          # lint + format，CI 用同一个入口
+bun run test           # 单测（vitest）
+bun run build          # 前端构建
 ```
+
+需要自动修复时用 `bun run check:fix`（或 `lint:fix` / `format`）。
+Biome 的配置在 `biome.jsonc`：2 空格缩进、双引号、行宽 110；
+`src/web` 保持无分号风格，其余（server/tests）保留分号。
 
 ## Windows 本地构建
 

@@ -3,7 +3,10 @@ import { CookieJar, parseSetCookie } from "../src/server/cookies";
 
 describe("CookieJar", () => {
   test("parses expiry and matches domain/path", () => {
-    const cookie = parseSetCookie("auth=abc; Domain=.hdu.huitu.zhishulib.com; Path=/; HttpOnly", "https://hdu.huitu.zhishulib.com/");
+    const cookie = parseSetCookie(
+      "auth=abc; Domain=.hdu.huitu.zhishulib.com; Path=/; HttpOnly",
+      "https://hdu.huitu.zhishulib.com/",
+    );
     expect(cookie?.domain).toBe("hdu.huitu.zhishulib.com");
     const jar = new CookieJar(cookie ? [cookie] : []);
     expect(jar.headerFor("https://hdu.huitu.zhishulib.com/User/Center/baseInfo")).toBe("auth=abc");

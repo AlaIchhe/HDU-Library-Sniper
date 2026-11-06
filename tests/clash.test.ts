@@ -65,8 +65,12 @@ describe("controllerAddresses", () => {
       { unix: "\\\\.\\pipe\\verge-mihomo" },
       { hostname: "127.0.0.1", port: 9097 },
     ]);
-    expect(controllerAddresses({ tcp: "http://127.0.0.1:9097" })).toEqual([{ hostname: "127.0.0.1", port: 9097 }]);
-    expect(controllerAddresses({ tcp: "192.168.1.2:9097" })).toEqual([{ hostname: "192.168.1.2", port: 9097 }]);
+    expect(controllerAddresses({ tcp: "http://127.0.0.1:9097" })).toEqual([
+      { hostname: "127.0.0.1", port: 9097 },
+    ]);
+    expect(controllerAddresses({ tcp: "192.168.1.2:9097" })).toEqual([
+      { hostname: "192.168.1.2", port: 9097 },
+    ]);
     expect(controllerAddresses({ tcp: "0.0.0.0:9097" })).toEqual([{ hostname: "127.0.0.1", port: 9097 }]);
   });
 
@@ -85,14 +89,20 @@ describe("rulesOverridePath", () => {
 
 describe("applyDirectRulesToOverride", () => {
   test("prepends managed rules while keeping user rules", () => {
-    const result = applyDirectRulesToOverride({ prepend: ["DOMAIN,user.example.com,DIRECT"], append: ["MATCH,Proxy"] }, true);
+    const result = applyDirectRulesToOverride(
+      { prepend: ["DOMAIN,user.example.com,DIRECT"], append: ["MATCH,Proxy"] },
+      true,
+    );
     expect(result.prepend).toEqual([...MANAGED_DIRECT_RULES, "DOMAIN,user.example.com,DIRECT"]);
     expect(result.append).toEqual(["MATCH,Proxy"]);
     expect(result.delete).toEqual([]);
   });
 
   test("disable removes managed rules but keeps the rest", () => {
-    const input = { prepend: [...MANAGED_DIRECT_RULES, "DOMAIN,user.example.com,DIRECT"], append: ["MATCH,Proxy"] };
+    const input = {
+      prepend: [...MANAGED_DIRECT_RULES, "DOMAIN,user.example.com,DIRECT"],
+      append: ["MATCH,Proxy"],
+    };
     const result = applyDirectRulesToOverride(input, false);
     expect(result.prepend).toEqual(["DOMAIN,user.example.com,DIRECT"]);
     expect(result.append).toEqual(["MATCH,Proxy"]);
@@ -117,7 +127,7 @@ describe("runtimeHasDirectRules", () => {
 
   test("matches mihomo runtime rule objects case-insensitively", () => {
     const rules = MANAGED_DIRECT_RULES.map((rule) => {
-      const [type, payload, proxy] = rule.split(",");
+      const [, payload, proxy] = rule.split(",");
       return { type: "Domain", payload, proxy };
     });
     expect(runtimeHasDirectRules(rules)).toBe(true);
@@ -126,7 +136,8 @@ describe("runtimeHasDirectRules", () => {
 
 describe("extractJsonBody", () => {
   test("extracts JSON from a chunked HTTP response", () => {
-    const raw = 'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n85bf\r\n{"rules":[{"payload":"x"}]}\n\r\n0\r\n\r\n';
+    const raw =
+      'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n85bf\r\n{"rules":[{"payload":"x"}]}\n\r\n0\r\n\r\n';
     expect(extractJsonBody(raw)).toEqual({ rules: [{ payload: "x" }] });
   });
 });

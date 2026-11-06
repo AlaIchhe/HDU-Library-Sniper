@@ -11,3 +11,6 @@ src-tauri/gen
 playwright-report
 test-results
 gui-test-screenshots
+
+.dsh-im
+artifacts

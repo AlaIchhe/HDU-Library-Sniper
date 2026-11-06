@@ -2,18 +2,12 @@ import { describe, expect, test } from "vitest";
 import type { AuthService } from "../src/server/auth";
 import { floorToOption, durations, floors } from "../src/server/catalog";
 
-function fakeAuth(raw: unknown[]): AuthService {
-  return {
-    client: {
-      floors: async () => raw,
-      bookingRange: async () => ({ minBeginTime: 7, maxEndTime: 22, minDuration: 1, maxDuration: 15 }),
-    },
-  } as unknown as AuthService;
-}
-
 describe("catalog adapters", () => {
   test("parses the exact Huitu floor node", async () => {
-    const option = floorToOption({ roomName: "四楼", seatMap: { info: { id: "1558" }, POIs: [{ title: "298" }, { title: "298" }, { title: "299" }] } });
+    const option = floorToOption({
+      roomName: "四楼",
+      seatMap: { info: { id: "1558" }, POIs: [{ title: "298" }, { title: "298" }, { title: "299" }] },
+    });
     expect(option).toEqual({ id: 1558, name: "四楼", seatCount: 2, seatTitles: ["298", "299"] });
   });
 
