@@ -13,7 +13,6 @@ import {
 } from "./plans";
 import type { Scheduler } from "./scheduler";
 import * as catalog from "./catalog";
-import { getClashDirectStatus, setClashDirect } from "./clash";
 import { listAudit } from "./db";
 import { nextBookingAnchor, timezone } from "./config";
 
@@ -45,13 +44,6 @@ export function createApi(auth: AuthService, scheduler: Scheduler) {
       const result = await auth.pollQrLogin(decodeURIComponent(qrMatch[1]));
       if (result.status === "confirmed") void scheduler.syncCheckIns("qr-login");
       return json(result);
-    }
-    // Clash 控制不需要登录态：登录被代理问题卡住时正是需要它的时候。
-    if (url.pathname === "/api/clash/direct" && request.method === "GET")
-      return json(await getClashDirectStatus());
-    if (url.pathname === "/api/clash/direct" && request.method === "POST") {
-      const body = (await request.json().catch(() => ({}))) as { enabled?: boolean };
-      return json(await setClashDirect(Boolean(body.enabled)));
     }
     if (url.pathname === "/api/session/logout" && request.method === "POST") {
       auth.logout();

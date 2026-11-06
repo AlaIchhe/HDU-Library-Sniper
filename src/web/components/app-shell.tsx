@@ -11,9 +11,7 @@ import {
   ListChecks,
   LogOut,
   Moon,
-  Network,
   RefreshCw,
-  Settings,
   Sun,
   Timer,
   Zap,
@@ -62,12 +60,14 @@ import {
 import { toastManager, ToastProvider } from "@/components/ui/toast"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "../store"
-import { queryKeys, useCheckin, useCheckinMutation, useNextTarget, useRuntime } from "../queries"
+import { queryKeys, useCheckin, useCheckinMutation, useNextTarget, useRuntime, useSession } from "../queries"
 import { LightRays } from "@/components/ui/light-rays"
 import { api } from "../api"
 import { notifyAuditEvents } from "../notifications"
-import { isTauri, openExternalUrl } from "../tauri"
-import { checkForUpdate, installUpdate, type UpdateState } from "../updater"
+import { openExternalUrl } from "../tauri"
+import { forgetReturnTo, rememberReturnTo } from "../return-to"
+import { startUpdateCheck } from "../updater"
+import { UpdatePill } from "./update-pill"
 import { CommandPalette } from "./command-palette"
 import { useHotkeys } from "../hooks/use-hotkeys"
 import { useCountdown } from "../hooks/use-countdown"
@@ -229,117 +229,14 @@ function CheckinControl() {
   )
 }
 
-function UpdateControl() {
-  const [busy, setBusy] = useState(false)
-  const [pending, setPending] = useState<UpdateState | null>(null)
-
-  async function check() {
-    setBusy(true)
-    // 立即给出反馈：更新源在 GitHub，网络不好时检查可能要等十几秒。
-    const pendingToast = toastManager.add({ type: "loading", title: "正在检查更新…", timeout: 0 })
-    try {
-      const result = await checkForUpdate()
-      toastManager.close(pendingToast)
-      if (result.error) toastManager.add({ type: "error", title: `更新检查失败：${result.error}` })
-      else if (!result.available) toastManager.add({ type: "success", title: "当前已是最新版本" })
-      else setPending(result)
-    } catch (cause) {
-      toastManager.close(pendingToast)
-      toastManager.add({ type: "error", title: cause instanceof Error ? cause.message : "更新检查失败" })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function install() {
-    if (!pending) return
-    setBusy(true)
-    try {
-      await installUpdate()
-      setPending(null)
-      toastManager.add({ type: "success", title: "更新已安装，请重启应用" })
-    } catch (error) {
-      toastManager.add({ type: "error", title: error instanceof Error ? error.message : "更新安装失败" })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <>
-      <MenuItem disabled={busy} onClick={() => void check()}>
-        <RefreshCw className={busy ? "animate-spin" : ""} />
-        检查更新
-      </MenuItem>
-
-      <AlertDialog
-        open={!!pending}
-        onOpenChange={(open) => {
-          if (!open && !busy) setPending(null)
-        }}
-      >
-        <AlertDialogPopup>
-          <AlertDialogHeader>
-            <AlertDialogTitle>发现新版本 {pending?.version}</AlertDialogTitle>
-            <AlertDialogDescription className="max-h-60 overflow-auto whitespace-pre-wrap">
-              {pending?.body || "安装后应用会自动重启。"}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" disabled={busy} />}>稍后</AlertDialogClose>
-            <Button loading={busy} onClick={() => void install()}>
-              立即更新
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogPopup>
-      </AlertDialog>
-    </>
-  )
-}
-
-function ClashControl() {
-  const [busy, setBusy] = useState(false)
-
-  async function check() {
-    setBusy(true)
-    try {
-      const status = await api.clashDirectStatus()
-      if (!status.available) {
-        toastManager.add({ type: "error", title: status.reason || "未检测到 Clash Verge" })
-        return
-      }
-      if (!status.enabled) {
-        const updated = await api.setClashDirect(true)
-        if (updated.enabled) toastManager.add({ type: "success", title: "网络已刷新：校园域名已切换为直连" })
-        else toastManager.add({ type: "error", title: updated.reason || "网络刷新失败，请稍后重试" })
-        return
-      }
-      if (!status.reloaded && status.reason) {
-        toastManager.add({ type: "warning", title: status.reason })
-        return
-      }
-      toastManager.add({ type: "success", title: "网络正常：校园域名直连已生效" })
-    } catch (cause) {
-      toastManager.add({ type: "error", title: cause instanceof Error ? cause.message : "网络检查失败" })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <MenuItem disabled={busy} onClick={() => void check()}>
-      <Network className={busy ? "animate-pulse" : ""} />
-      检查网络
-    </MenuItem>
-  )
-}
-
 export function AppShell() {
   const pathname = useRouterState({
     select: (state) => state.location.pathname as string,
   })
   const session = useAppStore((state) => state.session)
   const setSession = useAppStore((state) => state.setSession)
+  // 深链接进来时登录页并不在，会话要由这里取一次，否则守卫永远是"未登录"。
+  const sessionQuery = useSession()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const theme = useAppStore((state) => state.theme)
@@ -351,14 +248,9 @@ export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const authenticated = Boolean(session?.authenticated)
 
+  // 开机静默查一次更新：只点亮顶栏控件，不下载、不弹提示。
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void checkForUpdate().then((result) => {
-        if (result.available)
-          toastManager.add({ type: "success", title: `发现新版本 ${result.version}，可点击更新按钮安装` })
-      })
-    }, 10_000)
-    return () => window.clearTimeout(timer)
+    startUpdateCheck()
   }, [])
   useEffect(() => {
     if (!authenticated) return
@@ -396,9 +288,24 @@ export function AppShell() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.nextTarget })
   }, [lastRunAt, queryClient])
 
+  // 只补种一次：登录成功后 store 里有新会话，不要被上一次查询的旧结果覆盖。
   useEffect(() => {
-    if (!session && pathname !== "/") navigate({ to: "/", replace: true })
-  }, [session, pathname, navigate])
+    if (!session && sessionQuery.data) setSession(sessionQuery.data)
+  }, [session, sessionQuery.data, setSession])
+
+  // 会话确认可用之前不跳转，否则深链接会先被弹回首页。
+  // 判断用查询结果为准：store 里的会话要等一次 effect 才补种，晚一拍。
+  useEffect(() => {
+    if (!sessionQuery.isSuccess || sessionQuery.data?.authenticated || session?.authenticated) return
+    if (pathname === "/") return
+    rememberReturnTo(pathname)
+    navigate({ to: "/", replace: true })
+  }, [sessionQuery.isSuccess, sessionQuery.data?.authenticated, session?.authenticated, pathname, navigate])
+
+  // 已经落在目标页，把"登录后返回"的记录清掉。
+  useEffect(() => {
+    if (authenticated && pathname !== "/") forgetReturnTo()
+  }, [authenticated, pathname])
 
   useEffect(() => {
     if (!notice) return
@@ -597,22 +504,8 @@ export function AppShell() {
                     <span className="max-lg:hidden">搜索命令</span>
                     <MenuShortcut className="me-0 max-lg:hidden">⌘K</MenuShortcut>
                   </Button>
+                  <UpdatePill />
                   <CheckinControl />
-                  <Menu>
-                    <MenuTrigger
-                      className="grid size-8 place-items-center rounded-full border text-foreground/80 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                      aria-label="更多设置"
-                    >
-                      <Settings className="size-4" />
-                    </MenuTrigger>
-                    <MenuPopup align="end">
-                      <MenuGroup>
-                        <MenuGroupLabel>诊断</MenuGroupLabel>
-                        <UpdateControl />
-                        {isTauri() && <ClashControl />}
-                      </MenuGroup>
-                    </MenuPopup>
-                  </Menu>
                   <AnimatedThemeToggler
                     className="grid size-8 place-items-center rounded-full border text-foreground/80 transition-colors hover:bg-muted hover:text-foreground [&_svg]:size-4"
                     theme={theme}

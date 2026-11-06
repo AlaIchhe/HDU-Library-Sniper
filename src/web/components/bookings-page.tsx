@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, type ReactNode, type Ref } from "react"
-import { CalendarCheck, CalendarDays, Clock3, RefreshCw } from "lucide-react"
+import { CalendarDays, RefreshCw } from "lucide-react"
 import {
   AnimatePresence,
   LayoutGroup,
@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { toastManager } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
-import { PageHeader, PageShell, Panel, rise, StatGrid, StatTile } from "./page-layout"
+import { PageHeader, PageShell, Panel, rise } from "./page-layout"
 import type { Booking } from "../../shared/types"
 import { useBookingAction, useBookings, useNextTarget } from "../queries"
 import { useCountdown } from "../hooks/use-countdown"
@@ -162,12 +162,6 @@ function BookingsView({
           </Button>
         }
       />
-
-      <StatGrid>
-        <StatTile icon={CalendarCheck} label="可签到" value={rows.filter((row) => row.canCheckIn).length} />
-        <StatTile icon={Clock3} label="使用中" value={rows.filter((row) => row.state === "in_use").length} />
-        <StatTile icon={CalendarDays} label="全部预约" value={rows.length} />
-      </StatGrid>
 
       <Panel title="有效预约" description="后台会自动处理进入签到窗口的预约。">
         <AnimatePresence mode="popLayout" initial={false}>

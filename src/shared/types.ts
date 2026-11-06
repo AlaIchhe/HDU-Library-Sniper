@@ -93,14 +93,6 @@ export type CheckInStatus = {
   lastMessage?: string;
 };
 
-export type ClashDirectStatus = {
-  available: boolean;
-  enabled: boolean;
-  reloaded: boolean;
-  mode?: string;
-  reason?: string;
-};
-
 export type AuditEvent = {
   id: number;
   event: string;
