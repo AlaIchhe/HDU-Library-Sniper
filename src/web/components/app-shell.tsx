@@ -241,11 +241,17 @@ function UpdateControl() {
 
   async function check() {
     setBusy(true)
+    // 立即给出反馈：更新源在 GitHub，网络不好时检查可能要等十几秒。
+    const pendingToast = toastManager.add({ type: "loading", title: "正在检查更新…", timeout: 0 })
     try {
       const result = await checkForUpdate()
+      toastManager.close(pendingToast)
       if (result.error) toastManager.add({ type: "error", title: `更新检查失败：${result.error}` })
       else if (!result.available) toastManager.add({ type: "success", title: "当前已是最新版本" })
       else setPending(result)
+    } catch (cause) {
+      toastManager.close(pendingToast)
+      toastManager.add({ type: "error", title: cause instanceof Error ? cause.message : "更新检查失败" })
     } finally {
       setBusy(false)
     }
