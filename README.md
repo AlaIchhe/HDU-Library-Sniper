@@ -2,7 +2,7 @@
 
 杭州电子科技大学图书馆预约与自动签到工具。选好座位和时间，保存并启用方案，剩下的交给后台。
 
-**[下载 Windows 安装包](https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/HDU.Library.Sniper_2.0.25_x64_zh-CN.msi)** · 支持 Windows x64，双击 MSI 安装即可。
+**[下载 Windows 安装包](https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest/download/HDU.Library.Sniper_2.0.26_x64_zh-CN.msi)** · 支持 Windows x64，双击 MSI 安装即可。
 
 ## 操作演示
 
