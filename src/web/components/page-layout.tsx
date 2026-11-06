@@ -1,12 +1,9 @@
 "use client"
 
-import type { LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
-import { motion, useReducedMotion, type Variants } from "motion/react"
+import { motion, type Variants } from "motion/react"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { MagicCard } from "@/components/ui/magic-card"
-import { NumberTicker } from "@/components/ui/number-ticker"
 import { cn } from "@/lib/utils"
 
 /** 页面级动效：两页共用同一套节奏（子项错峰 60ms）。 */
@@ -66,36 +63,6 @@ export function PageHeader({
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </motion.header>
-  )
-}
-
-/** 指标行：两页都是 3 个指标卡，移动端堆叠、sm 起三列。 */
-export function StatGrid({ children }: { children: ReactNode }) {
-  return (
-    <motion.div variants={rise} className="grid gap-3 sm:grid-cols-3">
-      {children}
-    </motion.div>
-  )
-}
-
-/** 单个指标卡：图标位、标签、数字动画三件套，两页一致。 */
-export function StatTile({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
-  const reduced = useReducedMotion()
-
-  return (
-    <MagicCard className="h-full rounded-2xl border bg-card p-4 shadow-sm" gradientOpacity={0.08}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="mt-2 text-2xl font-semibold tabular-nums tracking-tight">
-            {reduced ? value : <NumberTicker value={value} className="text-foreground" />}
-          </p>
-        </div>
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-foreground">
-          <Icon className="size-4" />
-        </span>
-      </div>
-    </MagicCard>
   )
 }
 

@@ -7,7 +7,6 @@ import type {
   BookingPlan,
   BookingRange,
   CheckInStatus,
-  ClashDirectStatus,
   DurationOptions,
   FloorOption,
   NextExecutionTarget,
@@ -181,9 +180,6 @@ export const api = {
       { method: "POST", body: JSON.stringify({ agreed }) },
       checkinSchema,
     ),
-  clashDirectStatus: () => call<ClashDirectStatus>("/api/clash/direct"),
-  setClashDirect: (enabled: boolean) =>
-    call<ClashDirectStatus>("/api/clash/direct", { method: "POST", body: JSON.stringify({ enabled }) }),
 }
 
 type BookingGroup = Extract<PlanListItem, { kind: "group" }>

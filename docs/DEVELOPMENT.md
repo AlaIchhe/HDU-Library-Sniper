@@ -98,6 +98,13 @@ git push origin vX.Y.Z
 
 `.github/workflows/release.yml` 会在 Windows runner 上完成依赖安装、Bun 后端编译、MSI 打包、签名并生成 `latest.json`。工作流会直接发布正式 Release，上传 MSI 后客户端即可通过 `releases/latest` 获取自动更新，无需再手动发布。
 
+### 客户端更新流程
+
+1. 开机启动（`--background`）后延迟 5 秒静默请求一次 `latest.json`，失败按 15 秒、60 秒各重试一次；全程不弹提示，失败只写 GUI 日志。
+2. 检出更高版本时，顶栏出现「更新到 vX.Y.Z」控件；平时不渲染任何更新入口（设置菜单里也不再提供手动检查）。
+3. 点击控件就地变成进度条：下载（15 分钟上限）→ 签名校验 → 停止后端 → 交给 MSI 安装。Windows 安装器会结束当前进程并重新拉起新版本，安装期间若弹出 UAC 需要允许。
+4. 任一步失败都会退回「更新到 vX.Y.Z」并弹一次 toast，日志里留有完整原因。
+
 ## 项目结构
 
 ```text

@@ -4,9 +4,7 @@ import { createContext, useContext, useMemo, useRef, useState } from "react"
 import { Reorder, useDragControls, useReducedMotion, type DragControls } from "motion/react"
 import {
   CalendarDays,
-  CalendarRange,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
   GripVertical,
@@ -73,7 +71,7 @@ import { cn } from "@/lib/utils"
 import type { BookingPlan, BookingGroup, PlanListItem, Weekday } from "../../shared/types"
 import { weekdayLabels } from "../../shared/types"
 import { useDurations, useFloors, usePlanMutations, usePlans, useRoomTypes } from "../queries"
-import { PageHeader, PageShell, Panel, StatGrid, StatTile } from "./page-layout"
+import { PageHeader, PageShell, Panel } from "./page-layout"
 import { useRefreshSignal } from "../store"
 import { undoToast } from "../undo-toast"
 import { Busy, Failure, groupSchema, NoData, planSchema } from "../shared"
@@ -657,16 +655,6 @@ export function PlansPage() {
           <InteractiveHoverButton onClick={() => setDialog("type")}>创建方案</InteractiveHoverButton>
         }
       />
-
-      <StatGrid>
-        <StatTile icon={ListChecks} label="方案总数" value={items.length} />
-        <StatTile icon={CheckCircle2} label="已启用" value={items.filter((item) => item.enabled).length} />
-        <StatTile
-          icon={CalendarRange}
-          label="组合方案"
-          value={items.filter((item) => item.kind === "group").length}
-        />
-      </StatGrid>
 
       <Panel title="我的计划" description="同时只能启用一个方案，组合方案按成员顺序执行。">
         {items.length ? (

@@ -20,6 +20,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { api } from "../api"
 import { useSession } from "../queries"
 import { useAppStore } from "../store"
+import { consumeReturnTo } from "../return-to"
 import { Busy, loginSchema } from "../shared"
 import type { QrLoginStart } from "../../shared/types"
 
@@ -87,7 +88,7 @@ function LoginPage() {
           setQrState("confirmed")
           if (result.session?.authenticated) {
             setSession(result.session)
-            await navigate({ to: "/plans" })
+            await navigate({ to: consumeReturnTo(), replace: true })
           } else {
             setQrState("error")
             setQrMessage("扫码已确认，但登录态校验失败")
@@ -146,7 +147,7 @@ function LoginPage() {
       const result = await api.login(values.studentId, values.password)
       if (!result.success) throw new Error(result.message)
       setSession(await api.session())
-      await navigate({ to: "/plans" })
+      await navigate({ to: consumeReturnTo(), replace: true })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "登录失败")
     }
@@ -164,7 +165,7 @@ function LoginPage() {
       const result = await api.openidLogin(value)
       if (!result.success) throw new Error(result.message)
       setSession(await api.session())
-      await navigate({ to: "/plans" })
+      await navigate({ to: consumeReturnTo(), replace: true })
     } catch (cause) {
       setOpenidError(cause instanceof Error ? cause.message : "openid 登录失败")
     } finally {
@@ -318,13 +319,20 @@ export function LoginGate() {
   const setSession = useAppStore((state) => state.setSession)
   const query = useSession()
   const navigate = useNavigate()
+  // 只跳一次：StrictMode 会重跑 effect，第二次读到的返回目标已经被消费掉了。
+  const redirected = useRef(false)
 
   useEffect(() => {
     if (query.data) setSession(query.data)
   }, [query.data, setSession])
 
   useEffect(() => {
-    if (session?.authenticated) void navigate({ to: "/plans", replace: true })
+    if (redirected.current || !session?.authenticated) return
+    // 路由状态会短暂报 "/"（深链接被守卫处理的那一刻），此时浏览器地址仍是原页面；
+    // 以真实地址为准，避免把深链接误判成登录页再跳走。
+    if (window.location.pathname !== "/") return
+    redirected.current = true
+    void navigate({ to: consumeReturnTo(), replace: true })
   }, [session, navigate])
 
   if (query.isLoading && !session) return <Busy label="正在连接后台服务..." />
