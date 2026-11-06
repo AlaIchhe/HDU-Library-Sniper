@@ -1,10 +1,26 @@
 import { createCipheriv } from "node:crypto";
-import { CookieJar } from "./cookies";
+import { CookieJar, type StoredCookie } from "./cookies";
 import { db } from "./db";
 import { LibraryClient } from "./library";
 import type { SessionStatus } from "../shared/types";
 
+const LIBRARY_BASE = "https://hdu.huitu.zhishulib.com";
 const LOGIN_ENTRY = "https://hdu.huitu.zhishulib.com/User/Index/hduCASLogin";
+// 微信端入口按 UA 分流：openid 兑换必须用微信/小程序 UA，否则会被重定向到 OAuth。
+const OPENID_USER_AGENT = "Mozilla/5.0 (Linux; Android 11; SM-G9910 wv) AppleWebKit/537.36 (KHTML, like Gecko) "
+  + "Version/4.0 Chrome/86.0.4240.99 XWEB/4375 MMWEBSDK/20221012 Mobile Safari/537.36 "
+  + "MicroMessenger/8.0.30.2260(0x28001E55) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64 "
+  + "miniProgram/wx5e72fc4ec15ca4e8";
+const OPENID_PATTERN = /^[A-Za-z0-9_-]{10,128}$/;
+
+/** 既接受裸 openid，也接受微信端完整链接（/content/index/startUp/openid/<openid>/）。 */
+export function extractOpenid(input: string): string {
+  const value = input.trim();
+  if (!value) return "";
+  const fromUrl = value.match(/\/startUp\/openid\/([A-Za-z0-9_-]+)/)?.[1];
+  const candidate = fromUrl || value;
+  return OPENID_PATTERN.test(candidate) ? candidate : "";
+}
 const SSO_BASE = "https://sso.hdu.edu.cn";
 const SSO_LOGIN_PAGE = `${SSO_BASE}/login?service=${encodeURIComponent(LOGIN_ENTRY)}`;
 const SSO_CSRF_SCRIPT = `${SSO_BASE}/public/utils/loginNew.js`;
@@ -64,10 +80,7 @@ export class AuthService {
     const jar = new CookieJar(row?.cookies ? JSON.parse(row.cookies) : []);
     this.client = new LibraryClient({
       jar,
-      onJarChange: async (next) => {
-        db.query("INSERT INTO session(id,cookies,uid,name,updated_at) VALUES(1,?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,updated_at=excluded.updated_at")
-          .run(JSON.stringify(next.all), this.client.uid, this.client.name, new Date().toISOString());
-      },
+      onJarChange: async (next) => this.persistJar(next),
       onAuthExpired: async () => this.refresh(),
     });
     this.client.uid = row?.uid || "";
@@ -144,6 +157,65 @@ export class AuthService {
     } catch (error) {
       return { success: false, message: `登录请求失败：${error instanceof Error ? error.message : String(error)}` };
     }
+  }
+
+  private async persistJar(jar = this.client.jar): Promise<void> {
+    db.query("INSERT INTO session(id,cookies,uid,name,updated_at) VALUES(1,?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,updated_at=excluded.updated_at")
+      .run(JSON.stringify(jar.all), this.client.uid, this.client.name, new Date().toISOString());
+  }
+
+  /**
+   * 微信端 openid 登录：GET /content/index/startUp/openid/<openid>/ 会下发
+   * uid/auth/is_remember 三枚 30 天 cookie，再用 baseInfo 校验登录态。
+   * 失败时回滚到原会话，避免把已有的 CAS 登录态清掉。
+   */
+  async loginWithOpenid(raw: string): Promise<{ success: boolean; message: string }> {
+    const openid = extractOpenid(raw);
+    if (!openid) return { success: false, message: "请输入有效的 openid 或微信端登录链接" };
+    const snapshot = {
+      cookies: this.client.jar.all,
+      uid: this.client.uid,
+      name: this.client.name,
+      credentials: this.credentials,
+    };
+    try {
+      this.client.jar.clear();
+      this.client.uid = "";
+      this.client.name = "";
+      this.credentials = undefined;
+      const response = await this.followRedirects(
+        `${LIBRARY_BASE}/content/index/startUp/openid/${encodeURIComponent(openid)}/`,
+        { headers: { "User-Agent": OPENID_USER_AGENT, Accept: "text/html,application/xhtml+xml,*/*" } },
+      );
+      if (response.url.includes("sso.hdu.edu.cn")) {
+        await this.rollbackJar(snapshot);
+        return { success: false, message: "openid 无效：被重定向到统一认证登录" };
+      }
+      if (!response.ok) {
+        await this.rollbackJar(snapshot);
+        return { success: false, message: `openid 登录入口不可用: ${response.status}` };
+      }
+      await this.client.validate();
+      if (!this.client.uid) {
+        await this.rollbackJar(snapshot);
+        return { success: false, message: "openid 无效或登录态未生效" };
+      }
+      // openid 会话与学号密码无关：清掉旧凭据，避免 refresh() 又用 CAS 登回另一个账号。
+      await db.query("INSERT INTO session(id,cookies,uid,name,student_id,password,updated_at) VALUES(1,?1,?2,?3,'','',?4) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id='',password='',updated_at=excluded.updated_at")
+        .run(JSON.stringify(this.client.jar.all), this.client.uid, this.client.name, new Date().toISOString());
+      return { success: true, message: `认证成功${this.client.name ? `：${this.client.name}` : ""}` };
+    } catch (error) {
+      await this.rollbackJar(snapshot);
+      return { success: false, message: `openid 登录失败：${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+
+  private async rollbackJar(snapshot: { cookies: StoredCookie[]; uid: string; name: string; credentials?: { studentId: string; password: string } }): Promise<void> {
+    this.client.jar.replaceAll(snapshot.cookies);
+    this.client.uid = snapshot.uid;
+    this.client.name = snapshot.name;
+    this.credentials = snapshot.credentials;
+    await this.persistJar();
   }
 
   private async loadCsrf(): Promise<void> {

@@ -78,6 +78,7 @@ async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>):
 export const api = {
   session: () => call<SessionStatus>("/api/session", undefined, sessionSchema),
   login: (studentId: string, password: string) => call<{ success: boolean; message: string }>("/api/session/login", { method: "POST", body: JSON.stringify({ studentId, password }) }),
+  openidLogin: (openid: string) => call<{ success: boolean; message: string }>("/api/session/openid", { method: "POST", body: JSON.stringify({ openid }) }),
   logout: () => call<{ success: boolean }>("/api/session/logout", { method: "POST" }),
   qrStart: () => call<QrLoginStart>("/api/session/qr", { method: "POST" }),
   qrStatus: (uuid: string) => call<QrLoginStatus>(`/api/session/qr/${encodeURIComponent(uuid)}/status`),

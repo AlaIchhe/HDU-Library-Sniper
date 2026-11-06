@@ -65,6 +65,11 @@ export class CookieJar {
     this.cookies = [];
   }
 
+  /** 用一份快照整体替换（openid 登录失败时回滚到原会话）。 */
+  replaceAll(cookies: StoredCookie[]): void {
+    this.cookies = cookies.slice();
+  }
+
   merge(headers: Headers, requestUrl: string): boolean {
     const setCookies = typeof headers.getSetCookie === "function"
       ? headers.getSetCookie()

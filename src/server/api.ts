@@ -17,6 +17,10 @@ export function createApi(auth: AuthService, scheduler: Scheduler) {
       const body = await request.json().catch(() => ({})) as { studentId?: string; password?: string };
       return json(await auth.login(body.studentId || "", body.password || ""));
     }
+    if (url.pathname === "/api/session/openid" && request.method === "POST") {
+      const body = await request.json().catch(() => ({})) as { openid?: string };
+      return json(await auth.loginWithOpenid(body.openid || ""));
+    }
     if (url.pathname === "/api/session/qr" && request.method === "POST") {
       return json(await auth.createQrLogin());
     }

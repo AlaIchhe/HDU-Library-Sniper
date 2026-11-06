@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { LogIn, QrCode, RefreshCw, ShieldCheck } from "lucide-react"
+import { KeyRound, LogIn, QrCode, RefreshCw, ShieldCheck } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -45,6 +45,9 @@ function LoginPage() {
     defaultValues: { studentId: "", password: "" },
   })
   const [error, setError] = useState("")
+  const [openid, setOpenid] = useState("")
+  const [openidError, setOpenidError] = useState("")
+  const [openidBusy, setOpenidBusy] = useState(false)
   const [qr, setQr] = useState<QrLoginStart | null>(null)
   const [qrState, setQrState] = useState<QrState>("loading")
   const [qrMessage, setQrMessage] = useState("正在获取登录二维码")
@@ -151,6 +154,26 @@ function LoginPage() {
     }
   }
 
+  async function submitOpenid() {
+    setOpenidError("")
+    const value = openid.trim()
+    if (!value) {
+      setOpenidError("请输入 openid 或微信端登录链接")
+      return
+    }
+    setOpenidBusy(true)
+    try {
+      const result = await api.openidLogin(value)
+      if (!result.success) throw new Error(result.message)
+      setSession(await api.session())
+      await navigate({ to: "/plans" })
+    } catch (cause) {
+      setOpenidError(cause instanceof Error ? cause.message : "openid 登录失败")
+    } finally {
+      setOpenidBusy(false)
+    }
+  }
+
   const qrBusy = qrState === "loading"
   const showQr = qr?.image && qrState !== "loading"
 
@@ -248,6 +271,43 @@ function LoginPage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+        <div className="border-t px-6 pb-6 pt-4">
+          <div className="grid gap-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <KeyRound className="size-4" />
+              OpenID 登录
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              粘贴微信端地址里的 openid（/content/index/startUp/openid/&lt;openid&gt;/），或直接粘贴整条链接。
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                className="w-full"
+                value={openid}
+                onChange={(event) => setOpenid(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault()
+                    void submitOpenid()
+                  }
+                }}
+                placeholder="okOhQt-..."
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <Button type="button" variant="secondary" loading={openidBusy} onClick={() => void submitOpenid()}>
+                <KeyRound className="size-4" />
+                使用 OpenID 登录
+              </Button>
+            </div>
+            {openidError && (
+              <Alert variant="error">
+                <ShieldCheck className="size-4" />
+                <AlertDescription>{openidError}</AlertDescription>
+              </Alert>
+            )}
           </div>
         </div>
       </Card>
