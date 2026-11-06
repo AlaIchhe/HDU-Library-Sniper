@@ -36,6 +36,8 @@ function apiToken(seatId: string, uid: string, beginTime: number, duration: numb
   return btoa(createHash("md5").update(source).digest("hex"));
 }
 
+// 馆方按 UA 区分“手机端/非手机端”：桌面 UA 的 bookSeats 只有 1 次/10 分钟，
+// 移动端约 3 秒一次。这里的 UA 必须保持移动端特征，否则会直接触发 10 分钟封禁。
 const headers = {
   Accept: "application/json, text/plain, */*",
   "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
