@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
   CalendarDays,
-  CheckCircle2,
   ChevronRight,
   Command as CommandIcon,
   ExternalLink,
@@ -61,16 +60,9 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { toastManager, ToastProvider } from "@/components/ui/toast"
-import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "../store"
-import {
-  queryKeys,
-  useCheckin,
-  useCheckinMutation,
-  useNextTarget,
-  useRuntime,
-} from "../queries"
+import { queryKeys, useCheckin, useCheckinMutation, useNextTarget, useRuntime } from "../queries"
 import { LightRays } from "@/components/ui/light-rays"
 import { api } from "../api"
 import { notifyAuditEvents } from "../notifications"
@@ -199,18 +191,20 @@ function CheckinControl() {
         variant={data?.enabled ? "secondary" : "ghost"}
         size="sm"
         disabled={isLoading || mutation.isPending}
-        onClick={() => { if (data) setPending(!data.enabled) }}
+        onClick={() => {
+          if (data) setPending(!data.enabled)
+        }}
         title={data?.enabled ? "自动签到已开启，点击关闭" : "自动签到已关闭，点击开启"}
       >
         <StatusDot tone={data?.enabled ? "ok" : "idle"} />
-        <span className="max-sm:hidden">
-          {data?.enabled ? "自动签到" : "未开签到"}
-        </span>
+        <span className="max-sm:hidden">{data?.enabled ? "自动签到" : "未开签到"}</span>
       </Button>
 
       <AlertDialog
         open={pending !== null}
-        onOpenChange={(open) => { if (!open && !mutation.isPending) setPending(null) }}
+        onOpenChange={(open) => {
+          if (!open && !mutation.isPending) setPending(null)
+        }}
       >
         <AlertDialogPopup>
           <AlertDialogHeader>
@@ -280,7 +274,9 @@ function UpdateControl() {
 
       <AlertDialog
         open={!!pending}
-        onOpenChange={(open) => { if (!open && !busy) setPending(null) }}
+        onOpenChange={(open) => {
+          if (!open && !busy) setPending(null)
+        }}
       >
         <AlertDialogPopup>
           <AlertDialogHeader>
@@ -290,9 +286,7 @@ function UpdateControl() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" disabled={busy} />}>
-              稍后
-            </AlertDialogClose>
+            <AlertDialogClose render={<Button variant="outline" disabled={busy} />}>稍后</AlertDialogClose>
             <Button loading={busy} onClick={() => void install()}>
               立即更新
             </Button>
@@ -351,7 +345,6 @@ export function AppShell() {
   const theme = useAppStore((state) => state.theme)
   const notice = useAppStore((state) => state.notice)
   const setNotice = useAppStore((state) => state.setNotice)
-  const refreshRequest = useAppStore((state) => state.refreshRequest)
   const requestRefresh = useAppStore((state) => state.requestRefresh)
   const runtime = useRuntime()
   const reduced = useReducedMotion()
@@ -361,7 +354,8 @@ export function AppShell() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void checkForUpdate().then((result) => {
-        if (result.available) toastManager.add({ type: "success", title: `发现新版本 ${result.version}，可点击更新按钮安装` })
+        if (result.available)
+          toastManager.add({ type: "success", title: `发现新版本 ${result.version}，可点击更新按钮安装` })
       })
     }, 10_000)
     return () => window.clearTimeout(timer)
@@ -373,10 +367,14 @@ export function AppShell() {
       try {
         const result = await api.audit(50)
         if (active) await notifyAuditEvents(result.events)
-      } catch { /* backend may not be ready yet */ }
+      } catch {
+        /* backend may not be ready yet */
+      }
     }
     // 不轮询：登录后、窗口重新获得焦点/可见时检查一次新事件。
-    const refresh = () => { if (document.visibilityState === "visible") void poll() }
+    const refresh = () => {
+      if (document.visibilityState === "visible") void poll()
+    }
     void poll()
     window.addEventListener("focus", refresh)
     document.addEventListener("visibilitychange", refresh)
@@ -514,11 +512,7 @@ export function AppShell() {
         className="fixed inset-0 -z-10 [mask-image:radial-gradient(ellipse_at_center,white,transparent_72%)]"
       />
 
-      <CommandPalette
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        commands={commands}
-      />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
 
       {pathname === "/" ? (
         <ToastProvider>
@@ -535,9 +529,7 @@ export function AppShell() {
                   </span>
                   <div className="group-data-[collapsible=icon]:hidden">
                     <strong className="block text-sm">HDU Sniper</strong>
-                    <span className="text-xs text-muted-foreground">
-                      预约工作台
-                    </span>
+                    <span className="text-xs text-muted-foreground">预约工作台</span>
                   </div>
                 </div>
               </SidebarHeader>
@@ -580,11 +572,7 @@ export function AppShell() {
                       pulse={!errorState && !authRequired}
                     />
                     <span className="truncate text-muted-foreground">
-                      {errorState
-                        ? "后台服务异常"
-                        : authRequired
-                          ? "需要重新登录"
-                          : "后台服务在线"}
+                      {errorState ? "后台服务异常" : authRequired ? "需要重新登录" : "后台服务在线"}
                     </span>
                   </div>
                   <p className="truncate text-[0.6875rem] leading-4 text-muted-foreground/72">
@@ -628,23 +616,21 @@ export function AppShell() {
                   <AnimatedThemeToggler
                     className="grid size-8 place-items-center rounded-full border text-foreground/80 transition-colors hover:bg-muted hover:text-foreground [&_svg]:size-4"
                     theme={theme}
-                    onThemeChange={(nextTheme) =>
-                      useAppStore.getState().setTheme(nextTheme)
-                    }
+                    onThemeChange={(nextTheme) => useAppStore.getState().setTheme(nextTheme)}
                   />
                   <Menu>
                     <MenuTrigger className="rounded-full outline-none" aria-label="用户菜单">
                       <Avatar className="size-8">
-                        <AvatarFallback>
-                          {session?.name?.slice(0, 1) || "H"}
-                        </AvatarFallback>
+                        <AvatarFallback>{session?.name?.slice(0, 1) || "H"}</AvatarFallback>
                       </Avatar>
                     </MenuTrigger>
                     <MenuPopup align="end">
                       <MenuGroup>
                         <MenuGroupLabel>{session?.name || "已登录"}</MenuGroupLabel>
                         <MenuItem
-                          onClick={() => void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases")}
+                          onClick={() =>
+                            void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases")
+                          }
                         >
                           <ExternalLink />
                           更新日志

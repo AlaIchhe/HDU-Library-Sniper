@@ -1,13 +1,7 @@
 "use client"
 
 import { createContext, useContext, useMemo, useRef, useState } from "react"
-import {
-  AnimatePresence,
-  Reorder,
-  useDragControls,
-  useReducedMotion,
-  type DragControls,
-} from "motion/react"
+import { Reorder, useDragControls, useReducedMotion, type DragControls } from "motion/react"
 import {
   CalendarDays,
   CalendarRange,
@@ -23,13 +17,9 @@ import {
 } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { z } from "zod"
+import type { z } from "zod"
 
-import { AnimatedShinyText } from "@/components/ui/animated-shiny-text"
-import { BlurFade } from "@/components/ui/blur-fade"
-import { MagicCard } from "@/components/ui/magic-card"
 import { MultipleSelect } from "@/components/ui/multiple-select"
-import { NumberTicker } from "@/components/ui/number-ticker"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -41,13 +31,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { CheckboxGroup } from "@/components/ui/checkbox-group"
 import {
@@ -78,36 +61,19 @@ import {
   DrawerPopup,
   DrawerTitle,
 } from "@/components/ui/drawer"
-import {
-  Field,
-  FieldDescription,
-  FieldLabel,
-  FormError,
-} from "@/components/ui/field"
+import { Field, FieldDescription, FieldLabel, FormError } from "@/components/ui/field"
 import { Form } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { InteractiveHoverButton } from "@/components/ui/interactive-hover-button"
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { toastManager } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
 import type { BookingPlan, BookingGroup, PlanListItem, Weekday } from "../../shared/types"
 import { weekdayLabels } from "../../shared/types"
 import { useDurations, useFloors, usePlanMutations, usePlans, useRoomTypes } from "../queries"
+import { PageHeader, PageShell, Panel, StatGrid, StatTile } from "./page-layout"
 import { useRefreshSignal } from "../store"
 import { undoToast } from "../undo-toast"
 import { Busy, Failure, groupSchema, NoData, planSchema } from "../shared"
@@ -136,7 +102,9 @@ function SelectField({
         value={value}
         onValueChange={(next) => next && onChange(next)}
         disabled={disabled}
-        itemToStringLabel={(item) => options.find((option) => option.value === String(item))?.label ?? String(item ?? "")}
+        itemToStringLabel={(item) =>
+          options.find((option) => option.value === String(item))?.label ?? String(item ?? "")
+        }
       >
         <SelectTrigger>
           <SelectValue placeholder={placeholder} />
@@ -145,9 +113,7 @@ function SelectField({
           {options.map((option) => (
             <SelectItem key={option.value} value={option.value} label={option.label}>
               {option.label}
-              {option.detail && (
-                <small className="ms-2 text-muted-foreground">{option.detail}</small>
-              )}
+              {option.detail && <small className="ms-2 text-muted-foreground">{option.detail}</small>}
             </SelectItem>
           ))}
         </SelectPopup>
@@ -157,7 +123,8 @@ function SelectField({
   )
 }
 
-function SearchableField({  label,
+function SearchableField({
+  label,
   value,
   onChange,
   options,
@@ -204,13 +171,7 @@ function SearchableField({  label,
   )
 }
 
-function PlanEditor({
-  initial,
-  onClose,
-}: {
-  initial?: BookingPlan
-  onClose: () => void
-}) {
+function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClose: () => void }) {
   const mutations = usePlanMutations()
   const roomTypes = useRoomTypes()
   const form = useForm<z.input<typeof planSchema>, undefined, z.output<typeof planSchema>>({
@@ -237,16 +198,11 @@ function PlanEditor({
   const durations = useDurations(roomQuery, hour, effectiveRoomType)
   const range = floors.data?.range
   const minStartHour = range?.minBeginTime ?? 0
-  const maxStartHour = range
-    ? range.maxEndTime - (duration ? Number(duration) : range.minDuration)
-    : 23
-  const startHourOptions = Array.from(
-    { length: Math.max(0, maxStartHour - minStartHour + 1) },
-    (_, i) => {
-      const h = minStartHour + i
-      return { value: String(h), label: `${String(h).padStart(2, "0")}:00` }
-    },
-  )
+  const maxStartHour = range ? range.maxEndTime - (duration ? Number(duration) : range.minDuration) : 23
+  const startHourOptions = Array.from({ length: Math.max(0, maxStartHour - minStartHour + 1) }, (_, i) => {
+    const h = minStartHour + i
+    return { value: String(h), label: `${String(h).padStart(2, "0")}:00` }
+  })
   const weekdayOptions = (Object.keys(weekdayLabels).map(Number) as Weekday[]).map((day) => ({
     value: String(day),
     label: weekdayLabels[day],
@@ -296,7 +252,13 @@ function PlanEditor({
             // 桌面端没有刷新概念：网络恢复后展开下拉即自动重试失败的查询
             if (open && roomTypes.isError) void roomTypes.refetch()
           }}
-          emptyText={roomTypes.isFetching ? "正在加载房间类型…" : roomTypes.isError ? "房间类型加载失败，重新展开将自动重试" : "没有匹配项"}
+          emptyText={
+            roomTypes.isFetching
+              ? "正在加载房间类型…"
+              : roomTypes.isError
+                ? "房间类型加载失败，重新展开将自动重试"
+                : "没有匹配项"
+          }
         />
         <div className="grid gap-1">
           <SelectField
@@ -308,7 +270,13 @@ function PlanEditor({
               form.setValue("floorName", floor?.name || "")
             }}
             placeholder="选择楼层"
-            options={floors.data?.options.map((item) => ({ value: String(item.id), label: item.name, detail: `${item.seatCount} 个座位` })) || []}
+            options={
+              floors.data?.options.map((item) => ({
+                value: String(item.id),
+                label: item.name,
+                detail: `${item.seatCount} 个座位`,
+              })) || []
+            }
             disabled={!roomQuery || floors.isLoading}
             error={form.formState.errors.floorId?.message}
           />
@@ -356,7 +324,9 @@ function PlanEditor({
             }
           }}
           placeholder="选择时长"
-          options={durations.data?.options.map((value) => ({ value: String(value), label: `${value} 小时` })) || []}
+          options={
+            durations.data?.options.map((value) => ({ value: String(value), label: `${value} 小时` })) || []
+          }
           disabled={!hour || durations.isLoading}
           error={form.formState.errors.duration?.message}
         />
@@ -374,9 +344,7 @@ function PlanEditor({
         )}
       </Field>
       <DialogFooter variant="bare" className="px-0">
-        <DialogClose render={<Button type="button" variant="outline" />}>
-          取消
-        </DialogClose>
+        <DialogClose render={<Button type="button" variant="outline" />}>取消</DialogClose>
         <Button
           type="submit"
           loading={form.formState.isSubmitting || mutations.create.isPending || mutations.update.isPending}
@@ -461,7 +429,8 @@ function SortableRow({
  */
 const DragHandleContext = createContext<DragControls | null>(null)
 
-function ReorderHandle({ label }: { label: string }) {  const controls = useContext(DragHandleContext)
+function ReorderHandle({ label }: { label: string }) {
+  const controls = useContext(DragHandleContext)
 
   return (
     <button
@@ -490,9 +459,7 @@ function GroupEditor({
     defaultValues: { name: initial?.name || "", ids: initial?.memberPlanIds || [] },
   })
   const ids = form.watch("ids")
-  const ordered = ids
-    .map((id) => singles.find((plan) => plan.id === id))
-    .filter(Boolean) as BookingPlan[]
+  const ordered = ids.map((id) => singles.find((plan) => plan.id === id)).filter(Boolean) as BookingPlan[]
 
   async function submit(values: z.infer<typeof groupSchema>) {
     try {
@@ -511,9 +478,7 @@ function GroupEditor({
       <Field>
         <FieldLabel>组合名称</FieldLabel>
         <Input {...form.register("name")} />
-        {form.formState.errors.name?.message && (
-          <FormError>{form.formState.errors.name.message}</FormError>
-        )}
+        {form.formState.errors.name?.message && <FormError>{form.formState.errors.name.message}</FormError>}
       </Field>
       <Field>
         <FieldLabel>选择单条方案</FieldLabel>
@@ -522,24 +487,25 @@ function GroupEditor({
           onValueChange={(values) => form.setValue("ids", values, { shouldValidate: true })}
           className="grid gap-2"
         >
-          {singles.map((plan) => (
-            <label key={plan.id} className="flex items-start gap-3 rounded-lg border p-3 text-xs">
-              <Checkbox value={plan.id} />
-              <span>
-                <strong className="block">
-                  {plan.roomType} · 座位 {plan.seatNum}
-                </strong>
-                <small className="text-muted-foreground">
-                  {plan.floorName || `楼层 ${plan.floorId}`} ·{" "}
-                  {String(plan.startHour).padStart(2, "0")}:00 · {plan.durationHours} 小时
-                </small>
-              </span>
-            </label>
-          ))}
+          {singles.map((plan) => {
+            return (
+              // biome-ignore lint/a11y/noLabelWithoutControl: Checkbox 是 Base UI 组件，label 通过包裹建立关联
+              <label key={plan.id} className="flex items-start gap-3 rounded-lg border p-3 text-xs">
+                <Checkbox value={plan.id} />
+                <span>
+                  <strong className="block">
+                    {plan.roomType} · 座位 {plan.seatNum}
+                  </strong>
+                  <small className="text-muted-foreground">
+                    {plan.floorName || `楼层 ${plan.floorId}`} · {String(plan.startHour).padStart(2, "0")}:00
+                    · {plan.durationHours} 小时
+                  </small>
+                </span>
+              </label>
+            )
+          })}
         </CheckboxGroup>
-        {form.formState.errors.ids?.message && (
-          <FormError>{form.formState.errors.ids.message}</FormError>
-        )}
+        {form.formState.errors.ids?.message && <FormError>{form.formState.errors.ids.message}</FormError>}
       </Field>
       <div className="grid gap-2">
         <div className="flex items-baseline justify-between gap-3">
@@ -575,9 +541,7 @@ function GroupEditor({
         )}
       </div>
       <DialogFooter variant="bare" className="px-0">
-        <DialogClose render={<Button type="button" variant="outline" />}>
-          取消
-        </DialogClose>
+        <DialogClose render={<Button type="button" variant="outline" />}>取消</DialogClose>
         <Button type="submit" loading={form.formState.isSubmitting}>
           <Check className="size-4" />
           保存组合
@@ -590,8 +554,9 @@ function GroupEditor({
 export function PlansPage() {
   const plans = usePlans()
   const mutations = usePlanMutations()
-  const reduced = useReducedMotion()
-  const [dialog, setDialog] = useState<"type" | "single" | "group" | "edit-single" | "edit-group" | null>(null)
+  const [dialog, setDialog] = useState<"type" | "single" | "group" | "edit-single" | "edit-group" | null>(
+    null,
+  )
   const [selected, setSelected] = useState<PlanListItem>()
   const [deleteTarget, setDeleteTarget] = useState<PlanListItem | null>(null)
   const items = plans.data?.plans || []
@@ -637,11 +602,16 @@ export function PlansPage() {
 
       const names = displaced
         .map((id) => items.find((entry) => entry.id === id))
-        .map((entry) => (entry?.kind === "group" ? entry.name : entry ? `${entry.roomType} · ${entry.seatNum}` : null))
+        .map((entry) =>
+          entry?.kind === "group" ? entry.name : entry ? `${entry.roomType} · ${entry.seatNum}` : null,
+        )
         .filter((name): name is string => Boolean(name))
 
       undoToast({
-        title: names.length === 1 ? `已启用，之前启用的「${names[0]}」已停用` : `已启用，${names.length} 个原方案已停用`,
+        title:
+          names.length === 1
+            ? `已启用，之前启用的「${names[0]}」已停用`
+            : `已启用，${names.length} 个原方案已停用`,
         onUndo: async () => {
           try {
             // 先停用当前方案再恢复旧的，避免「同时只能启用一个」被破坏
@@ -675,173 +645,120 @@ export function PlansPage() {
     )
 
   return (
-    <div className="grid min-w-0 gap-6">
-      <BlurFade className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold tracking-widest text-muted-foreground">
-            WORKSPACE
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">预约方案</h1>
-          <AnimatedShinyText className="mt-1 block max-w-none text-sm">
-            配置一次预约规则，或按时间顺序组合多个方案。
-          </AnimatedShinyText>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {/* InteractiveHoverButton 自带圆点 + 悬停箭头作为 affordance；
-              children 会被放进一个 inline-block 的 span，再塞图标会让「+」
-              和文字分成两行。这里只传纯文本，accessible name 保持「创建方案」。 */}
-          <InteractiveHoverButton onClick={() => setDialog("type")}>
-            创建方案
-          </InteractiveHoverButton>
-        </div>
-      </BlurFade>
+    <PageShell>
+      <PageHeader
+        eyebrow="PLANS"
+        title="预约方案"
+        description="配置一次预约规则，或按时间顺序组合多个方案。"
+        actions={
+          // InteractiveHoverButton 自带圆点 + 悬停箭头作为 affordance；
+          // children 会被放进一个 inline-block 的 span，再塞图标会让「+」
+          // 和文字分成两行。这里只传纯文本，accessible name 保持「创建方案」。
+          <InteractiveHoverButton onClick={() => setDialog("type")}>创建方案</InteractiveHoverButton>
+        }
+      />
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <BlurFade>
-          <MagicCard className="h-full rounded-2xl border bg-card p-4 shadow-sm" gradientOpacity={0.08}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm text-muted-foreground">方案总数</p>
-                <p className="mt-2 text-2xl font-semibold tracking-tight">
-                  {reduced ? items.length : <NumberTicker value={items.length} className="text-foreground" />}
-                </p>
-              </div>
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-foreground">
-                <ListChecks className="size-4" />
-              </span>
-            </div>
-          </MagicCard>
-        </BlurFade>
-        <BlurFade delay={0.04}>
-          <MagicCard className="h-full rounded-2xl border bg-card p-4 shadow-sm" gradientOpacity={0.08}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm text-muted-foreground">已启用</p>
-                <p className="mt-2 text-2xl font-semibold tracking-tight">
-                  {reduced ? items.filter((item) => item.enabled).length : <NumberTicker value={items.filter((item) => item.enabled).length} className="text-foreground" />}
-                </p>
-              </div>
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-foreground">
-                <CheckCircle2 className="size-4" />
-              </span>
-            </div>
-          </MagicCard>
-        </BlurFade>
-        <BlurFade delay={0.08}>
-          <MagicCard className="h-full rounded-2xl border bg-card p-4 shadow-sm" gradientOpacity={0.08}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm text-muted-foreground">组合方案</p>
-                <p className="mt-2 text-2xl font-semibold tracking-tight">
-                  {reduced ? items.filter((item) => item.kind === "group").length : <NumberTicker value={items.filter((item) => item.kind === "group").length} className="text-foreground" />}
-                </p>
-              </div>
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-foreground">
-                <CalendarRange className="size-4" />
-              </span>
-            </div>
-          </MagicCard>
-        </BlurFade>
-      </div>
+      <StatGrid>
+        <StatTile icon={ListChecks} label="方案总数" value={items.length} />
+        <StatTile icon={CheckCircle2} label="已启用" value={items.filter((item) => item.enabled).length} />
+        <StatTile
+          icon={CalendarRange}
+          label="组合方案"
+          value={items.filter((item) => item.kind === "group").length}
+        />
+      </StatGrid>
 
-      <Card className="min-w-0">
-        <CardHeader>
-          <CardTitle>我的计划</CardTitle>
-          <CardDescription>同时只能启用一个方案，组合方案按成员顺序执行。</CardDescription>
-        </CardHeader>
-        <CardContent className="min-w-0">
-          {items.length ? (
-            <Table variant="card">
-              <TableHeader className="max-sm:hidden">
-                <TableRow>
-                  <TableHead>方案</TableHead>
-                  <TableHead className="hidden lg:table-cell">时间</TableHead>
-                  <TableHead className="hidden lg:table-cell">重复日期</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
+      <Panel title="我的计划" description="同时只能启用一个方案，组合方案按成员顺序执行。">
+        {items.length ? (
+          <Table variant="card">
+            <TableHeader className="max-sm:hidden">
+              <TableRow>
+                <TableHead>方案</TableHead>
+                <TableHead className="hidden lg:table-cell">时间</TableHead>
+                <TableHead className="hidden lg:table-cell">重复日期</TableHead>
+                <TableHead className="text-right">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((item) => (
+                <TableRow
+                  key={item.id}
+                  className="max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:items-center"
+                >
+                  <TableCell className="min-w-0 max-sm:overflow-hidden">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Badge variant={item.kind === "group" ? "info" : "outline"}>
+                        {item.kind === "group" ? (
+                          <CalendarDays className="size-3" />
+                        ) : (
+                          <ListChecks className="size-3" />
+                        )}
+                        {item.kind === "group" ? "组合" : "单条"}
+                      </Badge>
+                      <strong className="truncate">
+                        {item.kind === "group" ? item.name : `${item.roomType} · 座位 ${item.seatNum}`}
+                      </strong>
+                    </div>
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell">
+                    {item.kind === "group"
+                      ? `${item.memberPlanIds.length} 个方案`
+                      : `${item.floorName || `楼层 ${item.floorId}`} · ${String(item.startHour).padStart(
+                          2,
+                          "0",
+                        )}:00 · ${item.durationHours} 小时`}
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell">
+                    {item.weekdays.map((day) => weekdayLabels[day]).join("、")}
+                  </TableCell>
+                  <TableCell className="max-sm:ps-0">
+                    <div className="flex justify-end gap-2">
+                      <Switch
+                        checked={item.enabled}
+                        onCheckedChange={(checked) => void toggle(item, checked)}
+                        disabled={mutations.toggle.isPending}
+                        aria-label={item.enabled ? "停用方案" : "启用方案"}
+                      />
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setSelected(item)
+                          setDialog(item.kind === "group" ? "edit-group" : "edit-single")
+                        }}
+                        aria-label="编辑方案"
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        className="text-destructive"
+                        onClick={() => setDeleteTarget(item)}
+                        aria-label="删除方案"
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((item) => (
-                  <TableRow
-                    key={item.id}
-                    className="max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:items-center"
-                  >
-                    <TableCell className="min-w-0 max-sm:overflow-hidden">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <Badge variant={item.kind === "group" ? "info" : "outline"}>
-                          {item.kind === "group" ? (
-                            <CalendarDays className="size-3" />
-                          ) : (
-                            <ListChecks className="size-3" />
-                          )}
-                          {item.kind === "group" ? "组合" : "单条"}
-                        </Badge>
-                        <strong className="truncate">
-                          {item.kind === "group"
-                            ? item.name
-                            : `${item.roomType} · 座位 ${item.seatNum}`}
-                        </strong>
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell">
-                      {item.kind === "group"
-                        ? `${item.memberPlanIds.length} 个方案`
-                        : `${item.floorName || `楼层 ${item.floorId}`} · ${String(
-                            item.startHour,
-                          ).padStart(2, "0")}:00 · ${item.durationHours} 小时`}
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell">
-                      {item.weekdays.map((day) => weekdayLabels[day]).join("、")}
-                    </TableCell>
-                    <TableCell className="max-sm:ps-0">
-                      <div className="flex justify-end gap-2">
-                        <Switch
-                          checked={item.enabled}
-                          onCheckedChange={(checked) => void toggle(item, checked)}
-                          disabled={mutations.toggle.isPending}
-                          aria-label={item.enabled ? "停用方案" : "启用方案"}
-                        />
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setSelected(item)
-                            setDialog(item.kind === "group" ? "edit-group" : "edit-single")
-                          }}
-                          aria-label="编辑方案"
-                        >
-                          <Pencil />
-                        </Button>
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          className="text-destructive"
-                          onClick={() => setDeleteTarget(item)}
-                          aria-label="删除方案"
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <NoData
-              icon={ListChecks}
-              title="还没有预约方案"
-              description="创建方案后启用它，后台会在开放时间自动提交预约。"
-              action={
-                <Button onClick={() => setDialog("type")}>
-                  <Plus className="size-4" />
-                  创建第一个方案
-                </Button>
-              }
-            />
-          )}
-        </CardContent>
-      </Card>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <NoData
+            icon={ListChecks}
+            title="还没有预约方案"
+            description="创建方案后启用它，后台会在开放时间自动提交预约。"
+            action={
+              <Button onClick={() => setDialog("type")}>
+                <Plus className="size-4" />
+                创建第一个方案
+              </Button>
+            }
+          />
+        )}
+      </Panel>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogPopup>
@@ -946,6 +863,6 @@ export function PlansPage() {
           </DrawerFooter>
         </DrawerPopup>
       </Drawer>
-    </div>
+    </PageShell>
   )
 }

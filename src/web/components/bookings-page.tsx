@@ -1,15 +1,13 @@
 "use client"
 
-import { useEffect, useState, type ReactNode, type Ref } from "react"
-import { CalendarDays, RefreshCw } from "lucide-react"
+import { useState, type ReactNode, type Ref } from "react"
+import { CalendarCheck, CalendarDays, Clock3, RefreshCw } from "lucide-react"
 import {
   AnimatePresence,
   LayoutGroup,
   MotionConfig,
   motion,
   useReducedMotion,
-  useSpring,
-  useTransform,
   type Transition,
   type Variants,
 } from "motion/react"
@@ -17,23 +15,19 @@ import {
 import { Button } from "@/components/ui/button"
 import { toastManager } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
+import { PageHeader, PageShell, Panel, rise, StatGrid, StatTile } from "./page-layout"
 import type { Booking } from "../../shared/types"
 import { useBookingAction, useBookings, useNextTarget } from "../queries"
 import { useCountdown } from "../hooks/use-countdown"
 import { useRefreshSignal } from "../store"
 import { Busy, Failure, NoData } from "../shared"
 
-// 弹簧预设：交互反馈要跟手（轻微回弹），布局位移要稳，数字滚动临界阻尼（取整后不能过冲）
+// 弹簧预设：交互反馈要跟手（轻微回弹），布局位移要稳。
 const SNAPPY = { type: "spring", stiffness: 500, damping: 30, mass: 0.6 } satisfies Transition
 const SMOOTH = { type: "spring", stiffness: 320, damping: 32, mass: 0.9 } satisfies Transition
 const SETTLE = { type: "spring", stiffness: 90, damping: 16 } satisfies Transition
-const COUNT = { stiffness: 140, damping: 24, mass: 1 }
 
-// layout 动画需要 px 圆角，motion 才能在缩放时做圆角校正
-const RADIUS = 18
-
-const COLUMNS =
-  "sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(9rem,auto)]"
+const COLUMNS = "sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(9rem,auto)]"
 
 // 顺序即按钮渲染顺序；签到是唯一的主操作
 const ACTIONS = [
@@ -55,17 +49,6 @@ const press = {
   whileFocus: { y: -1 },
   whileTap: { scale: 0.96, y: 0 },
   transition: SNAPPY,
-}
-
-const page: Variants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.06 } },
-  exit: { opacity: 0, transition: SNAPPY },
-}
-
-const rise: Variants = {
-  hidden: { opacity: 0, y: 10 },
-  show: { opacity: 1, y: 0 },
 }
 
 const row: Variants = {
@@ -141,7 +124,6 @@ function BookingsView({
   onRefresh: () => void
   onAction: (booking: Booking, action: string) => void
 }) {
-  const [hoveredStat, setHoveredStat] = useState<string | null>(null)
   const [hoveredRow, setHoveredRow] = useState<string | null>(null)
 
   // 每次进入拉取状态就多转一圈，由弹簧自然停住，而不是匀速空转
@@ -152,151 +134,107 @@ function BookingsView({
     if (fetching) setTurns((t) => t + 1)
   }
 
-  const stats = [
-    { label: "可签到", value: rows.filter((b) => b.canCheckIn).length },
-    { label: "使用中", value: rows.filter((b) => b.state === "in_use").length },
-    { label: "全部预约", value: rows.length },
-  ]
-
   return (
-    <motion.div
-      className="flex flex-col gap-10"
-      variants={page}
-      initial="hidden"
-      animate="show"
-      exit="exit"
-    >
-      <motion.header variants={rise} className="flex items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">当前预约</h1>
-          <p className="mt-1.5 text-sm text-muted-foreground">
-            实时查看预约生命周期，并执行可用操作。
-          </p>
-          <NextRunHint />
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground hover:text-foreground"
-          disabled={fetching}
-          onClick={onRefresh}
-          render={<motion.button type="button" {...press} />}
-        >
-          <motion.span
-            className="inline-flex"
-            initial={false}
-            animate={{ rotate: turns * 360 }}
-            transition={SETTLE}
+    <PageShell>
+      <PageHeader
+        eyebrow="BOOKINGS"
+        title="当前预约"
+        description="实时查看预约生命周期，并执行可用操作。"
+        hint={<NextRunHint />}
+        actions={
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-foreground"
+            disabled={fetching}
+            onClick={onRefresh}
+            render={<motion.button type="button" {...press} />}
           >
-            <RefreshCw className="size-3.5" />
-          </motion.span>
-          刷新
-        </Button>
-      </motion.header>
-
-      <LayoutGroup id="booking-stats">
-        <motion.dl
-          variants={rise}
-          style={{ borderRadius: RADIUS }}
-          className="grid grid-cols-3 divide-x overflow-hidden border bg-card"
-          onPointerLeave={() => setHoveredStat(null)}
-        >
-          {stats.map(({ label, value }) => (
-            <div
-              key={label}
-              className="relative isolate px-5 py-4"
-              onPointerEnter={() => setHoveredStat(label)}
+            <motion.span
+              className="inline-flex"
+              initial={false}
+              animate={{ rotate: turns * 360 }}
+              transition={SETTLE}
             >
-              <Highlight id="stat-highlight" active={hoveredStat === label} />
-              <dt className="text-xs text-muted-foreground">{label}</dt>
-              <motion.dd
-                className="mt-2 text-2xl font-semibold tabular-nums tracking-tight"
-                initial={false}
-                animate={{ opacity: value === 0 ? 0.4 : 1 }}
-              >
-                <Count value={value} />
-              </motion.dd>
-            </div>
-          ))}
-        </motion.dl>
-      </LayoutGroup>
+              <RefreshCw className="size-3.5" />
+            </motion.span>
+            刷新
+          </Button>
+        }
+      />
 
-      <motion.section variants={rise} className="flex flex-col gap-3">
-        <div className="flex items-baseline justify-between gap-4">
-          <h2 className="text-sm font-medium">有效预约</h2>
-          <p className="text-xs text-muted-foreground">后台会自动处理进入签到窗口的预约。</p>
-        </div>
+      <StatGrid>
+        <StatTile icon={CalendarCheck} label="可签到" value={rows.filter((row) => row.canCheckIn).length} />
+        <StatTile icon={Clock3} label="使用中" value={rows.filter((row) => row.state === "in_use").length} />
+        <StatTile icon={CalendarDays} label="全部预约" value={rows.length} />
+      </StatGrid>
 
-        <motion.div
-          layout
-          style={{ borderRadius: RADIUS }}
-          className="relative overflow-hidden border bg-card"
-        >
-          <AnimatePresence mode="popLayout" initial={false}>
-            {rows.length ? (
+      <Panel title="有效预约" description="后台会自动处理进入签到窗口的预约。">
+        <AnimatePresence mode="popLayout" initial={false}>
+          {rows.length ? (
+            <motion.div
+              key="list"
+              layout="position"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="overflow-hidden rounded-xl border bg-card shadow-xs/5"
+            >
               <motion.div
-                key="list"
                 layout="position"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
+                className={cn(
+                  "hidden gap-6 border-b px-4 py-2.5 text-xs text-muted-foreground sm:grid",
+                  COLUMNS,
+                )}
               >
-                <motion.div
-                  layout="position"
-                  className={cn(
-                    "hidden gap-6 border-b px-5 py-2.5 text-xs text-muted-foreground sm:grid",
-                    COLUMNS,
-                  )}
+                <span>预约</span>
+                <span>时间</span>
+                <span>状态</span>
+                <span className="text-right">操作</span>
+              </motion.div>
+              <LayoutGroup id="booking-rows">
+                <ul
+                  className="relative divide-y"
+                  onPointerLeave={() => setHoveredRow(null)}
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) setHoveredRow(null)
+                  }}
                 >
-                  <span>预约</span>
-                  <span>时间</span>
-                  <span>状态</span>
-                  <span className="text-right">操作</span>
-                </motion.div>
-                <LayoutGroup id="booking-rows">
-                  <ul
-                    className="relative divide-y"
-                    onPointerLeave={() => setHoveredRow(null)}
-                    onBlur={(event) => {
-                      if (!event.currentTarget.contains(event.relatedTarget)) setHoveredRow(null)
-                    }}
-                  >
-                    <AnimatePresence mode="popLayout">
-                      {rows.map((booking, index) => (
-                        <Row
-                          key={booking.bookingId}
-                          booking={booking}
-                          index={index}
-                          highlighted={hoveredRow === booking.bookingId}
-                          busy={busy}
-                          pending={pending}
-                          onHighlight={() => setHoveredRow(booking.bookingId)}
-                          onAction={onAction}
-                        />
-                      ))}
-                    </AnimatePresence>
-                  </ul>
-                </LayoutGroup>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="empty"
-                layout="position"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-              >
-                <NoData
-                  icon={CalendarDays}
-                  title="暂无当前预约"
-                  description="预约成功后会自动出现在这里。已启用的方案会在开放时间由后台提交，无需手动操作。"
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-      </motion.section>
-    </motion.div>
+                  <AnimatePresence mode="popLayout">
+                    {rows.map((booking, index) => (
+                      <Row
+                        key={booking.bookingId}
+                        booking={booking}
+                        index={index}
+                        highlighted={hoveredRow === booking.bookingId}
+                        busy={busy}
+                        pending={pending}
+                        onHighlight={() => setHoveredRow(booking.bookingId)}
+                        onAction={onAction}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </ul>
+              </LayoutGroup>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="empty"
+              layout="position"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+            >
+              <NoData
+                icon={CalendarDays}
+                title="暂无当前预约"
+                description="预约成功后会自动出现在这里。已启用的方案会在开放时间由后台提交，无需手动操作。"
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </Panel>
+    </PageShell>
   )
 }
 
@@ -332,9 +270,7 @@ function NextRunHint() {
           transition={{ duration: 0.14 }}
           className="tabular-nums"
         >
-          {countdown?.overdueMs
-            ? "正在进行…"
-            : `还有 ${countdown?.text ?? "…"}`}
+          {countdown?.overdueMs ? "正在进行…" : `还有 ${countdown?.text ?? "…"}`}
         </motion.span>
       </AnimatePresence>
     </motion.p>
@@ -342,7 +278,8 @@ function NextRunHint() {
 }
 
 function Row({
-  ref,  booking,
+  ref,
+  booking,
   index,
   highlighted,
   busy,
@@ -370,7 +307,7 @@ function Row({
       initial="hidden"
       animate="show"
       exit="exit"
-      className={cn("relative isolate grid gap-3 px-5 py-4 sm:items-center sm:gap-6", COLUMNS)}
+      className={cn("relative isolate grid gap-3 px-4 py-3.5 sm:items-center sm:gap-6", COLUMNS)}
       onPointerEnter={onHighlight}
       onFocus={onHighlight}
     >
@@ -439,7 +376,13 @@ function Status({ tone, label }: { tone: Tone; label: string }) {
               initial={{ scale: 1, opacity: 0 }}
               animate={{ scale: [1, 3], opacity: [0.45, 0] }}
               exit={{ opacity: 0, transition: SNAPPY }}
-              transition={{ type: "spring", visualDuration: 1.2, bounce: 0, repeat: Infinity, repeatDelay: 0.5 }}
+              transition={{
+                type: "spring",
+                visualDuration: 1.2,
+                bounce: 0,
+                repeat: Infinity,
+                repeatDelay: 0.5,
+              }}
             />
           )}
         </AnimatePresence>
@@ -485,19 +428,6 @@ function Highlight({ id, active }: { id: string; active: boolean }) {
       )}
     </AnimatePresence>
   )
-}
-
-function Count({ value }: { value: number }) {
-  const reduced = useReducedMotion()
-  const spring = useSpring(reduced ? value : 0, COUNT)
-  const display = useTransform(spring, (v) => Math.round(v))
-
-  useEffect(() => {
-    if (reduced) spring.jump(value)
-    else spring.set(value)
-  }, [spring, value, reduced])
-
-  return <motion.span>{display}</motion.span>
 }
 
 function Fade({ children }: { children: ReactNode }) {

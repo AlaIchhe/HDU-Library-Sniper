@@ -5,8 +5,7 @@ import { ChevronRightIcon } from "lucide-react";
 import type * as React from "react";
 import { cn } from "@/lib/utils";
 
-export const MenuCreateHandle: typeof MenuPrimitive.createHandle =
-  MenuPrimitive.createHandle;
+export const MenuCreateHandle: typeof MenuPrimitive.createHandle = MenuPrimitive.createHandle;
 
 export const Menu: typeof MenuPrimitive.Root = MenuPrimitive.Root;
 
@@ -18,11 +17,7 @@ export function MenuTrigger({
   ...props
 }: MenuPrimitive.Trigger.Props): React.ReactElement {
   return (
-    <MenuPrimitive.Trigger
-      className={className}
-      data-slot="menu-trigger"
-      {...props}
-    >
+    <MenuPrimitive.Trigger className={className} data-slot="menu-trigger" {...props}>
       {children}
     </MenuPrimitive.Trigger>
   );
@@ -65,18 +60,14 @@ export function MenuPopup({
           data-slot="menu-popup"
           {...props}
         >
-          <div className="max-h-(--available-height) w-full overflow-y-auto p-1">
-            {children}
-          </div>
+          <div className="max-h-(--available-height) w-full overflow-y-auto p-1">{children}</div>
         </MenuPrimitive.Popup>
       </MenuPrimitive.Positioner>
     </MenuPortal>
   );
 }
 
-export function MenuGroup(
-  props: MenuPrimitive.Group.Props,
-): React.ReactElement {
+export function MenuGroup(props: MenuPrimitive.Group.Props): React.ReactElement {
   return <MenuPrimitive.Group data-slot="menu-group" {...props} />;
 }
 
@@ -103,31 +94,6 @@ export function MenuItem({
   );
 }
 
-export function MenuLinkItem({
-  className,
-  inset,
-  variant = "default",
-  closeOnClick = true,
-  ...props
-}: MenuPrimitive.LinkItem.Props & {
-  inset?: boolean;
-  variant?: "default" | "destructive";
-}): React.ReactElement {
-  return (
-    <MenuPrimitive.LinkItem
-      className={cn(
-        "flex min-h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 py-1 text-base text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-inset:ps-8 data-[variant=destructive]:text-destructive-foreground data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg:not([class*='size-'])]:size-4.5 sm:[&>svg:not([class*='size-'])]:size-4 [&>svg]:pointer-events-none [&>svg]:-mx-0.5 [&>svg]:shrink-0",
-        className,
-      )}
-      closeOnClick={closeOnClick}
-      data-inset={inset}
-      data-slot="menu-link-item"
-      data-variant={variant}
-      {...props}
-    />
-  );
-}
-
 export function MenuCheckboxItem({
   className,
   children,
@@ -142,9 +108,7 @@ export function MenuCheckboxItem({
       checked={checked}
       className={cn(
         "grid min-h-8 in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)] cursor-default items-center gap-2 rounded-sm py-1 ps-2 text-base text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-        variant === "switch"
-          ? "grid-cols-[1fr_auto] gap-4 pe-1.5"
-          : "grid-cols-[.75rem_1fr] pe-4",
+        variant === "switch" ? "grid-cols-[1fr_auto] gap-4 pe-1.5" : "grid-cols-[.75rem_1fr] pe-4",
         className,
       )}
       data-slot="menu-checkbox-item"
@@ -185,9 +149,7 @@ export function MenuCheckboxItem({
   );
 }
 
-export function MenuRadioGroup(
-  props: MenuPrimitive.RadioGroup.Props,
-): React.ReactElement {
+export function MenuRadioGroup(props: MenuPrimitive.RadioGroup.Props): React.ReactElement {
   return <MenuPrimitive.RadioGroup data-slot="menu-radio-group" {...props} />;
 }
 
@@ -246,10 +208,7 @@ export function MenuGroupLabel({
   );
 }
 
-export function MenuSeparator({
-  className,
-  ...props
-}: MenuPrimitive.Separator.Props): React.ReactElement {
+export function MenuSeparator({ className, ...props }: MenuPrimitive.Separator.Props): React.ReactElement {
   return (
     <MenuPrimitive.Separator
       className={cn("mx-2 my-1 h-px bg-border", className)}
@@ -259,10 +218,7 @@ export function MenuSeparator({
   );
 }
 
-export function MenuShortcut({
-  className,
-  ...props
-}: React.ComponentProps<"kbd">): React.ReactElement {
+export function MenuShortcut({ className, ...props }: React.ComponentProps<"kbd">): React.ReactElement {
   return (
     <kbd
       className={cn(
@@ -275,9 +231,7 @@ export function MenuShortcut({
   );
 }
 
-export function MenuSub(
-  props: MenuPrimitive.SubmenuRoot.Props,
-): React.ReactElement {
+export function MenuSub(props: MenuPrimitive.SubmenuRoot.Props): React.ReactElement {
   return <MenuPrimitive.SubmenuRoot data-slot="menu-sub" {...props} />;
 }
 

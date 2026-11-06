@@ -65,19 +65,13 @@ export function Button({
   ...props
 }: ButtonProps): React.ReactElement {
   const isDisabled: boolean = Boolean(loading || disabledProp);
-  const typeValue: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] =
-    render ? undefined : "button";
+  const typeValue: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] = render ? undefined : "button";
 
   const defaultProps = {
     children: (
       <>
         {children}
-        {loading && (
-          <Spinner
-            className="pointer-events-none absolute"
-            data-slot="button-loading-indicator"
-          />
-        )}
+        {loading && <Spinner className="pointer-events-none absolute" data-slot="button-loading-indicator" />}
       </>
     ),
     className: cn(buttonVariants({ className, size, variant })),
