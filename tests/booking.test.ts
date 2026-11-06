@@ -101,6 +101,38 @@ describe("BookingExecutor idempotency", () => {
     const result = await executor.runBurst(false, { intervalMs: 0, timeoutMs: 5_000 });
     expect(result.success).toBe(true);
     expect(client.bookSeat).toHaveBeenCalledTimes(3);
+    // 每次提交前都必须重新查询座位，否则服务端会拒绝“订座流程异常”。
+    expect(client.floors).toHaveBeenCalledTimes(3);
+  });
+
+  test("runBurst() stops immediately when the account is rate-limited for 10 minutes", async () => {
+    const client = fakeClient();
+    client.bookSeat.mockResolvedValue({ CODE: "1", MESSAGE: "请求过于频繁，请10分钟后再试" });
+    const pauses: number[] = [];
+    const executor = new BookingExecutor(client, async (ms) => { pauses.push(ms); });
+
+    const result = await executor.runBurst(false, { intervalMs: 1_000, timeoutMs: 60_000 });
+
+    expect(result.success).toBe(false);
+    expect(result.members[0]?.blocked).toBe(true);
+    expect(result.message).toContain("10 分钟");
+    // 封禁是账号级的，继续重试只会延长封禁。
+    expect(client.bookSeat).toHaveBeenCalledTimes(1);
+    expect(pauses).toEqual([]);
+  });
+
+  test("runBurst() waits out a mobile throttle before retrying", async () => {
+    const client = fakeClient();
+    client.bookSeat
+      .mockResolvedValueOnce({ CODE: "1", MESSAGE: "请求太频繁了，请稍后再试" })
+      .mockResolvedValue({ CODE: "ok", DATA: { result: "success" } });
+    const pauses: number[] = [];
+    const executor = new BookingExecutor(client, async (ms) => { pauses.push(ms); });
+
+    const result = await executor.runBurst(false, { intervalMs: 1_000, timeoutMs: 60_000 });
+
+    expect(result.success).toBe(true);
+    expect(pauses[0]).toBe(15_000);
   });
 
   test("runBurst() gives up after the timeout when the window never opens", async () => {

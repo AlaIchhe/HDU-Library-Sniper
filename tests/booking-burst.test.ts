@@ -56,7 +56,9 @@ describe("BookingExecutor burst", () => {
     closeDb = () => db.close();
     seedPlan(db as unknown as import("bun:sqlite").Database);
 
-    const { BookingExecutor } = await import("../src/server/booking");
+    const { BookingExecutor, pacing } = await import("../src/server/booking");
+    pacing.intervalMs = 0;
+    pacing.reset();
     const { client, calls } = makeClient((path) => {
       if (path === "bookSeats") return { CODE: "1", MESSAGE: "已有预约，请勿重复预约！" };
       return [];
@@ -84,7 +86,9 @@ describe("BookingExecutor burst", () => {
     const { db } = await import("../src/server/db");
     db.query("DELETE FROM audit").run();
 
-    const { BookingExecutor } = await import("../src/server/booking");
+    const { BookingExecutor, pacing } = await import("../src/server/booking");
+    pacing.intervalMs = 0;
+    pacing.reset();
     const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
     now.setDate(now.getDate() + 2); // 默认房型提前两天开放预约
     const targetBegin = Math.floor(new Date(`${now.toISOString().slice(0, 10)}T07:00:00+08:00`).getTime() / 1000);

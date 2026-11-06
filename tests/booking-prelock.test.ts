@@ -167,15 +167,15 @@ describe("booking prelock", () => {
     expect(locked.locks).toHaveLength(1);
     expect(locked.locks[0]).toMatchObject({ seatId: "lock-101", seatNum: "101", locked: false });
 
-    // 20:00 直接用提前解析好的座位，不再查一次座位图。
+    // 20:00 仍然先查询座位（服务端流程校验），再提交预锁座位。
     const result = await executor.runBurst(false, { intervalMs: 0, timeoutMs: 100 });
 
     expect(result.success).toBe(true);
     expect(client.bookSeat.mock.calls.map((call) => call[0])).toEqual(["lock-101"]);
-    expect(client.floors).toHaveBeenCalledTimes(1);
+    expect(client.floors).toHaveBeenCalledTimes(2);
   });
 
-  test("keeps a successful lock and books the same seat at the anchor without a floor lookup", async () => {
+  test("keeps a successful lock and books the same seat at the anchor", async () => {
     const { client, calls } = fakeClient();
     const executor = new BookingExecutor(client as unknown as LibraryClient, noopPause);
 
@@ -187,7 +187,7 @@ describe("booking prelock", () => {
     const result = await executor.runBurst(false, { intervalMs: 0, timeoutMs: 100 });
     expect(result.success).toBe(true);
     expect(calls.filter((call) => call.action === "book")).toEqual([{ action: "book", seatId: "lock-101" }]);
-    expect(client.floors).toHaveBeenCalledTimes(1);
+    expect(client.floors).toHaveBeenCalledTimes(2);
   });
 
   test("falls back to the next seat when the locked seat is taken at the anchor", async () => {
