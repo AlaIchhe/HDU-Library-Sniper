@@ -29,6 +29,7 @@ db.exec(`
     name TEXT NOT NULL DEFAULT '',
     student_id TEXT NOT NULL DEFAULT '',
     password TEXT NOT NULL DEFAULT '',
+    openid TEXT NOT NULL DEFAULT '',
     cookies TEXT NOT NULL DEFAULT '[]',
     updated_at TEXT NOT NULL
   );

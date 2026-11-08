@@ -23,6 +23,7 @@ describe("session credential persistence", () => {
     const columns = db.query("PRAGMA table_info(session)").all() as Array<{ name: string }>;
     expect(columns.map((column) => column.name)).toContain("student_id");
     expect(columns.map((column) => column.name)).toContain("password");
+    expect(columns.map((column) => column.name)).toContain("openid");
 
     const { AuthService } = await import("../src/server/auth");
     db.query(

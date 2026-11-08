@@ -70,6 +70,8 @@ function encryptPassword(keyBase64: string, password: string): string {
 
 export class AuthService {
   private credentials: { studentId: string; password: string } | undefined;
+  /** 微信端 openid：作为 Cookie 失效后的刷新凭据，与学号密码二选一。 */
+  private openid: string | undefined;
   private csrf: { key: string; value: string } = { key: SSO_CSRF_KEY, value: SSO_CSRF_VALUE };
   // 每个二维码的扫码状态：由 createQrLogin 启动的后台循环写入，status 端点即时读取。
   private qrSessions = new Map<string, QrSessionState>();
@@ -77,16 +79,18 @@ export class AuthService {
 
   constructor() {
     const row = db
-      .query("SELECT cookies, uid, name, student_id, password FROM session WHERE id = 1")
+      .query("SELECT cookies, uid, name, student_id, password, openid FROM session WHERE id = 1")
       .get() as {
       cookies?: string;
       uid?: string;
       name?: string;
       student_id?: string;
       password?: string;
+      openid?: string;
     } | null;
     if (row?.student_id && row.password)
       this.credentials = { studentId: row.student_id, password: row.password };
+    this.openid = row?.openid || undefined;
     const jar = new CookieJar(row?.cookies ? JSON.parse(row.cookies) : []);
     this.client = new LibraryClient({
       jar,
@@ -149,7 +153,7 @@ export class AuthService {
 
   private async restoreOnce(): Promise<boolean> {
     if (await this.client.validate()) return true;
-    if (this.credentials) return this.refresh();
+    if (this.credentials || this.openid) return this.refresh();
     return false;
   }
 
@@ -190,9 +194,10 @@ export class AuthService {
       }
       await this.client.validate();
       if (!this.client.uid) return { success: false, message: "Cookie 无效或登录态未生效" };
+      this.openid = undefined;
       await db
         .query(
-          "INSERT INTO session(id,cookies,uid,name,student_id,password,updated_at) VALUES(1,?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id=excluded.student_id,password=excluded.password,updated_at=excluded.updated_at",
+          "INSERT INTO session(id,cookies,uid,name,student_id,password,openid,updated_at) VALUES(1,?1,?2,?3,?4,?5,'',?6) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id=excluded.student_id,password=excluded.password,openid='',updated_at=excluded.updated_at",
         )
         .run(
           JSON.stringify(this.client.jar.all),
@@ -230,6 +235,7 @@ export class AuthService {
       uid: this.client.uid,
       name: this.client.name,
       credentials: this.credentials,
+      openid: this.openid,
     };
     try {
       this.client.jar.clear();
@@ -253,15 +259,17 @@ export class AuthService {
         await this.rollbackJar(snapshot);
         return { success: false, message: "openid 无效或登录态未生效" };
       }
-      // openid 会话与学号密码无关：清掉旧凭据，避免 refresh() 又用 CAS 登回另一个账号。
+      // openid 会话与学号密码无关：清掉旧密码，保存 openid 作为后续刷新凭据。
+      this.openid = openid;
       await db
         .query(
-          "INSERT INTO session(id,cookies,uid,name,student_id,password,updated_at) VALUES(1,?1,?2,?3,'','',?4) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id='',password='',updated_at=excluded.updated_at",
+          "INSERT INTO session(id,cookies,uid,name,student_id,password,openid,updated_at) VALUES(1,?1,?2,?3,'','',?4,?5) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id='',password='',openid=excluded.openid,updated_at=excluded.updated_at",
         )
         .run(
           JSON.stringify(this.client.jar.all),
           this.client.uid,
           this.client.name,
+          openid,
           new Date().toISOString(),
         );
       return { success: true, message: `认证成功${this.client.name ? `：${this.client.name}` : ""}` };
@@ -279,11 +287,13 @@ export class AuthService {
     uid: string;
     name: string;
     credentials?: { studentId: string; password: string };
+    openid?: string;
   }): Promise<void> {
     this.client.jar.replaceAll(snapshot.cookies);
     this.client.uid = snapshot.uid;
     this.client.name = snapshot.name;
     this.credentials = snapshot.credentials;
+    this.openid = snapshot.openid;
     await this.persistJar();
   }
 
@@ -385,13 +395,14 @@ export class AuthService {
     await this.client.validate();
     if (!this.client.uid) throw new Error("扫码登录后 Cookie 无效");
 
-    const row = db.query("SELECT student_id, password FROM session WHERE id = 1").get() as {
+    const row = db.query("SELECT student_id, password, openid FROM session WHERE id = 1").get() as {
       student_id?: string;
       password?: string;
+      openid?: string;
     } | null;
     await db
       .query(
-        "INSERT INTO session(id,cookies,uid,name,student_id,password,updated_at) VALUES(1,?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id=excluded.student_id,password=excluded.password,updated_at=excluded.updated_at",
+        "INSERT INTO session(id,cookies,uid,name,student_id,password,openid,updated_at) VALUES(1,?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(id) DO UPDATE SET cookies=excluded.cookies,uid=excluded.uid,name=excluded.name,student_id=excluded.student_id,password=excluded.password,openid=excluded.openid,updated_at=excluded.updated_at",
       )
       .run(
         JSON.stringify(this.client.jar.all),
@@ -399,6 +410,7 @@ export class AuthService {
         this.client.name,
         row?.student_id || "",
         row?.password || "",
+        row?.openid || "",
         new Date().toISOString(),
       );
   }
@@ -503,8 +515,30 @@ export class AuthService {
   }
 
   async refresh(): Promise<boolean> {
-    if (!this.credentials) return false;
-    const result = await this.login(this.credentials.studentId, this.credentials.password);
-    return result.success;
+    if (this.credentials) {
+      const result = await this.login(this.credentials.studentId, this.credentials.password);
+      return result.success;
+    }
+    return this.refreshWithOpenid();
+  }
+
+  /** Cookie 失效时用保存的 openid 重新换取登录态。 */
+  private async refreshWithOpenid(): Promise<boolean> {
+    const openid = this.openid;
+    if (!openid) return false;
+    try {
+      this.client.jar.clear();
+      this.client.uid = "";
+      this.client.name = "";
+      const response = await this.followRedirects(
+        `${LIBRARY_BASE}/content/index/startUp/openid/${encodeURIComponent(openid)}/`,
+        { headers: { "User-Agent": OPENID_USER_AGENT, Accept: "text/html,application/xhtml+xml,*/*" } },
+      );
+      if (!response.ok || response.url.includes("sso.hdu.edu.cn")) return false;
+      await this.client.validate();
+      return Boolean(this.client.uid);
+    } catch {
+      return false;
+    }
   }
 }

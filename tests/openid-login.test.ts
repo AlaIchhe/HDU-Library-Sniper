@@ -24,12 +24,12 @@ afterEach(() => {
 describe("extractOpenid", () => {
   test("accepts a bare openid and a full wechat link", async () => {
     const { extractOpenid } = await import("../src/server/auth");
-    expect(extractOpenid("okOhQt-6kvozwqD9JhY_A4_8nXEQ")).toBe("okOhQt-6kvozwqD9JhY_A4_8nXEQ");
+    expect(extractOpenid("test-openid-0123456789")).toBe("test-openid-0123456789");
     expect(
       extractOpenid(
-        "https://hdu.huitu.zhishulib.com/content/index/startUp/openid/okOhQt-6kvozwqD9JhY_A4_8nXEQ/#!/User/Center/myAppoint?tab=0",
+        "https://hdu.huitu.zhishulib.com/content/index/startUp/openid/test-openid-0123456789/#!/User/Center/myAppoint?tab=0",
       ),
-    ).toBe("okOhQt-6kvozwqD9JhY_A4_8nXEQ");
+    ).toBe("test-openid-0123456789");
     expect(extractOpenid("bad value!")).toBe("");
     expect(extractOpenid("")).toBe("");
   });
@@ -75,19 +75,20 @@ describe("AuthService.loginWithOpenid", () => {
     const { AuthService } = await import("../src/server/auth");
     const auth = new AuthService();
     const result = await auth.loginWithOpenid(
-      "https://hdu.huitu.zhishulib.com/content/index/startUp/openid/okOhQt-6kvozwqD9JhY_A4_8nXEQ/",
+      "https://hdu.huitu.zhishulib.com/content/index/startUp/openid/test-openid-0123456789/",
     );
 
     expect(result.success).toBe(true);
     expect(auth.status().uid).toBe("172171");
-    expect(calls[0]).toContain("/content/index/startUp/openid/okOhQt-6kvozwqD9JhY_A4_8nXEQ/");
+    expect(calls[0]).toContain("/content/index/startUp/openid/test-openid-0123456789/");
     const row = db
-      .query("SELECT uid, name, student_id, password, cookies FROM session WHERE id = 1")
+      .query("SELECT uid, name, student_id, password, openid, cookies FROM session WHERE id = 1")
       .get() as Record<string, string>;
     expect(row.uid).toBe("172171");
     expect(row.name).toBe("openid-user");
     expect(row.student_id).toBe("");
     expect(row.password).toBe("");
+    expect(row.openid).toBe("test-openid-0123456789");
     expect(JSON.parse(row.cookies).map((cookie: { name: string }) => cookie.name)).toContain("auth");
   });
 
@@ -131,13 +132,56 @@ describe("AuthService.loginWithOpenid", () => {
 
     const { AuthService } = await import("../src/server/auth");
     const auth = new AuthService();
-    const result = await auth.loginWithOpenid("okOhQt-6kvozwqD9JhY_A4_8nXEQ");
+    const result = await auth.loginWithOpenid("test-openid-0123456789");
 
     expect(result.success).toBe(false);
     expect(auth.status().uid).toBe("old");
     const row = db.query("SELECT uid, cookies FROM session WHERE id = 1").get() as Record<string, string>;
     expect(row.uid).toBe("old");
     expect(JSON.parse(row.cookies).map((cookie: { name: string }) => cookie.name)).toEqual(["PHPSESSID"]);
+  });
+
+  test("refresh falls back to the stored openid when cookies expire", async () => {
+    const { db } = await import("../src/server/db");
+    const openid = "test-openid-0123456789";
+    db.query(
+      "UPDATE session SET uid='', name='', student_id='', password='', openid=?1, cookies='[]' WHERE id=1",
+    ).run(openid);
+    const redirectWithCookies = (cookies: string[]): Response =>
+      ({
+        status: 302,
+        ok: false,
+        url: "",
+        headers: {
+          getSetCookie: () => cookies,
+          get: (name: string) =>
+            name.toLowerCase() === "location" ? "https://hdu.huitu.zhishulib.com/" : null,
+        },
+        text: async () => "",
+        json: async () => ({}),
+      }) as unknown as Response;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/content/index/startUp/openid/")) {
+        return redirectWithCookies(["auth=refreshed; Path=/; HttpOnly", "uid=abc; Path=/"]);
+      }
+      if (url.endsWith("/User/Center/baseInfo")) {
+        return Response.json({
+          CODE: "ok",
+          DATA: { is_login: true, uid: "172171", user_info: { name: "openid-user" } },
+        });
+      }
+      return new Response("<html>ok</html>", { status: 200 });
+    }) as typeof fetch;
+
+    const { AuthService } = await import("../src/server/auth");
+    const auth = new AuthService();
+    expect(auth.status().authenticated).toBe(false);
+    await expect(auth.refresh()).resolves.toBe(true);
+    expect(auth.status().uid).toBe("172171");
+    const row = db.query("SELECT openid, cookies FROM session WHERE id = 1").get() as Record<string, string>;
+    expect(row.openid).toBe(openid);
+    expect(JSON.parse(row.cookies).map((cookie: { name: string }) => cookie.name)).toContain("auth");
   });
 
   test("invalid openid is rejected without touching the existing session", async () => {
