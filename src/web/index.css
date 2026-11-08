@@ -403,3 +403,10 @@
   clip-path: var(--magicui-theme-vt-clip-from, circle(0% at 50% 50%));
   animation: none;
 }
+
+/* 窄窗口的底部 dock 会盖住右下角 toast，把 toast 的底部 inset 抬到 dock 上方。 */
+@media (max-width: 1023px) {
+  [data-slot="toast-viewport"][data-position*="bottom"] {
+    bottom: calc(var(--toast-inset) + 5rem);
+  }
+}
