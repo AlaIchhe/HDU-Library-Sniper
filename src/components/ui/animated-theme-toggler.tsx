@@ -20,7 +20,7 @@ interface AnimatedThemeTogglerProps extends React.ComponentPropsWithoutRef<"butt
   fromCenter?: boolean;
   /**
    * Controlled theme value. When provided, the parent owns persistence
-   * (e.g. `next-themes`) and this component will not write to localStorage.
+   * (e.g. the app theme store) and this component will not write to localStorage.
    */
   theme?: "light" | "dark";
   /** Called on toggle. Pair with `theme` for controlled usage. */

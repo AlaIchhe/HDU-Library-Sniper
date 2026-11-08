@@ -114,4 +114,6 @@ src-tauri/               Tauri v2 桌面端、托盘、Windows 自启命令
 src-tauri/wix-fragments/ MSI WiX 安装/卸载 hook
 scripts/                 Podman 和 systemd 定时器脚本
 tests/                   前端和服务测试
+Containerfile            容器镜像定义（compose.yaml 引用它；镜像构建前先 vite build）
+compose.yaml             Docker Compose 编排
 ```

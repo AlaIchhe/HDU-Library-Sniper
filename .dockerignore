@@ -1,0 +1,17 @@
+node_modules
+dist
+.git
+.github
+artifacts
+.dsh-im
+.tmp-visual
+playwright-report
+test-results
+docs/media
+src-tauri/target
+src-tauri/gen
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
