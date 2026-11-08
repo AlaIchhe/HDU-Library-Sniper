@@ -407,7 +407,7 @@ export function AppShell() {
   const bookingsActive = pathname === "/bookings"
 
   return (
-    <div className="relative min-h-dvh min-w-0 overflow-x-hidden bg-background text-foreground">
+    <div className="relative min-h-dvh min-w-0 overflow-x-hidden text-foreground">
       <LightRays
         count={5}
         color="rgba(140, 180, 255, 0.12)"

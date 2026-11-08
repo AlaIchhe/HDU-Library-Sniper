@@ -2,36 +2,101 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { IconKey, IconLogin, IconQrcode, IconRefresh, IconShieldCheck } from "@tabler/icons-react"
+import {
+  IconAlertTriangle,
+  IconInfoCircle,
+  IconLibrary,
+  IconLogin,
+  IconQrcode,
+  IconRefresh,
+} from "@tabler/icons-react"
+import { QRCodeSVG } from "qrcode.react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { z } from "zod"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { Field, FieldLabel, FormError } from "@/components/ui/field"
-import { Form } from "@/components/ui/form"
+import { Card } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Field, FieldDescription, FieldLabel, FormError } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Separator } from "@/components/ui/separator"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Spinner } from "@/components/ui/spinner"
+import { cn } from "@/lib/utils"
 import { api } from "../api"
 import { useSession } from "../queries"
 import { useAppStore } from "../store"
 import { consumeReturnTo } from "../return-to"
+import { openExternalUrl } from "../tauri"
 import { Busy, loginSchema } from "../shared"
 import type { QrLoginStart } from "../../shared/types"
 
-// 二维码状态机。UI 只对“确定性”状态做反馈，不做中间态伪反馈：
-//  - loading：正在获取二维码（确定）
-//  - ready：二维码已就绪，等待用户扫码（确定）
-//  - confirmed：已确认登录成功（确定）
-//  - expired / error：二维码已失效或获取失败（确定，需要换码）
-// 轮询期间（ready 之后、confirmed/expired 之前）不产生任何“等待服务器/已扫描/待确认”
-// 文案——SSO 不暴露这些中间态，任何此类反馈都是歧义。
-type QrState = "loading" | "ready" | "confirmed" | "expired" | "error"
+const LIBRARY_URL = "https://hdu.huitu.zhishulib.com/"
+const ISSUES_URL = "https://github.com/AlaIchhe/HDU-Library-Sniper/issues"
+
+// 登录页只对“确定性”状态做反馈：加载中、可扫码、获取失败。
+// SSO 不暴露“已扫描/待确认”，客户端也不做伪中间态。
+type QrState = "loading" | "ready" | "error"
+type LoginTab = "password" | "openid"
+
+// 登录卡是局部的高密度表单：40px 控件比全局的紧凑桌面控件更适合输入密码。
+const inputClass = "[&>input]:h-10 [&>input]:leading-10 sm:[&>input]:h-10 sm:[&>input]:leading-10"
+
+function tabClass(active: boolean): string {
+  return cn(
+    "h-8 rounded-md text-sm font-medium outline-none transition-[background-color,color,box-shadow] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+    active ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
+  )
+}
+
+function OpenidGuide({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup className="sm:max-w-[26rem]">
+        <DialogHeader className="shrink-0">
+          <DialogTitle>获取 openid</DialogTitle>
+          <DialogDescription>openid 只能从微信里带出来，按下面四步操作。</DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="min-h-0 flex-1" scrollFade overscrollContain>
+          <div className="grid gap-4 px-6 pb-6">
+            <div className="justify-self-center rounded-xl border bg-white p-3">
+              <QRCodeSVG value={LIBRARY_URL} size={168} level="M" marginSize={2} title="微信扫码打开图书馆" />
+            </div>
+            <p className="text-center text-xs text-muted-foreground">微信扫一扫</p>
+            <ol className="grid list-decimal gap-2 pl-5 text-sm text-muted-foreground marker:text-muted-foreground">
+              <li>用微信扫一扫上面的二维码，打开图书馆并登录。</li>
+              <li>
+                登录成功后，地址栏会变成{" "}
+                <code className="break-all rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+                  …/startUp/openid/…/
+                </code>
+                。
+              </li>
+              <li>点右上角「…」→「复制链接」，发给电脑上的微信（文件传输助手）。</li>
+              <li>回到这里，把整条链接粘贴到上面的 OpenID 输入框，不需要手动截取。</li>
+            </ol>
+            <div className="flex gap-2 rounded-lg bg-muted/60 p-3 text-xs leading-5 text-muted-foreground">
+              <IconInfoCircle className="mt-0.5 size-4 shrink-0" />
+              <p>openid 等同登录凭据，只在这个应用里粘贴，不要发给别人。</p>
+            </div>
+          </div>
+        </ScrollArea>
+        <DialogFooter className="shrink-0">
+          <DialogClose render={<Button type="button" />}>知道了</DialogClose>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  )
+}
 
 function LoginPage() {
   const navigate = useNavigate()
@@ -40,13 +105,16 @@ function LoginPage() {
     resolver: zodResolver(loginSchema),
     defaultValues: { studentId: "", password: "" },
   })
-  const [error, setError] = useState("")
+  const [tab, setTab] = useState<LoginTab>("password")
+  const [mode, setMode] = useState<"form" | "qr">("form")
+  const [passwordError, setPasswordError] = useState("")
   const [openid, setOpenid] = useState("")
   const [openidError, setOpenidError] = useState("")
   const [openidBusy, setOpenidBusy] = useState(false)
   const [qr, setQr] = useState<QrLoginStart | null>(null)
   const [qrState, setQrState] = useState<QrState>("loading")
   const [qrMessage, setQrMessage] = useState("正在获取登录二维码")
+  const [guideOpen, setGuideOpen] = useState(false)
   const qrNonce = useRef(0)
 
   const loadQr = useCallback(async () => {
@@ -55,9 +123,9 @@ function LoginPage() {
     setQrState("loading")
     setQrMessage("正在获取登录二维码")
     try {
-      const nextQr = await api.qrStart()
+      const next = await api.qrStart()
       if (nonce !== qrNonce.current) return
-      setQr(nextQr)
+      setQr(next)
       setQrState("ready")
       setQrMessage("请使用钉钉扫码登录")
     } catch (cause) {
@@ -67,25 +135,26 @@ function LoginPage() {
     }
   }, [])
 
-  // 二维码生命周期由两个独立时钟驱动，互不干扰：
-  //  - 轮询时钟：只探测“是否已确认/是否已失效”，不改变二维码本身；
-  //  - 到期时钟：二维码展示超过安全窗口后自动换新码，避免用户对着失效码空等。
-  const pollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const expiryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const loop = useRef({ stopped: true })
-
+  // 只有进入扫码模式才向 SSO 取码，登录页打开时不再无谓地请求一张没人看的二维码。
   useEffect(() => {
-    if (!qr) return
+    if (mode !== "qr") return
+    void loadQr()
+  }, [mode, loadQr])
+
+  // 轮询与到期换码只在扫码模式下运行。离开扫码页时 effect 清理，后台不再发请求。
+  useEffect(() => {
+    if (mode !== "qr" || !qr) return
     const currentQr = qr
-    let cancelled = false
+    let stopped = false
+    let pollTimer: ReturnType<typeof setTimeout> | undefined
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined
 
     async function tick() {
-      if (loop.current.stopped || cancelled) return
+      if (stopped) return
       try {
         const result = await api.qrStatus(currentQr.uuid)
-        if (loop.current.stopped || cancelled) return
+        if (stopped) return
         if (result.status === "confirmed") {
-          setQrState("confirmed")
           if (result.session?.authenticated) {
             setSession(result.session)
             await navigate({ to: consumeReturnTo(), replace: true })
@@ -103,53 +172,53 @@ function LoginPage() {
         if (result.status === "error") {
           // 服务端短暂异常：不立即判死，稍后重试一轮。
           await new Promise((resolve) => setTimeout(resolve, 800))
-          if (loop.current.stopped || cancelled) return
-          pollTimer.current = setTimeout(tick, 0)
+          if (stopped) return
+          pollTimer = setTimeout(tick, 0)
           return
         }
         // waiting：二维码仍有效，静默继续下一轮。
-        pollTimer.current = setTimeout(tick, 1000)
+        pollTimer = setTimeout(tick, 1000)
       } catch {
-        if (loop.current.stopped || cancelled) return
-        pollTimer.current = setTimeout(tick, 1500)
+        if (stopped) return
+        pollTimer = setTimeout(tick, 1500)
       }
     }
 
-    loop.current.stopped = false
-    pollTimer.current = setTimeout(tick, 800)
+    pollTimer = setTimeout(tick, 800)
 
     // 到期自动换码：在安全窗口到期前提前刷新。
     const ttl = Math.max(20, currentQr.ttlSeconds || 90)
     const lead = Math.min(10, Math.floor(ttl / 4))
-    expiryTimer.current = setTimeout(
+    expiryTimer = setTimeout(
       () => {
-        if (loop.current.stopped || cancelled) return
+        if (stopped) return
         void loadQr()
       },
       Math.max(0, (ttl - lead) * 1000),
     )
 
     return () => {
-      cancelled = true
-      loop.current.stopped = true
-      if (pollTimer.current) clearTimeout(pollTimer.current)
-      if (expiryTimer.current) clearTimeout(expiryTimer.current)
+      stopped = true
+      if (pollTimer) clearTimeout(pollTimer)
+      if (expiryTimer) clearTimeout(expiryTimer)
     }
-  }, [qr, loadQr, navigate, setSession])
+  }, [mode, qr, loadQr, navigate, setSession])
 
-  useEffect(() => {
-    void loadQr()
-  }, [loadQr])
+  function selectTab(next: LoginTab) {
+    setTab(next)
+    if (next === "password") setOpenidError("")
+    else setPasswordError("")
+  }
 
   async function submit(values: z.infer<typeof loginSchema>) {
-    setError("")
+    setPasswordError("")
     try {
       const result = await api.login(values.studentId, values.password)
       if (!result.success) throw new Error(result.message)
       setSession(await api.session())
       await navigate({ to: consumeReturnTo(), replace: true })
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "登录失败")
+      setPasswordError(cause instanceof Error ? cause.message : "登录失败")
     }
   }
 
@@ -157,7 +226,7 @@ function LoginPage() {
     setOpenidError("")
     const value = openid.trim()
     if (!value) {
-      setOpenidError("请输入 openid 或微信端登录链接")
+      setOpenidError("请输入 OpenID 或微信登录链接")
       return
     }
     setOpenidBusy(true)
@@ -167,96 +236,178 @@ function LoginPage() {
       setSession(await api.session())
       await navigate({ to: consumeReturnTo(), replace: true })
     } catch (cause) {
-      setOpenidError(cause instanceof Error ? cause.message : "openid 登录失败")
+      setOpenidError(cause instanceof Error ? cause.message : "OpenID 登录失败")
     } finally {
       setOpenidBusy(false)
     }
   }
 
-  const qrBusy = qrState === "loading"
-  const showQr = qr?.image && qrState !== "loading"
+  function closeQr() {
+    // 离开扫码页时作废在途请求，避免响应回来后又把旧二维码写回状态。
+    qrNonce.current += 1
+    setQr(null)
+    setMode("form")
+  }
+
+  function toggleQr() {
+    if (mode === "qr") closeQr()
+    else setMode("qr")
+  }
 
   return (
     <main className="relative grid min-h-svh place-items-center overflow-hidden p-6">
-      <Card className="relative z-10 w-full min-w-0 max-w-[min(86vw,48rem)] overflow-hidden">
-        <CardHeader className="min-w-0">
-          <div className="mb-4 flex items-center gap-3">
-            <Avatar className="size-11 rounded-lg">
-              <AvatarFallback className="rounded-lg bg-primary text-primary-foreground">H</AvatarFallback>
-            </Avatar>
-            <div>
-              <CardTitle>HDU Sniper</CardTitle>
-            </div>
+      <Card className="login-card relative z-10 w-full max-w-[26rem] overflow-hidden p-7 sm:p-8">
+        <header className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+              <IconLibrary className="size-4" />
+            </span>
+            <span className="truncate text-[13px] font-medium">HDU Sniper</span>
           </div>
-          {/* biome-ignore lint/a11y/useHeadingContent: CardTitle 把 children 渲染进 h1，静态分析看不到 */}
-          <CardTitle render={<h1 />} className="text-3xl">
-            登录图书馆账户
-          </CardTitle>
-        </CardHeader>
-        <div className="grid gap-0 px-6 pb-6 md:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)]">
-          <Form onSubmit={form.handleSubmit(submit)} className="contents">
-            <div className="grid content-start gap-4 md:pr-6">
-              <Field>
-                <FieldLabel>学号</FieldLabel>
-                <Input className="w-full" autoComplete="username" {...form.register("studentId")} />
-                {form.formState.errors.studentId?.message && (
-                  <FormError>{form.formState.errors.studentId.message}</FormError>
-                )}
-              </Field>
-              <Field>
-                <FieldLabel>数字杭电密码</FieldLabel>
-                <Input
-                  className="w-full"
-                  type="password"
-                  autoComplete="current-password"
-                  {...form.register("password")}
-                />
-                {form.formState.errors.password?.message && (
-                  <FormError>{form.formState.errors.password.message}</FormError>
-                )}
-              </Field>
-              {error && (
-                <Alert variant="error">
-                  <IconShieldCheck className="size-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-pressed={mode === "qr"}
+            className={cn(
+              "h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground",
+              mode === "qr" && "bg-muted text-foreground",
+            )}
+            onClick={toggleQr}
+          >
+            <IconQrcode className="size-4" />
+            钉钉扫码
+          </Button>
+        </header>
+
+        <h1 className="mt-5 text-2xl font-semibold tracking-tight">登录图书馆账户</h1>
+
+        {mode === "form" ? (
+          <>
+            {/* biome-ignore lint/a11y/useSemanticElements: 这是按钮组不是表单字段组，fieldset 会带入默认边框和 padding */}
+            <div
+              role="group"
+              aria-label="登录方式"
+              className="mt-6 grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
+            >
+              <button
+                type="button"
+                aria-pressed={tab === "password"}
+                className={tabClass(tab === "password")}
+                onClick={() => selectTab("password")}
+              >
+                密码登录
+              </button>
+              <button
+                type="button"
+                aria-pressed={tab === "openid"}
+                className={tabClass(tab === "openid")}
+                onClick={() => selectTab("openid")}
+              >
+                OpenID 登录
+              </button>
+            </div>
+
+            <div className="mt-5">
+              {tab === "password" ? (
+                <form onSubmit={form.handleSubmit(submit)} className="grid gap-4">
+                  <Field>
+                    <FieldLabel>学号</FieldLabel>
+                    <Input className={inputClass} autoComplete="username" {...form.register("studentId")} />
+                    {form.formState.errors.studentId?.message && (
+                      <FormError>{form.formState.errors.studentId.message}</FormError>
+                    )}
+                  </Field>
+                  <Field>
+                    <FieldLabel>数字杭电密码</FieldLabel>
+                    <Input
+                      className={inputClass}
+                      type="password"
+                      autoComplete="current-password"
+                      {...form.register("password")}
+                    />
+                    {form.formState.errors.password?.message && (
+                      <FormError>{form.formState.errors.password.message}</FormError>
+                    )}
+                  </Field>
+                  {passwordError && (
+                    <Alert variant="error">
+                      <IconAlertTriangle className="size-4" />
+                      <AlertDescription>{passwordError}</AlertDescription>
+                    </Alert>
+                  )}
+                  <Button type="submit" className="h-10 w-full sm:h-10" loading={form.formState.isSubmitting}>
+                    <IconLogin className="size-4" />
+                    登录
+                  </Button>
+                </form>
+              ) : (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void submitOpenid()
+                  }}
+                  className="grid gap-4"
+                >
+                  <Field>
+                    <FieldLabel>OpenID</FieldLabel>
+                    <Input
+                      className={inputClass}
+                      value={openid}
+                      onChange={(event) => setOpenid(event.target.value)}
+                      placeholder="粘贴 openid 或微信登录链接"
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                    />
+                    <FieldDescription>在微信中打开图书馆并登录，复制地址栏里的整条链接。</FieldDescription>
+                  </Field>
+                  {openidError && (
+                    <Alert variant="error">
+                      <IconAlertTriangle className="size-4" />
+                      <AlertDescription>{openidError}</AlertDescription>
+                    </Alert>
+                  )}
+                  <Button type="submit" className="h-10 w-full sm:h-10" loading={openidBusy}>
+                    <IconLogin className="size-4" />
+                    登录
+                  </Button>
+                  <p className="-mt-1 text-center text-xs text-muted-foreground">
+                    没有 openid？
+                    <button
+                      type="button"
+                      className="ml-1 font-medium text-foreground underline decoration-muted-foreground/50 underline-offset-4 hover:decoration-foreground"
+                      onClick={() => setGuideOpen(true)}
+                    >
+                      点击获取
+                    </button>
+                  </p>
+                </form>
               )}
-              <Button type="submit" loading={form.formState.isSubmitting}>
-                <IconLogin className="size-4" />
-                进入工作台
-              </Button>
             </div>
-          </Form>
-          <Separator orientation="vertical" className="hidden md:block" />
-          <div className="grid content-start gap-4 pt-6 md:pt-0 md:pl-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <IconQrcode className="size-4" />
-                扫码登录
-              </div>
-              <Badge variant={qrState === "error" || qrState === "expired" ? "warning" : "secondary"}>
-                {qrState === "loading" && "加载中"}
-                {qrState === "ready" && "待扫码"}
-                {qrState === "confirmed" && "已确认"}
-                {qrState === "expired" && "已过期"}
-                {qrState === "error" && "异常"}
-              </Badge>
-            </div>
-            <div className="relative mx-auto aspect-square w-full max-w-60 overflow-hidden rounded-xl border bg-background">
-              {showQr ? (
-                <img src={qr.image} alt="SSO 登录二维码" className="size-full object-contain" />
+          </>
+        ) : (
+          <div className="mt-6 grid justify-items-center gap-3">
+            <div className="relative grid size-52 place-items-center overflow-hidden rounded-xl border bg-white p-2">
+              {qr?.image ? (
+                <img src={qr.image} alt="钉钉扫码登录二维码" className="size-full object-contain" />
               ) : null}
-              {qrBusy && (
-                <div className="absolute inset-0 grid place-items-center gap-2 bg-background/85 text-xs text-muted-foreground">
+              {qrState === "loading" && (
+                <div className="absolute inset-0 grid place-items-center gap-2 bg-white/90 text-neutral-500">
                   <Spinner className="size-5" />
-                  {qrMessage}
+                  <span className="text-xs">{qrMessage}</span>
                 </div>
               )}
-              {(qrState === "expired" || qrState === "error") && (
-                <div className="absolute inset-0 grid place-items-center bg-background/92 p-4 text-center">
+              {qrState === "error" && (
+                <div className="absolute inset-0 grid place-items-center bg-white/95 p-4 text-center">
                   <div className="grid gap-3">
-                    <p className="text-xs leading-5 text-muted-foreground">{qrMessage}</p>
-                    <Button size="sm" onClick={() => void loadQr()}>
+                    <p className="text-xs leading-5 text-neutral-600">{qrMessage}</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="justify-self-center"
+                      onClick={() => void loadQr()}
+                    >
                       <IconRefresh className="size-4" />
                       刷新二维码
                     </Button>
@@ -264,48 +415,32 @@ function LoginPage() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-        <div className="border-t px-6 pb-6 pt-4">
-          <div className="grid gap-3">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <IconKey className="size-4" />
-              OpenID 登录
+            <div className="grid gap-1 text-center">
+              <p className="text-sm font-medium">请使用钉钉扫码登录</p>
+              <p className="text-xs text-muted-foreground">二维码失效后会自动刷新</p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                className="w-full"
-                value={openid}
-                onChange={(event) => setOpenid(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault()
-                    void submitOpenid()
-                  }
-                }}
-                placeholder="粘贴 openid 或微信登录链接"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                loading={openidBusy}
-                onClick={() => void submitOpenid()}
-              >
-                <IconKey className="size-4" />
-                使用 OpenID 登录
-              </Button>
-            </div>
-            {openidError && (
-              <Alert variant="error">
-                <IconShieldCheck className="size-4" />
-                <AlertDescription>{openidError}</AlertDescription>
-              </Alert>
-            )}
+            <button
+              type="button"
+              className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              onClick={closeQr}
+            >
+              {tab === "openid" ? "返回 OpenID 登录" : "返回密码登录"}
+            </button>
           </div>
+        )}
+
+        <div className="mt-6 text-center">
+          <button
+            type="button"
+            className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            onClick={() => void openExternalUrl(ISSUES_URL)}
+          >
+            登录遇到问题？
+          </button>
         </div>
       </Card>
+
+      <OpenidGuide open={guideOpen} onOpenChange={setGuideOpen} />
     </main>
   )
 }

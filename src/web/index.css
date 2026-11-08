@@ -288,7 +288,9 @@
       transition: none;
     }
 
+    /* 登录卡是静态面板，不参与页面卡片的悬浮位移。 */
     [data-slot="card"]:not(
+        .login-card,
         [data-slot="dialog-popup"] [data-slot="card"],
         [data-slot="drawer-popup"] [data-slot="card"]
       ):hover {
