@@ -30,13 +30,14 @@
       StopRunningApp (upgrade-migrate.wxs) kills it mid-install, so the webview
       cannot relaunch itself. An IMMEDIATE action sequenced after InstallFinalize
       runs once the script has executed and the freshly copied files are on disk
-      (ICE77 forbids deferred actions there). cmd.exe resolves via PATH; `start`
-      detaches so msiexec can exit while the new app keeps running.
+      (ICE77 forbids deferred actions there). Launch the GUI executable directly
+      instead of `cmd /c start`: cmd is a console program and used to flash a
+      terminal window after setup finished.
     -->
     <CustomAction
       Id="RestartHduApp"
       Directory="INSTALLDIR"
-      ExeCommand="cmd.exe /c start hdu-library-sniper.exe --background"
+      ExeCommand='"[INSTALLDIR]hdu-library-sniper.exe" --background'
       Execute="immediate"
       Impersonate="yes"
       Return="asyncNoWait" />
