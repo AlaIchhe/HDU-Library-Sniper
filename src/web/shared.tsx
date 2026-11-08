@@ -5,14 +5,7 @@ import { z } from "zod"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
+import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
 
 export const loginSchema = z.object({
@@ -68,12 +61,10 @@ export function Failure({ message, retry }: { message: string; retry?: () => voi
 export function NoData({
   icon: Icon,
   title,
-  description = "完成配置后，后台会持续处理任务。",
   action,
 }: {
   icon: Icon
   title: string
-  description?: string
   /** 可选的操作区。空状态是死胡同还是入口，区别就在这里。 */
   action?: ReactNode
 }) {
@@ -84,7 +75,6 @@ export function NoData({
           <Icon className="size-5" />
         </EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>
-        <EmptyDescription>{description}</EmptyDescription>
       </EmptyHeader>
       {action ? <EmptyContent>{action}</EmptyContent> : null}
     </Empty>

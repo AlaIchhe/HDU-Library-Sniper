@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldLabel, FormError } from "@/components/ui/field"
 import { Form } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
@@ -186,7 +186,6 @@ function LoginPage() {
             </Avatar>
             <div>
               <CardTitle>HDU Sniper</CardTitle>
-              <CardDescription>预约工作台</CardDescription>
             </div>
           </div>
           {/* biome-ignore lint/a11y/useHeadingContent: CardTitle 把 children 渲染进 h1，静态分析看不到 */}
@@ -273,9 +272,6 @@ function LoginPage() {
               <IconKey className="size-4" />
               OpenID 登录
             </div>
-            <p className="text-xs leading-5 text-muted-foreground">
-              粘贴微信端地址里的 openid（/content/index/startUp/openid/&lt;openid&gt;/），或直接粘贴整条链接。
-            </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
                 className="w-full"
@@ -287,7 +283,7 @@ function LoginPage() {
                     void submitOpenid()
                   }
                 }}
-                placeholder="okOhQt-..."
+                placeholder="粘贴 openid 或微信登录链接"
                 autoComplete="off"
                 spellCheck={false}
               />

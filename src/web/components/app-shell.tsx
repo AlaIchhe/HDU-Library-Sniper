@@ -3,10 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
-  IconBolt,
   IconCalendarEvent,
   IconCalendarEventFilled,
-  IconChevronRight,
   IconClock,
   IconCommand as CommandIcon,
   IconExternalLink,
@@ -440,7 +438,6 @@ export function AppShell() {
                   </span>
                   <div className="group-data-[collapsible=icon]:hidden">
                     <strong className="block text-sm">HDU Sniper</strong>
-                    <span className="text-xs text-muted-foreground">预约工作台</span>
                   </div>
                 </div>
               </SidebarHeader>
@@ -490,9 +487,6 @@ export function AppShell() {
                       {errorState ? "后台服务异常" : authRequired ? "需要重新登录" : "后台服务在线"}
                     </span>
                   </div>
-                  <p className="truncate text-[0.6875rem] leading-4 text-muted-foreground/72">
-                    {runtime.data?.lastMessage || "自动预约与签到由本地服务执行"}
-                  </p>
                 </div>
               </SidebarFooter>
             </Sidebar>
@@ -556,18 +550,6 @@ export function AppShell() {
                   <Outlet />
                 </motion.div>
               </main>
-              <footer className="flex items-center gap-2 px-4 pb-4 text-xs text-muted-foreground sm:px-8">
-                <IconBolt className="size-3" />
-                自动预约与无头签到由本地后台服务持续执行
-                <IconChevronRight className="size-3" />
-                <button
-                  type="button"
-                  className="cursor-pointer underline-offset-4 hover:text-foreground hover:underline"
-                  onClick={() => setPaletteOpen(true)}
-                >
-                  按 ⌘K 查看全部命令
-                </button>
-              </footer>
             </SidebarInset>
           </SidebarProvider>
         </ToastProvider>

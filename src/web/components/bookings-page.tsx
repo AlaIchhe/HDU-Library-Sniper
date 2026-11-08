@@ -15,10 +15,9 @@ import {
 import { Button } from "@/components/ui/button"
 import { toastManager } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
-import { PageHeader, PageShell, Panel, rise } from "./page-layout"
+import { PageHeader, PageShell, Panel } from "./page-layout"
 import type { Booking } from "../../shared/types"
-import { useBookingAction, useBookings, useNextTarget } from "../queries"
-import { useCountdown } from "../hooks/use-countdown"
+import { useBookingAction, useBookings } from "../queries"
 import { useRefreshSignal } from "../store"
 import { Busy, Failure, NoData } from "../shared"
 
@@ -139,8 +138,6 @@ function BookingsView({
       <PageHeader
         eyebrow="BOOKINGS"
         title="当前预约"
-        description="实时查看预约生命周期，并执行可用操作。"
-        hint={<NextRunHint />}
         actions={
           <Button
             variant="ghost"
@@ -163,7 +160,7 @@ function BookingsView({
         }
       />
 
-      <Panel title="有效预约" description="后台会自动处理进入签到窗口的预约。">
+      <Panel title="有效预约">
         <AnimatePresence mode="popLayout" initial={false}>
           {rows.length ? (
             <motion.div
@@ -219,55 +216,12 @@ function BookingsView({
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
             >
-              <NoData
-                icon={IconCalendarEvent}
-                title="暂无当前预约"
-                description="预约成功后会自动出现在这里。已启用的方案会在开放时间由后台提交，无需手动操作。"
-              />
+              <NoData icon={IconCalendarEvent} title="暂无当前预约" />
             </motion.div>
           )}
         </AnimatePresence>
       </Panel>
     </PageShell>
-  )
-}
-
-/**
- * 页头的「下一次后台动作」提示。
- *
- * 这一页本身不轮询，用户容易不确定后台还在不在跑；把下一次执行时间
- * 和倒计时摆出来，等待期间就有了明确的预期。倒计时是纯本地 timer。
- */
-function NextRunHint() {
-  const target = useNextTarget()
-  const countdown = useCountdown(target.data?.at)
-  const reduced = useReducedMotion()
-
-  if (!target.data?.at) return null
-
-  return (
-    <motion.p
-      variants={rise}
-      className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
-    >
-      <span className="inline-flex items-center gap-1.5">
-        <span className="size-1.5 shrink-0 rounded-full bg-success" />
-        下一次后台动作
-      </span>
-      <span className="truncate font-medium text-foreground/80">{target.data.label}</span>
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.span
-          key={countdown?.text ?? "loading"}
-          initial={reduced ? false : { opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -4 }}
-          transition={{ duration: 0.14 }}
-          className="tabular-nums"
-        >
-          {countdown?.overdueMs ? "正在进行…" : `还有 ${countdown?.text ?? "…"}`}
-        </motion.span>
-      </AnimatePresence>
-    </motion.p>
   )
 }
 

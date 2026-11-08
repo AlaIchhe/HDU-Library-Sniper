@@ -42,7 +42,6 @@ import {
 import {
   Dialog,
   DialogClose,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogPanel,
@@ -52,14 +51,13 @@ import {
 import {
   Drawer,
   DrawerClose,
-  DrawerDescription,
   DrawerFooter,
   DrawerHeader,
   DrawerPanel,
   DrawerPopup,
   DrawerTitle,
 } from "@/components/ui/drawer"
-import { Field, FieldDescription, FieldLabel, FormError } from "@/components/ui/field"
+import { Field, FieldLabel, FormError } from "@/components/ui/field"
 import { Form } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { InteractiveHoverButton } from "@/components/ui/interactive-hover-button"
@@ -296,7 +294,6 @@ function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClose: () =
         <Field>
           <FieldLabel>备选座位</FieldLabel>
           <Input {...form.register("fallback")} placeholder="例如：299, 300" />
-          <FieldDescription>使用逗号或换行分隔</FieldDescription>
         </Field>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -506,10 +503,7 @@ function GroupEditor({
         {form.formState.errors.ids?.message && <FormError>{form.formState.errors.ids.message}</FormError>}
       </Field>
       <div className="grid gap-2">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-sm font-medium">执行顺序</span>
-          <span className="text-xs text-muted-foreground">拖动排序，或用箭头微调</span>
-        </div>
+        <span className="text-sm font-medium">执行顺序</span>
         {ordered.length ? (
           <Reorder.Group
             axis="y"
@@ -532,11 +526,7 @@ function GroupEditor({
               />
             ))}
           </Reorder.Group>
-        ) : (
-          <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-            勾选上方的单条方案后，这里会显示执行顺序。
-          </p>
-        )}
+        ) : null}
       </div>
       <DialogFooter variant="bare" className="px-0">
         <DialogClose render={<Button type="button" variant="outline" />}>取消</DialogClose>
@@ -647,7 +637,6 @@ export function PlansPage() {
       <PageHeader
         eyebrow="PLANS"
         title="预约方案"
-        description="配置一次预约规则，或按时间顺序组合多个方案。"
         actions={
           // InteractiveHoverButton 自带圆点 + 悬停箭头作为 affordance；
           // children 会被放进一个 inline-block 的 span，再塞图标会让「+」
@@ -656,7 +645,7 @@ export function PlansPage() {
         }
       />
 
-      <Panel title="我的计划" description="同时只能启用一个方案，组合方案按成员顺序执行。">
+      <Panel title="我的计划">
         {items.length ? (
           <Table variant="card">
             <TableHeader className="max-sm:hidden">
@@ -737,7 +726,6 @@ export function PlansPage() {
           <NoData
             icon={IconListCheck}
             title="还没有预约方案"
-            description="创建方案后启用它，后台会在开放时间自动提交预约。"
             action={
               <Button onClick={() => setDialog("type")}>
                 <IconPlus className="size-4" />
@@ -784,7 +772,6 @@ export function PlansPage() {
         <DialogPopup>
           <DialogHeader>
             <DialogTitle>创建方案</DialogTitle>
-            <DialogDescription>选择适合你的预约执行方式</DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -795,7 +782,6 @@ export function PlansPage() {
               >
                 <IconListCheck className="size-6" />
                 单条方案
-                <span className="text-xs text-muted-foreground">固定房间、座位和时间</span>
               </Button>
               <Button
                 variant="outline"
@@ -805,7 +791,6 @@ export function PlansPage() {
               >
                 <IconCalendarEvent className="size-6" />
                 组合方案
-                <span className="text-xs text-muted-foreground">按时间顺序尝试多个方案</span>
               </Button>
             </div>
           </DialogPanel>
@@ -819,7 +804,6 @@ export function PlansPage() {
         <DialogPopup>
           <DialogHeader>
             <DialogTitle>{dialog === "edit-single" ? "编辑单条方案" : "创建单条方案"}</DialogTitle>
-            <DialogDescription>设置座位、时间和重复日期</DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <PlanEditor
@@ -837,7 +821,6 @@ export function PlansPage() {
         <DrawerPopup position="bottom">
           <DrawerHeader>
             <DrawerTitle>{dialog === "edit-group" ? "编辑组合方案" : "创建组合方案"}</DrawerTitle>
-            <DrawerDescription>按顺序尝试已保存的单条方案</DrawerDescription>
           </DrawerHeader>
           <DrawerPanel>
             <GroupEditor
