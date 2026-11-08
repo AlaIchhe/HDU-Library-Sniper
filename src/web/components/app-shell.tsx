@@ -3,19 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
-  CalendarDays,
-  ChevronRight,
-  Command as CommandIcon,
-  ExternalLink,
-  Library,
-  ListChecks,
-  LogOut,
-  Moon,
-  RefreshCw,
-  Sun,
-  Timer,
-  Zap,
-} from "lucide-react"
+  IconBolt,
+  IconCalendarEvent,
+  IconCalendarEventFilled,
+  IconChevronRight,
+  IconClock,
+  IconCommand as CommandIcon,
+  IconExternalLink,
+  IconLibrary,
+  IconListCheck,
+  IconListCheckFilled,
+  IconLogout,
+  IconMoon,
+  IconRefresh,
+  IconSun,
+} from "@tabler/icons-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 
 import {
@@ -154,7 +156,7 @@ function StatusBar({ runtimeState }: { runtimeState: string | undefined }) {
             transition={{ duration: 0.14 }}
             className="flex shrink-0 items-center gap-1 tabular-nums text-muted-foreground"
           >
-            <Timer className="size-3" />
+            <IconClock className="size-3" />
             {countdown?.text ?? "…"}
           </motion.span>
         ) : null}
@@ -352,7 +354,7 @@ export function AppShell() {
       id: "go-plans",
       label: "预约方案",
       group: "导航",
-      icon: ListChecks,
+      icon: IconListCheck,
       keywords: ["plans", "yuyue", "fangan"],
       shortcut: "G P",
       run: () => void navigate({ to: "/plans" }),
@@ -361,7 +363,7 @@ export function AppShell() {
       id: "go-bookings",
       label: "当前预约",
       group: "导航",
-      icon: CalendarDays,
+      icon: IconCalendarEvent,
       keywords: ["bookings", "dangqian"],
       shortcut: "G B",
       run: () => void navigate({ to: "/bookings" }),
@@ -370,7 +372,7 @@ export function AppShell() {
       id: "refresh",
       label: "刷新当前页",
       group: "操作",
-      icon: RefreshCw,
+      icon: IconRefresh,
       keywords: ["refresh", "shuaxin"],
       shortcut: "R",
       run: refreshCurrentPage,
@@ -379,7 +381,7 @@ export function AppShell() {
       id: "theme",
       label: theme === "dark" ? "切换到浅色主题" : "切换到深色主题",
       group: "操作",
-      icon: theme === "dark" ? Sun : Moon,
+      icon: theme === "dark" ? IconSun : IconMoon,
       keywords: ["theme", "dark", "light", "zhuti", "shense", "qianse", "qiehuan", "huan"],
       run: () => useAppStore.getState().toggleTheme(),
     },
@@ -387,7 +389,7 @@ export function AppShell() {
       id: "changelog",
       label: "查看更新日志",
       group: "操作",
-      icon: ExternalLink,
+      icon: IconExternalLink,
       keywords: ["changelog", "release", "gengxin"],
       run: () => void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases"),
     },
@@ -395,7 +397,7 @@ export function AppShell() {
       id: "logout",
       label: "退出登录",
       group: "账户",
-      icon: LogOut,
+      icon: IconLogout,
       keywords: ["logout", "tuichu", "dengchu"],
       run: () => void logout(),
     },
@@ -403,6 +405,8 @@ export function AppShell() {
 
   const errorState = runtime.data?.state === "error"
   const authRequired = runtime.data?.state === "auth_required"
+  const plansActive = pathname === "/plans"
+  const bookingsActive = pathname === "/bookings"
 
   return (
     <div className="relative min-h-dvh min-w-0 overflow-x-hidden bg-background text-foreground">
@@ -432,7 +436,7 @@ export function AppShell() {
               <SidebarHeader>
                 <div className="flex items-center gap-3 px-2 py-2">
                   <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-lg">
-                    <Library className="size-5" />
+                    <IconLibrary className="size-5" />
                   </span>
                   <div className="group-data-[collapsible=icon]:hidden">
                     <strong className="block text-sm">HDU Sniper</strong>
@@ -447,23 +451,27 @@ export function AppShell() {
                     <SidebarMenu>
                       <SidebarMenuItem>
                         <SidebarMenuButton
-                          isActive={pathname === "/plans"}
+                          isActive={plansActive}
                           tooltip="预约方案（G P）"
                           className="transition-[width,height,padding,background-color,color,box-shadow,transform] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-xs focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar data-[active=true]:shadow-xs"
                           render={<Link to="/plans" />}
                         >
-                          <ListChecks className="size-4" />
+                          {plansActive ? <IconListCheckFilled size={16} /> : <IconListCheck size={16} />}
                           预约方案
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
                         <SidebarMenuButton
-                          isActive={pathname === "/bookings"}
+                          isActive={bookingsActive}
                           tooltip="当前预约（G B）"
                           className="transition-[width,height,padding,background-color,color,box-shadow,transform] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-xs focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar data-[active=true]:shadow-xs"
                           render={<Link to="/bookings" />}
                         >
-                          <CalendarDays className="size-4" />
+                          {bookingsActive ? (
+                            <IconCalendarEventFilled size={16} />
+                          ) : (
+                            <IconCalendarEvent size={16} />
+                          )}
                           当前预约
                         </SidebarMenuButton>
                       </SidebarMenuItem>
@@ -525,13 +533,13 @@ export function AppShell() {
                             void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases")
                           }
                         >
-                          <ExternalLink />
+                          <IconExternalLink />
                           更新日志
                         </MenuItem>
                       </MenuGroup>
                       <MenuSeparator />
                       <MenuItem variant="destructive" onClick={() => void logout()}>
-                        <LogOut />
+                        <IconLogout />
                         退出登录
                       </MenuItem>
                     </MenuPopup>
@@ -549,9 +557,9 @@ export function AppShell() {
                 </motion.div>
               </main>
               <footer className="flex items-center gap-2 px-4 pb-4 text-xs text-muted-foreground sm:px-8">
-                <Zap className="size-3" />
+                <IconBolt className="size-3" />
                 自动预约与无头签到由本地后台服务持续执行
-                <ChevronRight className="size-3" />
+                <IconChevronRight className="size-3" />
                 <button
                   type="button"
                   className="cursor-pointer underline-offset-4 hover:text-foreground hover:underline"

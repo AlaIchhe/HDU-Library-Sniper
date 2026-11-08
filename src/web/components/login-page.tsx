@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { KeyRound, LogIn, QrCode, RefreshCw, ShieldCheck } from "lucide-react"
+import { IconKey, IconLogin, IconQrcode, IconRefresh, IconShieldCheck } from "@tabler/icons-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { z } from "zod"
@@ -218,12 +218,12 @@ function LoginPage() {
               </Field>
               {error && (
                 <Alert variant="error">
-                  <ShieldCheck className="size-4" />
+                  <IconShieldCheck className="size-4" />
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
               <Button type="submit" loading={form.formState.isSubmitting}>
-                <LogIn className="size-4" />
+                <IconLogin className="size-4" />
                 进入工作台
               </Button>
             </div>
@@ -232,7 +232,7 @@ function LoginPage() {
           <div className="grid content-start gap-4 pt-6 md:pt-0 md:pl-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-medium">
-                <QrCode className="size-4" />
+                <IconQrcode className="size-4" />
                 扫码登录
               </div>
               <Badge variant={qrState === "error" || qrState === "expired" ? "warning" : "secondary"}>
@@ -258,7 +258,7 @@ function LoginPage() {
                   <div className="grid gap-3">
                     <p className="text-xs leading-5 text-muted-foreground">{qrMessage}</p>
                     <Button size="sm" onClick={() => void loadQr()}>
-                      <RefreshCw className="size-4" />
+                      <IconRefresh className="size-4" />
                       刷新二维码
                     </Button>
                   </div>
@@ -270,7 +270,7 @@ function LoginPage() {
         <div className="border-t px-6 pb-6 pt-4">
           <div className="grid gap-3">
             <div className="flex items-center gap-2 text-sm font-medium">
-              <KeyRound className="size-4" />
+              <IconKey className="size-4" />
               OpenID 登录
             </div>
             <p className="text-xs leading-5 text-muted-foreground">
@@ -297,13 +297,13 @@ function LoginPage() {
                 loading={openidBusy}
                 onClick={() => void submitOpenid()}
               >
-                <KeyRound className="size-4" />
+                <IconKey className="size-4" />
                 使用 OpenID 登录
               </Button>
             </div>
             {openidError && (
               <Alert variant="error">
-                <ShieldCheck className="size-4" />
+                <IconShieldCheck className="size-4" />
                 <AlertDescription>{openidError}</AlertDescription>
               </Alert>
             )}

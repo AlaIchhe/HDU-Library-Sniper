@@ -3,16 +3,16 @@
 import { createContext, useContext, useMemo, useRef, useState } from "react"
 import { Reorder, useDragControls, useReducedMotion, type DragControls } from "motion/react"
 import {
-  CalendarDays,
-  Check,
-  ChevronDown,
-  ChevronUp,
-  GripVertical,
-  ListChecks,
-  Pencil,
-  Plus,
-  Trash2,
-} from "lucide-react"
+  IconCalendarEvent,
+  IconCheck,
+  IconChevronDown,
+  IconChevronUp,
+  IconGripVertical,
+  IconListCheck,
+  IconPencil,
+  IconPlus,
+  IconTrash,
+} from "@tabler/icons-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { z } from "zod"
@@ -347,7 +347,7 @@ function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClose: () =
           type="submit"
           loading={form.formState.isSubmitting || mutations.create.isPending || mutations.update.isPending}
         >
-          <Check className="size-4" />
+          <IconCheck className="size-4" />
           保存方案
         </Button>
       </DialogFooter>
@@ -402,7 +402,7 @@ function SortableRow({
         aria-label={`上移 ${label}`}
         onClick={() => onMove(index, index - 1)}
       >
-        <ChevronUp />
+        <IconChevronUp />
       </Button>
       <Button
         type="button"
@@ -412,7 +412,7 @@ function SortableRow({
         aria-label={`下移 ${label}`}
         onClick={() => onMove(index, index + 1)}
       >
-        <ChevronDown />
+        <IconChevronDown />
       </Button>
     </Reorder.Item>
   )
@@ -437,7 +437,7 @@ function ReorderHandle({ label }: { label: string }) {
       className="grid size-6 shrink-0 cursor-grab touch-none place-items-center rounded-md text-muted-foreground/60 outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
       onPointerDown={(event) => controls?.start(event)}
     >
-      <GripVertical className="size-3.5" />
+      <IconGripVertical className="size-3.5" />
     </button>
   )
 }
@@ -541,7 +541,7 @@ function GroupEditor({
       <DialogFooter variant="bare" className="px-0">
         <DialogClose render={<Button type="button" variant="outline" />}>取消</DialogClose>
         <Button type="submit" loading={form.formState.isSubmitting}>
-          <Check className="size-4" />
+          <IconCheck className="size-4" />
           保存组合
         </Button>
       </DialogFooter>
@@ -677,9 +677,9 @@ export function PlansPage() {
                     <div className="flex min-w-0 items-center gap-3">
                       <Badge variant={item.kind === "group" ? "info" : "outline"}>
                         {item.kind === "group" ? (
-                          <CalendarDays className="size-3" />
+                          <IconCalendarEvent className="size-3" />
                         ) : (
-                          <ListChecks className="size-3" />
+                          <IconListCheck className="size-3" />
                         )}
                         {item.kind === "group" ? "组合" : "单条"}
                       </Badge>
@@ -716,7 +716,7 @@ export function PlansPage() {
                         }}
                         aria-label="编辑方案"
                       >
-                        <Pencil />
+                        <IconPencil />
                       </Button>
                       <Button
                         size="icon-sm"
@@ -725,7 +725,7 @@ export function PlansPage() {
                         onClick={() => setDeleteTarget(item)}
                         aria-label="删除方案"
                       >
-                        <Trash2 />
+                        <IconTrash />
                       </Button>
                     </div>
                   </TableCell>
@@ -735,12 +735,12 @@ export function PlansPage() {
           </Table>
         ) : (
           <NoData
-            icon={ListChecks}
+            icon={IconListCheck}
             title="还没有预约方案"
             description="创建方案后启用它，后台会在开放时间自动提交预约。"
             action={
               <Button onClick={() => setDialog("type")}>
-                <Plus className="size-4" />
+                <IconPlus className="size-4" />
                 创建第一个方案
               </Button>
             }
@@ -793,7 +793,7 @@ export function PlansPage() {
                 className="h-auto sm:h-auto flex-col items-start gap-1 p-5 text-left"
                 onClick={() => setDialog("single")}
               >
-                <ListChecks className="size-6" />
+                <IconListCheck className="size-6" />
                 单条方案
                 <span className="text-xs text-muted-foreground">固定房间、座位和时间</span>
               </Button>
@@ -803,7 +803,7 @@ export function PlansPage() {
                 disabled={available.length < 2}
                 onClick={() => setDialog("group")}
               >
-                <CalendarDays className="size-6" />
+                <IconCalendarEvent className="size-6" />
                 组合方案
                 <span className="text-xs text-muted-foreground">按时间顺序尝试多个方案</span>
               </Button>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { motion, useReducedMotion } from "motion/react"
-import { Search } from "lucide-react"
+import { IconSearch } from "@tabler/icons-react"
 
 import { Dialog, DialogPanel, DialogPopup } from "@/components/ui/dialog"
 import { MenuShortcut } from "@/components/ui/menu"
@@ -113,7 +113,7 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
         className="row-start-1 max-h-[min(80dvh,30rem)] max-w-xl self-start"
       >
         <div className="flex items-center gap-3 border-b px-4">
-          <Search className="size-4 shrink-0 text-muted-foreground" />
+          <IconSearch className="size-4 shrink-0 text-muted-foreground" />
           <input
             ref={inputRef}
             value={query}

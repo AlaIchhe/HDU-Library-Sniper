@@ -4,7 +4,7 @@ import { Drawer as DrawerPrimitive } from "@base-ui/react/drawer";
 import { mergeProps } from "@base-ui/react/merge-props";
 
 import { useRender } from "@base-ui/react/use-render";
-import { XIcon } from "lucide-react";
+import { IconX } from "@tabler/icons-react";
 import type React from "react";
 import { createContext, useContext } from "react";
 import { cn } from "@/lib/utils";
@@ -165,7 +165,7 @@ export function DrawerPopup({
               className="absolute end-2 top-2"
               render={<Button size="icon" variant="ghost" />}
             >
-              <XIcon />
+              <IconX />
             </DrawerPrimitive.Close>
           )}
           {showBar && <DrawerBar />}

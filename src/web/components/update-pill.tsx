@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react"
-import { ArrowUpCircle, Loader2 } from "lucide-react"
+import { IconCircleArrowUp, IconLoader2 } from "@tabler/icons-react"
 
 import { Button } from "@/components/ui/button"
 import { toastManager } from "@/components/ui/toast"
@@ -84,7 +84,11 @@ export function UpdatePill() {
         />
       )}
       <span className="relative flex items-center gap-1.5">
-        {busy ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUpCircle className="size-3.5" />}
+        {busy ? (
+          <IconLoader2 className="size-3.5 animate-spin" />
+        ) : (
+          <IconCircleArrowUp className="size-3.5" />
+        )}
         <span className="max-md:hidden">{long}</span>
         <span className="md:hidden">{short}</span>
       </span>

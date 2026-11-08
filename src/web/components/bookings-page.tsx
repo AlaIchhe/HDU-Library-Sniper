@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, type ReactNode, type Ref } from "react"
-import { CalendarDays, RefreshCw } from "lucide-react"
+import { IconCalendarEvent, IconRefresh } from "@tabler/icons-react"
 import {
   AnimatePresence,
   LayoutGroup,
@@ -156,7 +156,7 @@ function BookingsView({
               animate={{ rotate: turns * 360 }}
               transition={SETTLE}
             >
-              <RefreshCw className="size-3.5" />
+              <IconRefresh className="size-3.5" />
             </motion.span>
             刷新
           </Button>
@@ -220,7 +220,7 @@ function BookingsView({
               exit={{ opacity: 0, scale: 0.98 }}
             >
               <NoData
-                icon={CalendarDays}
+                icon={IconCalendarEvent}
                 title="暂无当前预约"
                 description="预约成功后会自动出现在这里。已启用的方案会在开放时间由后台提交，无需手动操作。"
               />

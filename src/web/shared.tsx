@@ -1,6 +1,6 @@
-import type { LucideIcon } from "lucide-react"
+import type { Icon } from "@tabler/icons-react"
 import type { ReactNode } from "react"
-import { CircleAlert } from "lucide-react"
+import { IconAlertCircle } from "@tabler/icons-react"
 import { z } from "zod"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -49,7 +49,7 @@ export function Busy({ label = "正在加载..." }: { label?: string }) {
 export function Failure({ message, retry }: { message: string; retry?: () => void }) {
   return (
     <Alert variant="error">
-      <CircleAlert size={18} />
+      <IconAlertCircle size={18} />
       <div>
         <AlertTitle>请求失败</AlertTitle>
         <AlertDescription>
@@ -71,7 +71,7 @@ export function NoData({
   description = "完成配置后，后台会持续处理任务。",
   action,
 }: {
-  icon: LucideIcon
+  icon: Icon
   title: string
   description?: string
   /** 可选的操作区。空状态是死胡同还是入口，区别就在这里。 */
