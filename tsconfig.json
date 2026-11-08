@@ -9,9 +9,8 @@
     "jsx": "react-jsx",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     },
     "skipLibCheck": true,
     "types": ["bun", "vite/client"]
