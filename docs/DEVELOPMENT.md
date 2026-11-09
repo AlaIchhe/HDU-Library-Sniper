@@ -98,6 +98,8 @@ git push origin vX.Y.Z
 
 `.github/workflows/release.yml` 会在 Windows runner 上完成依赖安装、Bun 后端编译、MSI 打包、签名并生成 `latest.json`。工作流会直接发布正式 Release，上传 MSI 后客户端即可通过 `releases/latest` 获取自动更新，无需再手动发布。
 
+工作流最后会把 `latest.json` 里的 `api.github.com` 资产地址改写成 `releases/download` 的浏览器地址。前者受 GitHub API 未认证限流影响，客户端下载时可能收到 403；后者不受这个限制。手动发布时也要保持同样的地址格式。
+
 ### 客户端更新流程
 
 1. 开机启动（`--background`）后延迟 5 秒静默请求一次 `latest.json`，失败按 15 秒、60 秒各重试一次；全程不弹提示，失败只写 GUI 日志。

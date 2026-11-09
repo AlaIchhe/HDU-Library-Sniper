@@ -50,3 +50,27 @@ jobs:
           # 客户端通过 releases/latest 自动更新即可拉取，无需再手动发布。
           releaseDraft: false
           prerelease: false
+
+      # tauri-action 生成的 latest.json 使用 api.github.com 的资产地址。
+      # Windows 更新时未认证请求会撞上 GitHub API 的 60 次/小时限流（403），
+      # 这里统一改写成 releases/download 的浏览器地址，下载不再经过 API。
+      - name: Rewrite updater manifest to browser download URLs
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $dir = Join-Path $env:RUNNER_TEMP "updater"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          gh release download $tag --pattern latest.json --dir $dir --clobber
+          $manifestPath = Join-Path $dir "latest.json"
+          $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          $assets = gh release view $tag --json assets | ConvertFrom-Json
+          $msi = $assets.assets | Where-Object { $_.name -like "*.msi" } | Select-Object -First 1
+          if (-not $msi) { throw "No MSI asset found on $tag" }
+          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$($msi.name)"
+          foreach ($platform in $manifest.platforms.PSObject.Properties) {
+            $platform.Value.url = $url
+          }
+          $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath -Encoding utf8
+          gh release upload $tag $manifestPath --clobber
