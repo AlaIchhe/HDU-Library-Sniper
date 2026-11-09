@@ -4,6 +4,7 @@ pub type Weekday = u8;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// 方案类型：单方案或组合。
 pub enum PlanKind {
     #[default]
     Single,
@@ -12,6 +13,7 @@ pub enum PlanKind {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// 一个预约方案：房间、座位、时间与重复星期。
 pub struct BookingPlan {
     pub id: String,
     pub kind: PlanKind,
@@ -34,6 +36,7 @@ pub struct BookingPlan {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// 组合方案：按顺序执行的一组预约。
 pub struct BookingGroup {
     pub id: String,
     pub kind: PlanKind,
@@ -56,6 +59,7 @@ pub enum PlanListItem {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// 馆方返回的当前预约，已转换为前端展示字段。
 pub struct Booking {
     pub booking_id: String,
     pub room_name: String,
@@ -74,6 +78,7 @@ pub struct Booking {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// 当前登录态快照。
 pub struct SessionStatus {
     pub authenticated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -97,6 +102,7 @@ pub struct CheckInPolling {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// 调度器运行态：当前状态、下次执行与最近消息。
 pub struct RuntimeStatus {
     pub scheduler: String,
     pub state: String,
@@ -118,6 +124,7 @@ pub enum NextTargetKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// 下一次预约执行的目标时间与方案。
 pub struct NextExecutionTarget {
     pub kind: NextTargetKind,
     pub label: String,
@@ -165,6 +172,7 @@ pub struct DurationOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// 自动签到状态。
 pub struct CheckInStatus {
     pub enabled: bool,
     pub consent_version: String,
@@ -189,6 +197,7 @@ pub struct AuditEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// 扫码登录开始：二维码图片与轮询 uuid。
 pub struct QrLoginStart {
     pub uuid: String,
     pub image: String,
@@ -197,6 +206,7 @@ pub struct QrLoginStart {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// 扫码登录轮询结果。
 pub struct QrLoginStatus {
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

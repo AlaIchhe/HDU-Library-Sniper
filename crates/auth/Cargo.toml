@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+aes-gcm = "0.10"
 base64 = "0.22"
 chrono.workspace = true
 hdu-sniper-core = { path = "../core" }
@@ -15,8 +16,12 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 urlencoding = "2"
 url = "2"
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
 
 [dev-dependencies]
 wiremock.workspace = true

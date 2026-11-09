@@ -1,3 +1,5 @@
+//! SQLite 存储层：方案、组合、会话、审计与 schema 迁移。
+
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
@@ -34,7 +36,9 @@ const SCHEMA: &str = r#"
     password TEXT NOT NULL DEFAULT '',
     openid TEXT NOT NULL DEFAULT '',
     cookies TEXT NOT NULL DEFAULT '[]',
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    credentials_enc TEXT NOT NULL DEFAULT '',
+    credentials_scheme TEXT NOT NULL DEFAULT ''
   );
   CREATE TABLE IF NOT EXISTS audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,6 +70,7 @@ pub enum StoreError {
 
 pub type Result<T> = std::result::Result<T, StoreError>;
 
+/// SQLite 句柄；内部用 Mutex 串行化连接。
 pub struct Store {
     conn: Mutex<Connection>,
 }
@@ -79,6 +84,10 @@ pub struct SessionRow {
     pub openid: String,
     pub cookies: String,
     pub updated_at: String,
+    /// 加密后的凭据 JSON（student_id / password / openid），空表示沿用明文列。
+    pub credentials_enc: String,
+    /// 加密方案：keyring / aes-gcm-env / plain。
+    pub credentials_scheme: String,
 }
 
 struct GroupRow {
@@ -100,20 +109,7 @@ impl Store {
     }
 
     fn init(conn: Connection) -> Result<Self> {
-        conn.execute_batch(SCHEMA)?;
-        for (table, column, definition) in [
-            ("plans", "kind", "TEXT NOT NULL DEFAULT 'single'"),
-            ("plans", "name", "TEXT"),
-            ("session", "uid", "TEXT NOT NULL DEFAULT ''"),
-            ("session", "name", "TEXT NOT NULL DEFAULT ''"),
-            ("session", "student_id", "TEXT NOT NULL DEFAULT ''"),
-            ("session", "password", "TEXT NOT NULL DEFAULT ''"),
-            ("session", "openid", "TEXT NOT NULL DEFAULT ''"),
-            ("session", "cookies", "TEXT NOT NULL DEFAULT '[]'"),
-            ("session", "updated_at", "TEXT NOT NULL DEFAULT ''"),
-        ] {
-            ensure_column(&conn, table, column, definition)?;
-        }
+        migrate(&conn)?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -326,7 +322,7 @@ impl Store {
         let conn = self.lock()?;
         let row = conn
             .query_row(
-                "SELECT uid, name, student_id, password, openid, cookies, updated_at FROM session WHERE id = 1",
+                "SELECT uid, name, student_id, password, openid, cookies, updated_at, credentials_enc, credentials_scheme FROM session WHERE id = 1",
                 [],
                 |row| {
                     Ok(SessionRow {
@@ -337,6 +333,8 @@ impl Store {
                         openid: row.get(4)?,
                         cookies: row.get(5)?,
                         updated_at: row.get(6)?,
+                        credentials_enc: row.get(7)?,
+                        credentials_scheme: row.get(8)?,
                     })
                 },
             )
@@ -347,11 +345,12 @@ impl Store {
     pub fn save_session(&self, session: &SessionRow) -> Result<()> {
         let conn = self.lock()?;
         conn.execute(
-            r#"INSERT INTO session(id, uid, name, student_id, password, openid, cookies, updated_at)
-               VALUES(1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            r#"INSERT INTO session(id, uid, name, student_id, password, openid, cookies, updated_at, credentials_enc, credentials_scheme)
+               VALUES(1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                ON CONFLICT(id) DO UPDATE SET uid=excluded.uid, name=excluded.name,
                  student_id=excluded.student_id, password=excluded.password,
-                 openid=excluded.openid, cookies=excluded.cookies, updated_at=excluded.updated_at"#,
+                 openid=excluded.openid, cookies=excluded.cookies, updated_at=excluded.updated_at,
+                 credentials_enc=excluded.credentials_enc, credentials_scheme=excluded.credentials_scheme"#,
             params![
                 &session.uid,
                 &session.name,
@@ -360,6 +359,8 @@ impl Store {
                 &session.openid,
                 &session.cookies,
                 &session.updated_at,
+                &session.credentials_enc,
+                &session.credentials_scheme,
             ],
         )?;
         Ok(())
@@ -415,6 +416,49 @@ impl Store {
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
+}
+
+/// 当前 schema 版本。以后加字段时递增，并在 migrate 里按版本执行 ALTER。
+const SCHEMA_VERSION: i64 = 2;
+
+fn schema_version(conn: &Connection) -> Result<i64> {
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(stored.and_then(|value| value.parse().ok()).unwrap_or(0))
+}
+
+fn migrate(conn: &Connection) -> Result<()> {
+    conn.execute_batch(SCHEMA)?;
+    if schema_version(conn)? >= SCHEMA_VERSION {
+        return Ok(());
+    }
+    // v2：会话表补齐列（旧库没有版本号，ensure_column 幂等，直接跑一遍）
+    for (table, column, definition) in [
+        ("plans", "kind", "TEXT NOT NULL DEFAULT 'single'"),
+        ("plans", "name", "TEXT"),
+        ("session", "uid", "TEXT NOT NULL DEFAULT ''"),
+        ("session", "name", "TEXT NOT NULL DEFAULT ''"),
+        ("session", "student_id", "TEXT NOT NULL DEFAULT ''"),
+        ("session", "password", "TEXT NOT NULL DEFAULT ''"),
+        ("session", "openid", "TEXT NOT NULL DEFAULT ''"),
+        ("session", "cookies", "TEXT NOT NULL DEFAULT '[]'"),
+        ("session", "updated_at", "TEXT NOT NULL DEFAULT ''"),
+        ("session", "credentials_enc", "TEXT NOT NULL DEFAULT ''"),
+        ("session", "credentials_scheme", "TEXT NOT NULL DEFAULT ''"),
+    ] {
+        ensure_column(conn, table, column, definition)?;
+    }
+    conn.execute(
+        "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![SCHEMA_VERSION.to_string()],
+    )?;
+    Ok(())
 }
 
 fn ensure_column(conn: &Connection, table: &str, column: &str, definition: &str) -> Result<()> {
@@ -566,6 +610,7 @@ mod tests {
             openid: "abcdefghij_123".into(),
             cookies: r#"[{"name":"sid","value":"abc"}]"#.into(),
             updated_at: "2026-01-01T00:00:00.000Z".into(),
+            ..SessionRow::default()
         };
         store.save_session(&session).unwrap();
         assert_eq!(store.load_session().unwrap(), Some(session.clone()));
@@ -594,5 +639,14 @@ mod tests {
         assert_eq!(audit.len(), 1);
         assert_eq!(audit[0].event, "checkin_missed");
         assert_eq!(audit[0].payload["id"], "b-1");
+    }
+
+    #[test]
+    fn stamps_the_schema_version() {
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!(
+            store.get_meta("schema_version").unwrap().as_deref(),
+            Some("2")
+        );
     }
 }

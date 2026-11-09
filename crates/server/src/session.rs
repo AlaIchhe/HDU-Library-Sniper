@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use hdu_sniper_auth::LoginResult;
+use hdu_sniper_auth::{AuthError, LoginResult};
 use hdu_sniper_core::{QrLoginStart, QrLoginStatus, SessionStatus};
 use serde::Deserialize;
 
@@ -65,7 +65,13 @@ pub async fn create_qr(State(state): State<AppState>) -> Result<Json<QrLoginStar
         .create_qr_login()
         .await
         .map(Json)
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))
+        .map_err(|error| match error {
+            AuthError::Busy => ApiError::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "已有二维码等待扫码，请稍后再试",
+            ),
+            other => ApiError::new(StatusCode::BAD_GATEWAY, other.to_string()),
+        })
 }
 
 pub async fn qr_status(

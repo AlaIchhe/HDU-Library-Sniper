@@ -13,6 +13,8 @@ use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use hdu_sniper_core::json::{value_to_i64, value_to_string};
+
 use crate::auth::LIBRARY_BASE;
 use crate::cookies::CookieJar;
 
@@ -61,6 +63,9 @@ struct Category {
     content_id: String,
 }
 
+type JarChangeHandler = Arc<dyn Fn(&CookieJar) + Send + Sync>;
+
+/// 馆方接口客户端：持有 Cookie、身份与分类缓存。
 pub struct LibraryClient {
     base_url: String,
     http: Client,
@@ -68,7 +73,7 @@ pub struct LibraryClient {
     uid: Mutex<String>,
     name: Mutex<String>,
     categories: Mutex<HashMap<String, Category>>,
-    on_jar_change: Option<Arc<dyn Fn(&CookieJar) + Send + Sync>>,
+    on_jar_change: Option<JarChangeHandler>,
     refresh_handler: Mutex<Option<RefreshHandler>>,
 }
 
@@ -542,22 +547,6 @@ pub struct BookingRange {
     pub max_end_time: i64,
     pub min_duration: i64,
     pub max_duration: i64,
-}
-
-fn value_to_string(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        Value::Number(number) => number.to_string(),
-        _ => String::new(),
-    }
-}
-
-fn value_to_i64(value: &Value) -> i64 {
-    match value {
-        Value::Number(number) => number.as_i64().unwrap_or(0),
-        Value::String(text) => text.parse().unwrap_or(0),
-        _ => 0,
-    }
 }
 
 fn find_non_empty_default_items(value: &Value) -> Option<&Vec<Value>> {

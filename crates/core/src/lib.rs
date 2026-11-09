@@ -1,3 +1,6 @@
+//! 领域类型、时间基准、方案校验与 JSON 取值助手。
+
+pub mod json;
 pub mod plan;
 pub mod time;
 pub mod types;

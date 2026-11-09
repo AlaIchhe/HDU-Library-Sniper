@@ -5,6 +5,7 @@ use axum::{
 };
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use chrono_tz::Asia::Shanghai;
+use hdu_sniper_core::json::{value_to_i64, value_to_string};
 use hdu_sniper_core::{booking_day_offset_for, DurationOptions, FloorOption, RoomTypeOption};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -123,20 +124,4 @@ fn floor_to_option(value: &Value) -> Option<FloorOption> {
         seat_count: seat_titles.len() as i64,
         seat_titles,
     })
-}
-
-fn value_to_string(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        Value::Number(number) => number.to_string(),
-        _ => String::new(),
-    }
-}
-
-fn value_to_i64(value: &Value) -> i64 {
-    match value {
-        Value::Number(number) => number.as_i64().unwrap_or(0),
-        Value::String(text) => text.parse().unwrap_or(0),
-        _ => 0,
-    }
 }

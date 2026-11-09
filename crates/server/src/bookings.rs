@@ -3,8 +3,8 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use chrono::{DateTime, Datelike, Timelike, Utc};
-use chrono_tz::Asia::Shanghai;
+use chrono::{DateTime, Utc};
+use hdu_sniper_core::json::{format_zh, value_to_i64, value_to_string};
 use hdu_sniper_core::Booking;
 use hdu_sniper_hdu::Action;
 use serde_json::{json, Value};
@@ -99,33 +99,4 @@ fn booking_from_raw(item: &Value) -> Option<Booking> {
         can_leave: status == "1",
         can_renew: status == "2",
     })
-}
-
-fn format_zh(value: DateTime<Utc>) -> String {
-    let local = value.with_timezone(&Shanghai);
-    format!(
-        "{}/{}/{} {:02}:{:02}:{:02}",
-        local.year(),
-        local.month(),
-        local.day(),
-        local.hour(),
-        local.minute(),
-        local.second()
-    )
-}
-
-fn value_to_string(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        Value::Number(number) => number.to_string(),
-        _ => String::new(),
-    }
-}
-
-fn value_to_i64(value: &Value) -> i64 {
-    match value {
-        Value::Number(number) => number.as_i64().unwrap_or(0),
-        Value::String(text) => text.parse().unwrap_or(0),
-        _ => 0,
-    }
 }

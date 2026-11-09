@@ -1,8 +1,11 @@
-use std::sync::Arc;
+//! 本地 HTTP API（axum）：路由、同源守卫、限流与静态资源。
+
+use std::net::IpAddr;
+use std::sync::{Arc, OnceLock};
 
 use axum::{
     extract::{Path, Query, Request, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{any, get, post},
@@ -13,7 +16,6 @@ use hdu_sniper_core::PlanListItem;
 use hdu_sniper_hdu::HduError;
 use hdu_sniper_store::{Store, StoreError};
 use serde_json::{json, Value};
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 
 mod booking;
@@ -23,10 +25,12 @@ pub use booking::BookingExecutor;
 pub use scheduler::Scheduler;
 
 mod plans;
+mod ratelimit;
 mod runtime;
 mod scheduler;
 mod session;
 use plans::{GroupInput, PlanError, PlanInput};
+use ratelimit::RateLimit;
 
 #[derive(Debug)]
 pub(crate) struct ApiError {
@@ -71,8 +75,10 @@ pub struct AppState {
     pub store: Arc<Store>,
     pub auth: Arc<AuthService>,
     pub scheduler: Arc<Scheduler>,
+    pub rate: Arc<RateLimit>,
 }
 
+/// 组装本地 API 路由、守卫、限流与静态资源。
 pub fn build_router(
     store: Arc<Store>,
     auth: Arc<AuthService>,
@@ -83,6 +89,7 @@ pub fn build_router(
         store,
         auth,
         scheduler,
+        rate: Arc::new(RateLimit::new()),
     };
     let public = Router::new()
         .route("/api/health", get(health))
@@ -132,13 +139,84 @@ pub fn build_router(
         .fallback_service(
             ServeDir::new("dist/web").not_found_service(ServeFile::new("dist/web/index.html")),
         )
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            ratelimit::limit_requests,
+        ))
+        .layer(middleware::from_fn(guard_origin))
         .with_state(state)
+}
+
+/// 允许的 Host 名：IP 字面量、localhost，以及 HDU_ALLOWED_HOSTS 里显式列出的域名。
+/// 反向代理/自定义域名访问时用环境变量追加，例如 HDU_ALLOWED_HOSTS=hdu.lan。
+fn extra_allowed_hosts() -> &'static [String] {
+    static HOSTS: OnceLock<Vec<String>> = OnceLock::new();
+    HOSTS.get_or_init(|| {
+        std::env::var("HDU_ALLOWED_HOSTS")
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(|item| item.trim().to_ascii_lowercase())
+                    .filter(|item| !item.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
+fn host_name(host: &str) -> &str {
+    if let Some(rest) = host.strip_prefix('[') {
+        return rest.split(']').next().unwrap_or(rest);
+    }
+    host.split(':').next().unwrap_or(host)
+}
+
+fn host_is_allowed(name: &str) -> bool {
+    name.eq_ignore_ascii_case("localhost")
+        || name == "::1"
+        || name.parse::<IpAddr>().is_ok()
+        || extra_allowed_hosts().iter().any(|host| host == name)
+}
+
+/// 同源守卫：
+/// 1. Host 必须是 IP 字面量 / localhost / 显式白名单域名，挡住 DNS rebinding；
+/// 2. 带 Origin 的请求必须与 Host 完全一致；
+/// 3. Sec-Fetch-Site: cross-site 直接拒绝。
+async fn guard_origin(request: Request, next: Next) -> Response {
+    let host = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let origin = request
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok());
+    let cross_site = request
+        .headers()
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok())
+        == Some("cross-site");
+
+    let name = host_name(host);
+    let host_ok = name.is_empty() || host_is_allowed(name);
+    let origin_ok = match origin {
+        None => true,
+        Some(value) => {
+            let authority = value.split_once("://").map(|(_, rest)| rest).unwrap_or("");
+            !host.is_empty() && !authority.is_empty() && authority.eq_ignore_ascii_case(host)
+        }
+    };
+
+    if !host_ok || !origin_ok || cross_site {
+        tracing::warn!(%host, origin = ?origin, "rejected cross-origin request");
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "detail": "cross-origin request rejected" })),
+        )
+            .into_response();
+    }
+    next.run(request).await
 }
 
 async fn require_auth(State(state): State<AppState>, request: Request, next: Next) -> Response {
@@ -386,5 +464,102 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::CREATED, "{body}");
         assert_eq!(body["plan"]["kind"], "group");
+    }
+
+    async fn request_with(
+        app: Router,
+        method: &str,
+        uri: &str,
+        body: Option<Value>,
+        headers: &[(&str, &str)],
+    ) -> (StatusCode, Value) {
+        let mut builder = Request::builder().method(method).uri(uri);
+        for (key, value) in headers {
+            builder = builder.header(*key, *value);
+        }
+        let body = match body {
+            Some(value) => {
+                builder = builder.header("content-type", "application/json");
+                Body::from(value.to_string())
+            }
+            None => Body::empty(),
+        };
+        let response = app.oneshot(builder.body(body).unwrap()).await.unwrap();
+        let status = response.status();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    #[tokio::test]
+    async fn rejects_cross_origin_requests() {
+        let (status, _) = request_with(
+            app(),
+            "POST",
+            "/api/plans",
+            Some(json!({})),
+            &[
+                ("host", "127.0.0.1:8000"),
+                ("origin", "https://evil.example"),
+            ],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn rejects_dns_rebinding_host() {
+        let (status, _) = request_with(
+            app(),
+            "GET",
+            "/api/health",
+            None,
+            &[("host", "evil.example"), ("origin", "http://evil.example")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn allows_same_origin_requests() {
+        let (status, body) = request_with(
+            app(),
+            "GET",
+            "/api/health",
+            None,
+            &[
+                ("host", "127.0.0.1:8000"),
+                ("origin", "http://127.0.0.1:8000"),
+            ],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    #[tokio::test]
+    async fn rejects_cross_site_fetch_metadata() {
+        let (status, _) = request_with(
+            app(),
+            "GET",
+            "/api/health",
+            None,
+            &[("host", "127.0.0.1:8000"), ("sec-fetch-site", "cross-site")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn rate_limits_login_attempts() {
+        let app = app();
+        for _ in 0..5 {
+            let (status, _) =
+                request(app.clone(), "POST", "/api/session/login", Some(json!({}))).await;
+            assert_ne!(status, StatusCode::TOO_MANY_REQUESTS);
+        }
+        let (status, body) = request(app, "POST", "/api/session/login", Some(json!({}))).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
     }
 }

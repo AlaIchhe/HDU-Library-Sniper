@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Datelike, TimeZone, Utc};
 use chrono_tz::Asia::Shanghai;
+use hdu_sniper_core::json::{value_to_i64, value_to_string};
 use hdu_sniper_core::{booking_day_offset_for, BookingPlan, PlanListItem};
 use hdu_sniper_hdu::{HduError, LibraryClient};
 use hdu_sniper_store::Store;
@@ -138,6 +139,7 @@ pub struct BookingLockResult {
     pub terminal: bool,
 }
 
+/// 预约执行器：查询座位、锁座、提交并判定结果。
 pub struct BookingExecutor {
     store: Arc<Store>,
     interval_ms: AtomicU64,
@@ -301,7 +303,7 @@ impl BookingExecutor {
             .store
             .list_plan_items()
             .ok()
-            .and_then(|items| items.into_iter().find(|item| is_enabled(item)));
+            .and_then(|items| items.into_iter().find(is_enabled));
         let Some(enabled) = enabled else {
             return BookingRunResult {
                 success: false,
@@ -381,6 +383,7 @@ impl BookingExecutor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_plan<C: BookingClient>(
         &self,
         client: &C,
@@ -635,7 +638,7 @@ impl BookingExecutor {
             .store
             .list_plan_items()
             .ok()
-            .and_then(|items| items.into_iter().find(|item| is_enabled(item)))
+            .and_then(|items| items.into_iter().find(is_enabled))
         else {
             return BookingLockResult {
                 success: false,
@@ -853,21 +856,6 @@ fn is_duplicate_message(message: &str) -> bool {
     message.contains("已有预约") || message.contains("请勿重复") || message.contains("重复预约")
 }
 
-fn value_to_string(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        Value::Number(number) => number.to_string(),
-        _ => String::new(),
-    }
-}
-
-fn value_to_i64(value: &Value) -> i64 {
-    match value {
-        Value::Number(number) => number.as_i64().unwrap_or(0),
-        Value::String(text) => text.parse().unwrap_or(0),
-        _ => 0,
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;

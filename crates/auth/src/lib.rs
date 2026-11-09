@@ -1,9 +1,11 @@
+//! 登录与会话编排：SSO 账密、openid、扫码登录、持久化与自动刷新。
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use chrono::{SecondsFormat, Utc};
@@ -18,8 +20,12 @@ use regex::Regex;
 use reqwest::header::{ACCEPT, COOKIE, LOCATION, USER_AGENT as HEADER_USER_AGENT};
 use reqwest::{Client, Method, Response};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
+use tokio::sync::Semaphore;
 use url::Url;
+
+mod secrets;
+pub use secrets::{default_store, AesSecretStore, SecretStore};
 
 #[derive(Debug, Clone)]
 pub struct Endpoints {
@@ -46,6 +52,7 @@ impl Default for Endpoints {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// 登录结果，message 直接展示给用户。
 pub struct LoginResult {
     pub success: bool,
     pub message: String,
@@ -61,6 +68,8 @@ pub enum AuthError {
     Json(#[from] serde_json::Error),
     #[error("{0}")]
     Invalid(String),
+    #[error("busy")]
+    Busy,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +102,11 @@ struct SessionSnapshot {
     openid: Option<String>,
 }
 
+struct LoginGuard {
+    failures: u32,
+    blocked_until: Option<Instant>,
+}
+
 #[derive(Clone)]
 struct QrSession {
     created_at: i64,
@@ -101,6 +115,7 @@ struct QrSession {
     session: Option<SessionStatus>,
 }
 
+/// 登录态与凭据编排：SSO/扫码登录、持久化、后台刷新。
 pub struct AuthService {
     store: Arc<Store>,
     pub client: LibraryClient,
@@ -110,6 +125,9 @@ pub struct AuthService {
     openid: Mutex<Option<String>>,
     csrf: Mutex<Csrf>,
     qr_sessions: Mutex<HashMap<String, QrSession>>,
+    qr_slots: Arc<Semaphore>,
+    login_guard: Mutex<LoginGuard>,
+    secrets: Option<Box<dyn SecretStore>>,
     endpoints: Endpoints,
     refreshing: AtomicBool,
 }
@@ -120,21 +138,71 @@ impl AuthService {
     }
 
     pub fn with_endpoints(store: Arc<Store>, endpoints: Endpoints) -> Result<Self, AuthError> {
+        Self::with_endpoints_and_secrets(store, endpoints, default_store())
+    }
+
+    pub fn with_endpoints_and_secrets(
+        store: Arc<Store>,
+        endpoints: Endpoints,
+        secrets: Option<Box<dyn SecretStore>>,
+    ) -> Result<Self, AuthError> {
         let session = store.load_session()?;
         let mut credentials = None;
         let mut openid = None;
         let mut cookies = Vec::new();
         let mut uid = String::new();
         let mut name = String::new();
+        let mut legacy_plaintext = false;
         if let Some(row) = session {
-            if !row.student_id.is_empty() && !row.password.is_empty() {
-                credentials = Some(Credentials {
-                    student_id: row.student_id,
-                    password: row.password,
-                });
-            }
-            if !row.openid.is_empty() {
-                openid = Some(row.openid);
+            legacy_plaintext = row.credentials_enc.is_empty()
+                && (!row.password.is_empty() || !row.openid.is_empty());
+            if !row.credentials_enc.is_empty() {
+                match secrets.as_ref() {
+                    Some(secrets) => match secrets.open(&row.credentials_enc).and_then(|blob| {
+                        serde_json::from_str::<Value>(&blob).map_err(AuthError::from)
+                    }) {
+                        Ok(value) => {
+                            let student_id = value
+                                .get("student_id")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string();
+                            let password = value
+                                .get("password")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string();
+                            if !student_id.is_empty() && !password.is_empty() {
+                                credentials = Some(Credentials {
+                                    student_id,
+                                    password,
+                                });
+                            }
+                            let saved_openid = value
+                                .get("openid")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string();
+                            if !saved_openid.is_empty() {
+                                openid = Some(saved_openid);
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "凭据解密失败，按未登录处理");
+                        }
+                    },
+                    None => tracing::warn!("数据库中存在加密凭据，但当前没有可用密钥"),
+                }
+            } else {
+                if !row.student_id.is_empty() && !row.password.is_empty() {
+                    credentials = Some(Credentials {
+                        student_id: row.student_id,
+                        password: row.password,
+                    });
+                }
+                if !row.openid.is_empty() {
+                    openid = Some(row.openid);
+                }
             }
             cookies = serde_json::from_str::<Vec<StoredCookie>>(&row.cookies).unwrap_or_default();
             uid = row.uid;
@@ -148,7 +216,7 @@ impl AuthService {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| AuthError::Invalid(error.to_string()))?;
-        Ok(Self {
+        let service = Self {
             store,
             client,
             auth_http,
@@ -157,9 +225,21 @@ impl AuthService {
             openid: Mutex::new(openid),
             csrf: Mutex::new(Csrf::default()),
             qr_sessions: Mutex::new(HashMap::new()),
+            qr_slots: Arc::new(Semaphore::new(2)),
+            login_guard: Mutex::new(LoginGuard {
+                failures: 0,
+                blocked_until: None,
+            }),
+            secrets,
             endpoints,
             refreshing: AtomicBool::new(false),
-        })
+        };
+        if legacy_plaintext && service.secrets.is_some() {
+            if let Err(error) = service.persist_now() {
+                tracing::warn!(%error, "迁移明文凭据失败");
+            }
+        }
+        Ok(service)
     }
 
     pub fn authenticated(&self) -> bool {
@@ -189,7 +269,7 @@ impl AuthService {
         self.client.replace_cookies(cookies);
     }
 
-    async fn persist(&self) -> Result<(), AuthError> {
+    fn persist_now(&self) -> Result<(), AuthError> {
         let credentials = self
             .credentials
             .lock()
@@ -197,22 +277,52 @@ impl AuthService {
             .clone();
         let openid = self.openid.lock().expect("openid poisoned").clone();
         let cookies = serde_json::to_string(&self.client.jar_snapshot().all())?;
-        self.store.save_session(&SessionRow {
+        let mut row = SessionRow {
             uid: self.client.uid(),
             name: self.client.name(),
-            student_id: credentials
-                .as_ref()
-                .map(|value| value.student_id.clone())
-                .unwrap_or_default(),
-            password: credentials
-                .as_ref()
-                .map(|value| value.password.clone())
-                .unwrap_or_default(),
-            openid: openid.unwrap_or_default(),
+            student_id: String::new(),
+            password: String::new(),
+            openid: String::new(),
             cookies,
             updated_at: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
-        })?;
+            credentials_enc: String::new(),
+            credentials_scheme: "plain".into(),
+        };
+        match self.secrets.as_ref() {
+            Some(secrets) if credentials.is_some() || openid.is_some() => {
+                let blob = serde_json::to_string(&json!({
+                    "student_id": credentials
+                        .as_ref()
+                        .map(|value| value.student_id.as_str())
+                        .unwrap_or_default(),
+                    "password": credentials
+                        .as_ref()
+                        .map(|value| value.password.as_str())
+                        .unwrap_or_default(),
+                    "openid": openid.as_deref().unwrap_or_default(),
+                }))?;
+                row.credentials_enc = secrets.seal(&blob)?;
+                row.credentials_scheme = secrets.scheme().to_string();
+            }
+            Some(_) => {}
+            None => {
+                row.student_id = credentials
+                    .as_ref()
+                    .map(|value| value.student_id.clone())
+                    .unwrap_or_default();
+                row.password = credentials
+                    .as_ref()
+                    .map(|value| value.password.clone())
+                    .unwrap_or_default();
+                row.openid = openid.unwrap_or_default();
+            }
+        }
+        self.store.save_session(&row)?;
         Ok(())
+    }
+
+    async fn persist(&self) -> Result<(), AuthError> {
+        self.persist_now()
     }
 
     async fn follow(
@@ -324,8 +434,8 @@ impl AuthService {
         )
         .unwrap_or_else(|| "/login".to_string());
         let action_url = final_url.join(&action).map_err(|error| error.to_string())?;
-        let encrypted = encrypt_password(&key, password).map_err(|error| error)?;
-        let captcha = encrypt_password(&key, "{}").map_err(|error| error)?;
+        let encrypted = encrypt_password(&key, password)?;
+        let captcha = encrypt_password(&key, "{}")?;
         let form = vec![
             ("username".into(), student_id.to_string()),
             ("type".into(), "UsernamePassword".into()),
@@ -377,16 +487,45 @@ impl AuthService {
                 message: "请输入学号和密码".into(),
             };
         }
+        if let Some(remaining) = self.login_blocked() {
+            return LoginResult {
+                success: false,
+                message: format!("尝试次数过多，请 {remaining} 秒后再试"),
+            };
+        }
         *self.credentials.lock().expect("credentials poisoned") = Some(Credentials {
             student_id: student_id.to_string(),
             password: password.to_string(),
         });
-        match self.login_password_inner(student_id, password).await {
+        let result = match self.login_password_inner(student_id, password).await {
             Ok(result) => result,
             Err(error) => LoginResult {
                 success: false,
                 message: format!("登录请求失败：{error}"),
             },
+        };
+        self.note_login(result.success);
+        result
+    }
+
+    fn login_blocked(&self) -> Option<u64> {
+        let guard = self.login_guard.lock().expect("login guard poisoned");
+        let until = guard.blocked_until?;
+        let now = Instant::now();
+        (until > now).then(|| until.duration_since(now).as_secs() + 1)
+    }
+
+    fn note_login(&self, success: bool) {
+        let mut guard = self.login_guard.lock().expect("login guard poisoned");
+        if success {
+            guard.failures = 0;
+            guard.blocked_until = None;
+            return;
+        }
+        guard.failures += 1;
+        if guard.failures >= 3 {
+            guard.failures = 0;
+            guard.blocked_until = Some(Instant::now() + Duration::from_secs(30));
         }
     }
 
@@ -646,6 +785,11 @@ impl AuthService {
     }
 
     pub async fn create_qr_login(self: &Arc<Self>) -> Result<QrLoginStart, AuthError> {
+        let permit = self
+            .qr_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| AuthError::Busy)?;
         let referer = self.ensure_sso_page().await?;
         let timestamp = Utc::now().timestamp_millis();
         let response = self
@@ -724,6 +868,7 @@ impl AuthService {
         let service = self.clone();
         let scan_uuid = uuid.clone();
         tokio::spawn(async move {
+            let _permit = permit;
             service.run_qr_scan_loop(scan_uuid).await;
         });
         Ok(QrLoginStart {
@@ -953,7 +1098,7 @@ mod tests {
     }
 
     fn service(store: Arc<Store>, server: &MockServer) -> AuthService {
-        AuthService::with_endpoints(store, endpoints(server)).unwrap()
+        AuthService::with_endpoints_and_secrets(store, endpoints(server), None).unwrap()
     }
 
     fn login_body() -> serde_json::Value {
@@ -1176,5 +1321,53 @@ mod tests {
         assert_eq!(saved.student_id, "304174");
         assert_eq!(saved.password, "secret");
         assert_eq!(saved.cookies, "[]");
+    }
+
+    #[tokio::test]
+    async fn migrates_plaintext_credentials_to_encrypted_blob() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        store
+            .save_session(&SessionRow {
+                uid: "304174".into(),
+                name: "陈同学".into(),
+                student_id: "304174".into(),
+                password: "secret".into(),
+                openid: "oid".into(),
+                cookies: "[]".into(),
+                updated_at: "2026-01-01T00:00:00.000Z".into(),
+                ..SessionRow::default()
+            })
+            .unwrap();
+        let secrets = AesSecretStore::from_key(&[9u8; 32], "test").unwrap();
+        let _auth = AuthService::with_endpoints_and_secrets(
+            store.clone(),
+            Endpoints::default(),
+            Some(Box::new(secrets)),
+        )
+        .unwrap();
+        let saved = store.load_session().unwrap().unwrap();
+        assert_eq!(saved.password, "");
+        assert_eq!(saved.openid, "");
+        assert_eq!(saved.credentials_scheme, "test");
+        let secrets = AesSecretStore::from_key(&[9u8; 32], "test").unwrap();
+        let blob = secrets.open(&saved.credentials_enc).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+        assert_eq!(value["password"], "secret");
+        assert_eq!(value["student_id"], "304174");
+        assert_eq!(value["openid"], "oid");
+    }
+
+    #[tokio::test]
+    async fn blocks_password_login_after_repeated_failures() {
+        let server = MockServer::start().await;
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let auth = service(store, &server);
+        auth.note_login(false);
+        auth.note_login(false);
+        auth.note_login(false);
+        assert!(auth.login_blocked().is_some());
+        let result = auth.login_password("304174", "secret").await;
+        assert!(!result.success);
+        assert!(result.message.contains("尝试次数过多"));
     }
 }

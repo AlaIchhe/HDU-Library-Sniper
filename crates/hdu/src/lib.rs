@@ -1,3 +1,5 @@
+//! 馆方接口封装：HTTP 客户端、Cookie、房间/座位/预约/签到。
+
 mod auth;
 mod cookies;
 mod library;

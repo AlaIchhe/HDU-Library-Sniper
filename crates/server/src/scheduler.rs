@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use hdu_sniper_auth::AuthService;
+use hdu_sniper_core::json::{format_iso, value_to_i64, value_to_string};
 use hdu_sniper_core::{
     booking_anchor_delay_seconds, booking_prelock_delay_seconds, shanghai_seconds_of_day,
     CheckInPolling, RuntimeStatus,
@@ -52,6 +53,7 @@ impl Default for StatusState {
     }
 }
 
+/// 后台调度器：预约窗口、自动签到与状态广播。
 pub struct Scheduler {
     store: Arc<Store>,
     auth: Arc<AuthService>,
@@ -484,27 +486,6 @@ impl Scheduler {
     }
 }
 
-fn format_iso(ms: i64) -> String {
-    DateTime::from_timestamp_millis(ms)
-        .unwrap_or_else(Utc::now)
-        .to_rfc3339_opts(SecondsFormat::Millis, true)
-}
-
-fn value_to_string(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        Value::Number(number) => number.to_string(),
-        _ => String::new(),
-    }
-}
-
-fn value_to_i64(value: &Value) -> i64 {
-    match value {
-        Value::Number(number) => number.as_i64().unwrap_or(0),
-        Value::String(text) => text.parse().unwrap_or(0),
-        _ => 0,
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;

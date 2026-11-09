@@ -1,6 +1,6 @@
 use axum::{extract::State, http::StatusCode, Json};
-use chrono::{DateTime, Datelike, Timelike, Utc};
-use chrono_tz::Asia::Shanghai;
+use chrono::{DateTime, Utc};
+use hdu_sniper_core::json::format_zh;
 use hdu_sniper_core::{
     next_booking_anchor, CheckInStatus, NextExecutionTarget, NextTargetKind, PlanListItem,
     RuntimeStatus,
@@ -123,17 +123,4 @@ fn checkin_status(state: &AppState) -> Result<CheckInStatus, ApiError> {
         last_success_at: None,
         last_message: None,
     })
-}
-
-fn format_zh(value: DateTime<Utc>) -> String {
-    let local = value.with_timezone(&Shanghai);
-    format!(
-        "{}/{}/{} {:02}:{:02}:{:02}",
-        local.year(),
-        local.month(),
-        local.day(),
-        local.hour(),
-        local.minute(),
-        local.second()
-    )
 }
