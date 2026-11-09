@@ -20,12 +20,12 @@ Rust core ───────┤
 - `core`：共享类型、上海时区预约锚点、预锁时间、plan validation；
 - `store`：兼容现有 SQLite schema 的 plans/groups/session/audit CRUD；
 - `hdu`：CookieJar、AES-128-ECB、openid 解析、馆方 LibraryClient；
-- `auth`：学号密码 SSO、二维码登录、openid 登录、restore/refresh/logout、session 持久化；
-- `server`：axum 容器 API、Tauri 进程内 API、CORS、静态 Web 资源；
+- `auth`：学号密码 SSO、二维码登录、openid 登录、restore/refresh/logout、session 持久化、凭据加密与迁移；
+- `server`：axum 容器 API、Tauri 进程内 API、同源守卫与限流、静态 Web 资源；
 - scheduler：20:00 预约锚点、预锁、burst 重试、自动签到、结果审计；
 - LibraryClient 在登录失效时调用 AuthService.refresh 并重试一次原请求；
 - booking executor：主/备选座位、已有预约幂等、封禁/限流/流程异常分类、结果确认；
-- 48 个 Rust 测试通过（core 7、hdu 15、auth 6、store 6、server 14）；
+- 61 个 Rust 测试通过（core 9、hdu 15、auth 11、store 7、server 19）；
 - Tauri 已改为进程内 Rust server，容器镜像已改为 Rust 二进制；
 - 前端移除 stop_backend/start_backend 调用，更新时不再管理 sidecar。
 
