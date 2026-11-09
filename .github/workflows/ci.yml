@@ -54,3 +54,16 @@ jobs:
       - name: Warm release build cache
         working-directory: src-tauri
         run: cargo build --release
+      - name: Build unsigned MSI (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        run: bun run tauri build --bundles msi --config src-tauri/tauri.msi.conf.json
+      - name: Upload MSI
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hdu-library-sniper-msi
+          path: |
+            target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 7
