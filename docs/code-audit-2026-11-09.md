@@ -32,9 +32,9 @@
 | P2-4 | ◐ | 补齐 crate 级文档和主要 pub 项注释；字段级文档可继续补 |
 | P2-5 | ✅ | `meta.schema_version` + 版本化迁移（当前 v2） |
 | P3-4 | ✅ | CI 增加 rustfmt、clippy `-D warnings`、jscpd 3% 门禁；清掉原有 6 条 clippy 警告 |
-| P2-1 | ⏳ | 三个千行文件的拆分留待独立重构提交（纯移动，单独 PR 便于 review） |
+| P2-1 | ✅ | 三个千行文件已拆：`auth` → `sso`/`qr`/`session`/`secrets`，`booking` → `types`/`classify`/`burst`/`execute`，`hdu` → `catalog`/`booking`/`parse`；千行文件清零；最大单文件 565 行（library.rs，其中测试约 280 行） |
 | P3-1 | ⏳ | 随机端口 + 资源目录涉及前后端启动协议，单独做 |
-| P3-2 | ⏳ | 前端长页面拆分同上 |
+| P3-2 | ✅ | `plans-page` 拆为 337 行页面 + `fields`/`plan-editor`/`group-editor`；`app-shell` 拆为 360 行壳 + `header`/`status` |
 | P3-3 | ◐ | 文档已更新；`@tauri-apps/api` 未删（需同步 `bun.lock`），媒体文件未迁移 |
 
 修复后基线：**61 个 Rust 测试 + 29 个前端测试全绿**，clippy `-D warnings` 0 告警，重复率仍低于 3%。
@@ -107,6 +107,18 @@ core ← hdu ← auth ← server ← src-tauri
   ↑       ↑       ↑
   └──── store ────┘
 ```
+
+### 拆分后的结构（P2-1 / P3-2）
+
+| 原文件 | 拆分后 |
+|---|---|
+| `crates/auth/src/lib.rs`（1,180 行） | `lib.rs`（编排/构造）、`sso.rs`、`qr.rs`、`session.rs`、`secrets.rs` |
+| `crates/server/src/booking.rs`（1,087 行） | `booking.rs`（执行器骨架）、`types.rs`、`classify.rs`、`burst.rs`、`execute.rs` |
+| `crates/hdu/src/library.rs`（902 行） | `library.rs`（客户端骨架）、`catalog.rs`、`booking.rs`、`parse.rs` |
+| `src/web/components/plans-page.tsx`（839 行） | `plans-page.tsx`（337 行）+ `plans/fields.tsx`、`plans/plan-editor.tsx`、`plans/group-editor.tsx` |
+| `src/web/components/app-shell.tsx`（639 行） | `app-shell.tsx`（360 行）+ `app-shell/header.tsx`、`app-shell/status.tsx` |
+
+纯代码移动，行为与测试不变。
 
 ### 前端（7,608 行 TS/TSX，其中 `components/ui` 第三方 3,718 行）
 

@@ -5,8 +5,6 @@ import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-route
 import {
   IconCalendarEvent,
   IconCalendarEventFilled,
-  IconClock,
-  IconCommand as CommandIcon,
   IconExternalLink,
   IconLibrary,
   IconListCheck,
@@ -16,32 +14,7 @@ import {
   IconRefresh,
   IconSun,
 } from "@tabler/icons-react"
-import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogPopup,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern"
-import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import {
-  Menu,
-  MenuGroup,
-  MenuGroupLabel,
-  MenuItem,
-  MenuPopup,
-  MenuSeparator,
-  MenuShortcut,
-  MenuTrigger,
-} from "@/components/ui/menu"
-import { Separator } from "@/components/ui/separator"
 import {
   Sidebar,
   SidebarContent,
@@ -55,280 +28,28 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
-  SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { toastManager, ToastProvider } from "@/components/ui/toast"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "../store"
-import { queryKeys, useCheckin, useCheckinMutation, useNextTarget, useRuntime, useSession } from "../queries"
+import { queryKeys, useRuntime, useSession } from "../queries"
 import { LightRays } from "@/components/ui/light-rays"
 import { api } from "../api"
 import { notifyAuditEvents } from "../notifications"
 import { openExternalUrl } from "../tauri"
 import { forgetReturnTo, rememberReturnTo } from "../return-to"
 import { startUpdateCheck } from "../updater"
-import { UpdatePill } from "./update-pill"
 import { CommandPalette } from "./command-palette"
 import { cn } from "@/lib/utils"
 import { useHotkeys } from "../hooks/use-hotkeys"
-import { useCountdown } from "../hooks/use-countdown"
 import { useNavMode } from "../hooks/use-nav-mode"
 import { FloatingDock } from "./floating-dock"
 import { HoverRail } from "./hover-rail"
 import type { Command } from "../commands"
 
 /** 统一的语义色状态点：颜色由 tone 决定，切换时用 spring 过渡而非硬切。 */
-function StatusDot({ tone, pulse = false }: { tone: "ok" | "warn" | "bad" | "idle"; pulse?: boolean }) {
-  const reduced = useReducedMotion()
-  const color = {
-    ok: "bg-success",
-    warn: "bg-warning",
-    bad: "bg-destructive",
-    idle: "bg-muted-foreground/50",
-  }[tone]
-
-  return (
-    <span className="relative grid size-2 shrink-0 place-items-center">
-      {pulse && tone !== "idle" && !reduced && (
-        <motion.span
-          aria-hidden
-          className={`absolute inset-0 rounded-full ${color}`}
-          initial={{ scale: 1, opacity: 0 }}
-          animate={{ scale: [1, 2.6], opacity: [0.5, 0] }}
-          transition={{
-            type: "spring",
-            visualDuration: 1.4,
-            bounce: 0,
-            repeat: Infinity,
-            repeatDelay: 0.6,
-          }}
-        />
-      )}
-      <motion.span
-        className={`absolute inset-0 rounded-full ${color}`}
-        initial={false}
-        animate={{ scale: 1 }}
-        transition={{ type: "spring", stiffness: 400, damping: 30 }}
-      />
-    </span>
-  )
-}
-
-/**
- * 顶栏状态区：一眼看清「后台在不在线、下一次什么时候动」。
- *
- * 倒计时只用本地 timer 重算，不发网络请求。
- */
-function StatusBar({ runtimeState }: { runtimeState: string | undefined }) {
-  const target = useNextTarget()
-  const countdown = useCountdown(target.data?.at)
-  const reduced = useReducedMotion()
-
-  const tone: "ok" | "warn" | "bad" | "idle" =
-    runtimeState === "error"
-      ? "bad"
-      : runtimeState === "auth_required"
-        ? "warn"
-        : runtimeState === "running"
-          ? "ok"
-          : target.data?.kind && target.data.kind !== "none"
-            ? "ok"
-            : "idle"
-
-  const label = target.data?.label || "等待方案启用"
-
-  return (
-    <div className="flex min-w-0 items-center gap-2.5 rounded-full border bg-card/60 py-1 ps-2.5 pe-3 text-xs shadow-xs/5 backdrop-blur">
-      <StatusDot tone={tone} pulse={runtimeState === "running"} />
-
-      <div className="flex min-w-0 items-baseline gap-2">
-        <span className="shrink-0 text-muted-foreground max-lg:hidden">下一次</span>
-        <span
-          className="max-w-[16rem] truncate font-medium text-foreground max-lg:max-w-[9rem]"
-          title={label}
-        >
-          {label}
-        </span>
-      </div>
-
-      <AnimatePresence mode="popLayout" initial={false}>
-        {target.data?.at ? (
-          <motion.span
-            key={countdown?.text ?? "loading"}
-            initial={reduced ? false : { opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.14 }}
-            className="flex shrink-0 items-center gap-1 tabular-nums text-muted-foreground"
-          >
-            <IconClock className="size-3" />
-            {countdown?.text ?? "…"}
-          </motion.span>
-        ) : null}
-      </AnimatePresence>
-    </div>
-  )
-}
-
-function CheckinControl() {
-  const { data, isLoading } = useCheckin()
-  const mutation = useCheckinMutation()
-  const [pending, setPending] = useState<boolean | null>(null)
-
-  async function confirm() {
-    if (pending === null) return
-    try {
-      await mutation.mutateAsync({ enabled: pending, agreed: pending })
-      toastManager.add({
-        type: "success",
-        title: pending ? "自动签到已启用" : "自动签到已关闭",
-      })
-      setPending(null)
-    } catch (cause) {
-      toastManager.add({
-        type: "error",
-        title: cause instanceof Error ? cause.message : "自动签到设置失败",
-      })
-    }
-  }
-
-  return (
-    <>
-      <Button
-        variant={data?.enabled ? "secondary" : "ghost"}
-        size="sm"
-        disabled={isLoading || mutation.isPending}
-        onClick={() => {
-          if (data) setPending(!data.enabled)
-        }}
-        title={data?.enabled ? "自动签到已开启，点击关闭" : "自动签到已关闭，点击开启"}
-      >
-        <StatusDot tone={data?.enabled ? "ok" : "idle"} />
-        <span className="max-sm:hidden">{data?.enabled ? "自动签到" : "未开签到"}</span>
-      </Button>
-
-      <AlertDialog
-        open={pending !== null}
-        onOpenChange={(open) => {
-          if (!open && !mutation.isPending) setPending(null)
-        }}
-      >
-        <AlertDialogPopup>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{pending ? "启用自动签到？" : "关闭自动签到？"}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pending
-                ? "自动签到会在服务端签到窗口内提交签到请求。继续启用吗？"
-                : "关闭后不会再自动提交签到，已有预约仍可手动签到。确定关闭吗？"}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" disabled={mutation.isPending} />}>
-              取消
-            </AlertDialogClose>
-            <Button loading={mutation.isPending} onClick={() => void confirm()}>
-              {pending ? "启用" : "关闭"}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogPopup>
-      </AlertDialog>
-    </>
-  )
-}
-
-function AppHeader({
-  sessionName,
-  theme,
-  runtimeState,
-  showSidebarTrigger,
-  onOpenPalette,
-  onLogout,
-}: {
-  sessionName: string | undefined
-  theme: "light" | "dark"
-  runtimeState: string | undefined
-  showSidebarTrigger: boolean
-  onOpenPalette: () => void
-  onLogout: () => void
-}) {
-  return (
-    <header className="sticky top-0 z-40 flex min-h-14 min-w-0 items-center gap-3 border-b bg-background/82 px-3 backdrop-blur sm:px-6">
-      {showSidebarTrigger ? (
-        <>
-          <SidebarTrigger aria-label="切换侧栏" />
-          <Separator orientation="vertical" className="h-5" />
-        </>
-      ) : null}
-      <StatusBar runtimeState={runtimeState} />
-      <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2 text-muted-foreground hover:text-foreground"
-          onClick={onOpenPalette}
-        >
-          <CommandIcon className="size-3.5" />
-          <span className="max-lg:hidden">搜索命令</span>
-          <MenuShortcut className="me-0 max-lg:hidden">⌘K</MenuShortcut>
-        </Button>
-        <UpdatePill />
-        <CheckinControl />
-        <AnimatedThemeToggler
-          className="grid size-8 place-items-center rounded-full border text-foreground/80 transition-colors hover:bg-muted hover:text-foreground [&_svg]:size-4"
-          theme={theme}
-          onThemeChange={(nextTheme) => useAppStore.getState().setTheme(nextTheme)}
-        />
-        <Menu>
-          <MenuTrigger className="rounded-full outline-none" aria-label="用户菜单">
-            <Avatar className="size-8">
-              <AvatarFallback>{sessionName?.slice(0, 1) || "H"}</AvatarFallback>
-            </Avatar>
-          </MenuTrigger>
-          <MenuPopup align="end">
-            <MenuGroup>
-              <MenuGroupLabel>{sessionName || "已登录"}</MenuGroupLabel>
-              <MenuItem
-                onClick={() =>
-                  void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases")
-                }
-              >
-                <IconExternalLink />
-                更新日志
-              </MenuItem>
-            </MenuGroup>
-            <MenuSeparator />
-            <MenuItem variant="destructive" onClick={() => void onLogout()}>
-              <IconLogout />
-              退出登录
-            </MenuItem>
-          </MenuPopup>
-        </Menu>
-      </div>
-    </header>
-  )
-}
-
-function AppContent({ pathname, compact }: { pathname: string; compact: boolean }) {
-  const reduced = useReducedMotion()
-
-  return (
-    <main
-      className={cn(
-        "mx-auto min-w-0 w-full max-w-7xl flex-1 overflow-x-hidden p-4 sm:p-8",
-        compact && "pb-28 sm:pb-28",
-      )}
-    >
-      <motion.div
-        key={pathname}
-        initial={reduced ? false : { opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2 }}
-      >
-        <Outlet />
-      </motion.div>
-    </main>
-  )
-}
+import { AppContent, AppHeader } from "./app-shell/header"
+import { StatusDot } from "./app-shell/status"
 
 export function AppShell() {
   const pathname = useRouterState({
