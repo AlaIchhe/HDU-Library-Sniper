@@ -1,11 +1,11 @@
 import { useSyncExternalStore } from "react"
 import { IconCircleArrowUp, IconLoader2 } from "@tabler/icons-react"
 
-import { Button } from "@/components/ui/button"
-import { toastManager } from "@/components/ui/toast"
+import { Button } from "@/ui/button"
+import { toastManager } from "@/ui/toast"
 import { cn } from "@/lib/utils"
 import { getUpdateProgress, subscribeUpdateProgress, type UpdateProgress } from "../update-state"
-import { installPendingUpdate } from "../updater"
+import { installPendingUpdate } from "../platform/updater"
 
 type Copy = { long: string; short: string; hint: string }
 

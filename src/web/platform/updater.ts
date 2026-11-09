@@ -1,7 +1,7 @@
 import type { DownloadEvent, Update } from "@tauri-apps/plugin-updater"
 
 import { isTauri } from "./tauri"
-import { applyDownloadEvent, commitUpdateProgress, emptyTick, getUpdateProgress } from "./update-state"
+import { applyDownloadEvent, commitUpdateProgress, emptyTick, getUpdateProgress } from "../update-state"
 
 /** 更新源在 GitHub 上，国内直连经常挂住，所有请求都要自带超时。 */
 const checkTimeoutMs = 15_000

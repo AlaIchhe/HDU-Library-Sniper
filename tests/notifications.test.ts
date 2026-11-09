@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { unseenAuditEvents } from "../src/web/notifications";
+import { unseenAuditEvents } from "../src/web/platform/notifications";
 import type { AuditEvent } from "../src/shared/types";
 
 const event = (id: number, name: string): AuditEvent => ({

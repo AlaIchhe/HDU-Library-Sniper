@@ -15,9 +15,9 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { z } from "zod"
 
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Alert, AlertDescription } from "@/ui/alert"
+import { Button } from "@/ui/button"
+import { Card } from "@/ui/card"
 import {
   Dialog,
   DialogClose,
@@ -26,17 +26,17 @@ import {
   DialogHeader,
   DialogPopup,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Field, FieldDescription, FieldLabel, FormError } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Spinner } from "@/components/ui/spinner"
+} from "@/ui/dialog"
+import { Field, FieldDescription, FieldLabel, FormError } from "@/ui/field"
+import { Input } from "@/ui/input"
+import { ScrollArea } from "@/ui/scroll-area"
+import { Spinner } from "@/ui/spinner"
 import { cn } from "@/lib/utils"
-import { api } from "../api"
-import { useSession } from "../queries"
-import { useAppStore } from "../store"
+import { api } from "../data/api"
+import { useSession } from "../data/queries"
+import { useAppStore } from "../data/store"
 import { consumeReturnTo } from "../return-to"
-import { openExternalUrl } from "../tauri"
+import { openExternalUrl } from "../platform/tauri"
 import { Busy, loginSchema } from "../shared"
 import type { QrLoginStart } from "../../shared/types"
 

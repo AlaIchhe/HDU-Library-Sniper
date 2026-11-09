@@ -5,15 +5,15 @@ import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
 import { IconLayoutSidebar } from "@tabler/icons-react";
 import * as React from "react";
-import { useMediaQuery } from "@/hooks/use-media-query";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/ui/button";
 
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollArea } from "@/ui/scroll-area";
 
-import { Sheet, SheetDescription, SheetHeader, SheetPopup, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetDescription, SheetHeader, SheetPopup, SheetTitle } from "@/ui/sheet";
 
-import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/ui/tooltip";
 
 const SIDEBAR_COOKIE_NAME: string = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE: number = 60 * 60 * 24 * 7;

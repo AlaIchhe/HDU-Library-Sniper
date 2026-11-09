@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "./api"
 import { useAppStore } from "./store"
-import type { PlanListItem } from "../shared/types"
+import type { PlanListItem } from "../../shared/types"
 
 const useAuthenticated = () => useAppStore((state) => state.session?.authenticated ?? false)
 

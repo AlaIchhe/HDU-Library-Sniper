@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { error as logError } from "@tauri-apps/plugin-log";
-import { api, resolveApiBase } from "../src/web/api";
+import { api, resolveApiBase } from "../src/web/data/api";
 
 // The web API now uses @tauri-apps/plugin-http inside Tauri. In the test
 // environment there is no real Tauri runtime, so route the plugin fetch to the

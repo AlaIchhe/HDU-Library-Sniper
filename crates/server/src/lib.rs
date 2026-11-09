@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use tower_http::services::{ServeDir, ServeFile};
 
 mod booking;
-mod bookings;
+mod bookings_api;
 mod catalog;
 pub use booking::BookingExecutor;
 pub use scheduler::Scheduler;
@@ -115,8 +115,8 @@ pub fn build_router(
         .route("/api/catalog/room-types", get(catalog::room_types))
         .route("/api/catalog/floors", get(catalog::floors))
         .route("/api/catalog/durations", get(catalog::durations))
-        .route("/api/bookings/current", get(bookings::current))
-        .route("/api/bookings/{id}/{action}", post(bookings::action))
+        .route("/api/bookings/current", get(bookings_api::current))
+        .route("/api/bookings/{id}/{action}", post(bookings_api::action))
         .route("/api/booking/run", post(runtime::booking_run))
         .route("/api/runtime/status", get(runtime::status))
         .route("/api/runtime/next-target", get(runtime::next_target))

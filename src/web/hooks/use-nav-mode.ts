@@ -1,6 +1,6 @@
 "use client"
 
-import { useMediaQuery } from "@/hooks/use-media-query"
+import { useMediaQuery } from "@/lib/use-media-query"
 
 export type NavMode = "wide" | "medium" | "compact"
 

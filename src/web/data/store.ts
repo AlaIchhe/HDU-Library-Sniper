@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
-import type { SessionStatus } from "../shared/types"
+import type { SessionStatus } from "../../shared/types"
 
 type Notice = { tone: "success" | "error" | "warning"; message: string } | null
 type AppStore = {

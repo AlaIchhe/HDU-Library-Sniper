@@ -1,5 +1,5 @@
 import { isTauri } from "./tauri"
-import type { AuditEvent } from "../shared/types"
+import type { AuditEvent } from "../../shared/types"
 
 const notifiedKey = "hdu-sniper.notification-events"
 const interesting = new Set([

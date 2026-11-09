@@ -34,7 +34,7 @@ function normalizeKey(event: KeyboardEvent): string | null {
  *  - 序列（`g p`）带超时，超时后回到初始状态；
  *  - 命中后才 `preventDefault`，不命中时不影响浏览器的原生行为。
  *
- * 注意：`src/components/ui/sidebar.tsx` 自己也监听 window keydown 并处理 ⌘/Ctrl+B，
+ * 注意：`src/ui/sidebar.tsx` 自己也监听 window keydown 并处理 ⌘/Ctrl+B，
  * 且它无条件 preventDefault。这里不要再占用 `b` 作为单键或序列起始键。
  */
 export function useHotkeys(map: HotkeyMap, options?: { enabled?: boolean }) {

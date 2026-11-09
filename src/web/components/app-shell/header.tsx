@@ -4,9 +4,9 @@ import { Outlet } from "@tanstack/react-router"
 import { IconCommand as CommandIcon, IconExternalLink, IconLogout } from "@tabler/icons-react"
 import { motion, useReducedMotion } from "motion/react"
 
-import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
+import { AnimatedThemeToggler } from "@/ui/animated-theme-toggler"
+import { Avatar, AvatarFallback } from "@/ui/avatar"
+import { Button } from "@/ui/button"
 import {
   Menu,
   MenuGroup,
@@ -16,11 +16,11 @@ import {
   MenuSeparator,
   MenuShortcut,
   MenuTrigger,
-} from "@/components/ui/menu"
-import { Separator } from "@/components/ui/separator"
-import { SidebarTrigger } from "@/components/ui/sidebar"
-import { useAppStore } from "../../store"
-import { openExternalUrl } from "../../tauri"
+} from "@/ui/menu"
+import { Separator } from "@/ui/separator"
+import { SidebarTrigger } from "@/ui/sidebar"
+import { useAppStore } from "../../data/store"
+import { openExternalUrl } from "../../platform/tauri"
 import { UpdatePill } from "../update-pill"
 import { cn } from "@/lib/utils"
 

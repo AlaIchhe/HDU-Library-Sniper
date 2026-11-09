@@ -1,4 +1,4 @@
-import { toastManager } from "@/components/ui/toast"
+import { toastManager } from "@/ui/toast"
 
 /**
  * 带「撤销」动作的 toast。不自动消失：用户需要时间决定要不要撤销。

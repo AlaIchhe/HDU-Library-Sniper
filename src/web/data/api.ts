@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { isTauri } from "./tauri"
+import { isTauri } from "../platform/tauri"
 import { useAppStore } from "./store"
 import type {
   AuditEvent,
@@ -16,7 +16,7 @@ import type {
   RoomTypeOption,
   RuntimeStatus,
   SessionStatus,
-} from "../shared/types"
+} from "../../shared/types"
 
 export function resolveApiBase(): string {
   const configured = import.meta.env.VITE_API_BASE?.trim()

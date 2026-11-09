@@ -6,9 +6,9 @@ import {
   ComboboxItem,
   ComboboxList,
   ComboboxPopup,
-} from "@/components/ui/combobox"
-import { Field, FieldLabel, FormError } from "@/components/ui/field"
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select"
+} from "@/ui/combobox"
+import { Field, FieldLabel, FormError } from "@/ui/field"
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/ui/select"
 
 export function SelectField({
   label,

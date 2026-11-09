@@ -3,10 +3,10 @@ import type { ReactNode } from "react"
 import { IconAlertCircle } from "@tabler/icons-react"
 import { z } from "zod"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
-import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
-import { Spinner } from "@/components/ui/spinner"
+import { Alert, AlertDescription, AlertTitle } from "@/ui/alert"
+import { Button } from "@/ui/button"
+import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from "@/ui/empty"
+import { Spinner } from "@/ui/spinner"
 
 export const loginSchema = z.object({
   studentId: z.string().trim().min(1, "请输入学号"),

@@ -6,7 +6,7 @@ import { useRender } from "@base-ui/react/use-render";
 import { IconX } from "@tabler/icons-react";
 import type React from "react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/ui/button";
 
 export const Sheet: typeof SheetPrimitive.Root = SheetPrimitive.Root;
 

@@ -10,7 +10,7 @@ import {
 } from "@tabler/icons-react"
 import { motion, useReducedMotion } from "motion/react"
 
-import { useMediaQuery } from "@/hooks/use-media-query"
+import { useMediaQuery } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
 
 const BUTTON = 44

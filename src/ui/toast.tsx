@@ -10,7 +10,7 @@ import {
 } from "@tabler/icons-react";
 import type React from "react";
 import { cn } from "@/lib/utils";
-import { buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/ui/button";
 
 const TOAST_ICONS = {
   error: IconAlertCircle,

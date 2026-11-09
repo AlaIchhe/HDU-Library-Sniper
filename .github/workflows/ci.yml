@@ -33,7 +33,7 @@ jobs:
       - name: Rust clippy
         run: cargo clippy -p hdu-sniper-core -p hdu-sniper-hdu -p hdu-sniper-auth -p hdu-sniper-store -p hdu-sniper-server --all-targets -- -D warnings
       - name: Duplication gate
-        run: npx --yes jscpd@4 --min-lines 12 --min-tokens 70 --format rust,typescript,tsx --threshold 3 --ignore "**/node_modules/**,**/target/**,**/components/ui/**" src crates
+        run: npx --yes jscpd@4 --min-lines 12 --min-tokens 70 --format rust,typescript,tsx --threshold 3 --ignore "**/node_modules/**,**/target/**,**/ui/**" src crates
       - name: Rust tests
         run: cargo test -p hdu-sniper-core -p hdu-sniper-hdu -p hdu-sniper-auth -p hdu-sniper-store -p hdu-sniper-server
 

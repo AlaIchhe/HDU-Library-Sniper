@@ -3,7 +3,7 @@
 import type { ReactNode } from "react"
 import { motion, type Variants } from "motion/react"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/ui/card"
 import { cn } from "@/lib/utils"
 
 /** 页面级动效：两页共用同一套节奏（子项错峰 60ms）。 */

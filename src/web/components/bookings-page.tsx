@@ -12,13 +12,13 @@ import {
   type Variants,
 } from "motion/react"
 
-import { Button } from "@/components/ui/button"
-import { toastManager } from "@/components/ui/toast"
+import { Button } from "@/ui/button"
+import { toastManager } from "@/ui/toast"
 import { cn } from "@/lib/utils"
 import { PageHeader, PageShell, Panel } from "./page-layout"
 import type { Booking } from "../../shared/types"
-import { useBookingAction, useBookings } from "../queries"
-import { useRefreshSignal } from "../store"
+import { useBookingAction, useBookings } from "../data/queries"
+import { useRefreshSignal } from "../data/store"
 import { Busy, Failure, NoData } from "../shared"
 
 // 弹簧预设：交互反馈要跟手（轻微回弹），布局位移要稳。

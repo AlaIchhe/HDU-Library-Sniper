@@ -108,7 +108,7 @@ section "9/10 jscpd 重复代码（门禁 3%）"
 if have npx; then
   if npx --yes jscpd@4 --min-lines 12 --min-tokens 70 --threshold 3 \
       --format rust,typescript,tsx,css \
-      --ignore '**/node_modules/**,**/target/**,**/.toolchain/**,**/components/ui/**' \
+      --ignore '**/node_modules/**,**/target/**,**/.toolchain/**,**/ui/**' \
       --reporters console --output "$OUT/jscpd" src crates tests >"$OUT/jscpd.txt" 2>&1; then
     pass "重复率低于 3%"
   else

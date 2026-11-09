@@ -14,7 +14,7 @@ import {
   IconRefresh,
   IconSun,
 } from "@tabler/icons-react"
-import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern"
+import { AnimatedGridPattern } from "@/ui/animated-grid-pattern"
 import {
   Sidebar,
   SidebarContent,
@@ -28,17 +28,17 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
-} from "@/components/ui/sidebar"
-import { toastManager, ToastProvider } from "@/components/ui/toast"
+} from "@/ui/sidebar"
+import { toastManager, ToastProvider } from "@/ui/toast"
 import { useQueryClient } from "@tanstack/react-query"
-import { useAppStore } from "../store"
-import { queryKeys, useRuntime, useSession } from "../queries"
-import { LightRays } from "@/components/ui/light-rays"
-import { api } from "../api"
-import { notifyAuditEvents } from "../notifications"
-import { openExternalUrl } from "../tauri"
+import { useAppStore } from "../data/store"
+import { queryKeys, useRuntime, useSession } from "../data/queries"
+import { LightRays } from "@/ui/light-rays"
+import { api } from "../data/api"
+import { notifyAuditEvents } from "../platform/notifications"
+import { openExternalUrl } from "../platform/tauri"
 import { forgetReturnTo, rememberReturnTo } from "../return-to"
-import { startUpdateCheck } from "../updater"
+import { startUpdateCheck } from "../platform/updater"
 import { CommandPalette } from "./command-palette"
 import { cn } from "@/lib/utils"
 import { useHotkeys } from "../hooks/use-hotkeys"

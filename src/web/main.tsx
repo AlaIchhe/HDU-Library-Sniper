@@ -3,11 +3,11 @@ import { createRoot } from "react-dom/client"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
 
-import { Spinner } from "@/components/ui/spinner"
-import { BackendUnavailableError, pingBackend } from "./api"
+import { Spinner } from "@/ui/spinner"
+import { BackendUnavailableError, pingBackend } from "./data/api"
 import { router } from "./routes/router"
-import { initializeTheme } from "./store"
-import { isTauri } from "./tauri"
+import { initializeTheme } from "./data/store"
+import { isTauri } from "./platform/tauri"
 import "./index.css"
 
 // 打包后首次启动时，后台 exe 可能还在被 Windows Defender 扫描；

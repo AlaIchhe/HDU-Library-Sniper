@@ -12,10 +12,10 @@ import {
   AlertDialogHeader,
   AlertDialogPopup,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
-import { toastManager } from "@/components/ui/toast"
-import { useCheckin, useCheckinMutation, useNextTarget } from "../../queries"
+} from "@/ui/alert-dialog"
+import { Button } from "@/ui/button"
+import { toastManager } from "@/ui/toast"
+import { useCheckin, useCheckinMutation, useNextTarget } from "../../data/queries"
 import { useCountdown } from "../../hooks/use-countdown"
 
 /** 统一的语义色状态点：颜色由 tone 决定，切换时用 spring 过渡而非硬切。 */

@@ -10,10 +10,10 @@ import {
   AlertDialogHeader,
   AlertDialogPopup,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "@/components/ui/dialog"
+} from "@/ui/alert-dialog"
+import { Badge } from "@/ui/badge"
+import { Button } from "@/ui/button"
+import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "@/ui/dialog"
 import {
   Drawer,
   DrawerClose,
@@ -22,16 +22,16 @@ import {
   DrawerPanel,
   DrawerPopup,
   DrawerTitle,
-} from "@/components/ui/drawer"
-import { InteractiveHoverButton } from "@/components/ui/interactive-hover-button"
-import { Switch } from "@/components/ui/switch"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { toastManager } from "@/components/ui/toast"
+} from "@/ui/drawer"
+import { InteractiveHoverButton } from "@/ui/interactive-hover-button"
+import { Switch } from "@/ui/switch"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/ui/table"
+import { toastManager } from "@/ui/toast"
 import type { BookingPlan, PlanListItem } from "../../shared/types"
 import { weekdayLabels } from "../../shared/types"
-import { usePlanMutations, usePlans } from "../queries"
+import { usePlanMutations, usePlans } from "../data/queries"
 import { PageHeader, PageShell, Panel } from "./page-layout"
-import { useRefreshSignal } from "../store"
+import { useRefreshSignal } from "../data/store"
 import { undoToast } from "../undo-toast"
 import { Busy, Failure, NoData } from "../shared"
 
