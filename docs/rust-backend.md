@@ -38,7 +38,7 @@ Rust core ───────┤
 尚未完成：
 
 - HDU 依赖 API 的更完整契约测试（已有 15 个 hdu wiremock 测试覆盖登录、座位、预约和错误映射）；
-- 用 CI 的 Windows runner 实际构建并安装一次 MSI，确认升级路径（本地 Linux 环境只验证了 Tauri debug 版）。
+- 用 CI 的 Windows runner 实际构建并安装一次 NSIS 安装包，确认升级路径（本地 Linux 环境只验证了 Tauri debug 版）。
 
 ## 目录
 
@@ -100,6 +100,6 @@ SQLite 路径保持 `~/.hdu-library-sniper/data/hdu-sniper.sqlite`（可由 `HDU
 
 ## 迁移收尾
 
-1. 在 Windows runner 构建 MSI 并安装验证；
+1. 在 Windows runner 构建 NSIS 并安装验证；
 2. 补充 HDU 依赖 API 的 wiremock 契约测试；
 4. 更新 README/部署文档，发布下一版。
