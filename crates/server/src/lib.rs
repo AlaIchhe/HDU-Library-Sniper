@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 
 use axum::{
     extract::{Path, Query, Request, State},
-    http::{header, StatusCode},
+    http::{header, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{any, get, post},
@@ -16,6 +16,7 @@ use hdu_sniper_core::PlanListItem;
 use hdu_sniper_hdu::HduError;
 use hdu_sniper_store::{Store, StoreError};
 use serde_json::{json, Value};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 
 mod booking;
@@ -144,6 +145,7 @@ pub fn build_router(
             ratelimit::limit_requests,
         ))
         .layer(middleware::from_fn(guard_origin))
+        .layer(cors_layer())
         .with_state(state)
 }
 
@@ -169,6 +171,42 @@ fn host_name(host: &str) -> &str {
         return rest.split(']').next().unwrap_or(rest);
     }
     host.split(':').next().unwrap_or(host)
+}
+
+/// Tauri 的 WebView 页面源。Windows 是 http://tauri.localhost，
+/// Linux/macOS 是 tauri://localhost；5173 是本地开发用的 Vite 源。
+/// 这些源只可能由本机应用产生，允许它们跨源访问本地 API。
+fn trusted_origins() -> &'static [&'static str] {
+    &[
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "tauri://localhost",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+}
+
+fn origin_is_trusted(origin: &str) -> bool {
+    trusted_origins()
+        .iter()
+        .any(|item| origin.eq_ignore_ascii_case(item))
+}
+
+fn cors_layer() -> CorsLayer {
+    let origins: Vec<HeaderValue> = trusted_origins()
+        .iter()
+        .filter_map(|value| value.parse().ok())
+        .collect();
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers(Any)
 }
 
 fn host_is_allowed(name: &str) -> bool {
@@ -200,15 +238,17 @@ async fn guard_origin(request: Request, next: Next) -> Response {
 
     let name = host_name(host);
     let host_ok = name.is_empty() || host_is_allowed(name);
+    let origin_trusted = origin.is_some_and(origin_is_trusted);
     let origin_ok = match origin {
         None => true,
+        Some(_) if origin_trusted => true,
         Some(value) => {
             let authority = value.split_once("://").map(|(_, rest)| rest).unwrap_or("");
             !host.is_empty() && !authority.is_empty() && authority.eq_ignore_ascii_case(host)
         }
     };
 
-    if !host_ok || !origin_ok || cross_site {
+    if !host_ok || !origin_ok || (cross_site && !origin_trusted) {
         tracing::warn!(%host, origin = ?origin, "rejected cross-origin request");
         return (
             StatusCode::FORBIDDEN,
@@ -536,6 +576,48 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    #[tokio::test]
+    async fn allows_tauri_webview_origin() {
+        let (status, body) = request_with(
+            app(),
+            "GET",
+            "/api/health",
+            None,
+            &[
+                ("host", "127.0.0.1:8000"),
+                ("origin", "http://tauri.localhost"),
+                ("sec-fetch-site", "cross-site"),
+            ],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    #[tokio::test]
+    async fn returns_cors_headers_for_tauri_origin() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/api/session/login")
+                    .header("host", "127.0.0.1:8000")
+                    .header("origin", "http://tauri.localhost")
+                    .header("access-control-request-method", "POST")
+                    .header("access-control-request-headers", "content-type")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok()),
+            Some("http://tauri.localhost")
+        );
     }
 
     #[tokio::test]
