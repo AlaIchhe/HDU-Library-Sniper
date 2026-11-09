@@ -76,7 +76,7 @@ function OpenidGuide({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
               <li>用微信扫一扫上面的二维码，打开图书馆并登录。</li>
               <li>
                 登录成功后，地址栏会变成{" "}
-                <code className="break-all rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+                <code className="break-all rounded bg-muted px-1 py-0.5 font-sans text-[11px]">
                   …/startUp/openid/…/
                 </code>
                 。

@@ -1,8 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 /// WebView2 caches the app's embedded UI (served from http://tauri.localhost)
-/// under %LOCALAPPDATA%\{identifier}\EBWebView. After an in-place MSI upgrade
-/// this cache can keep serving the previous release's JS bundle, so the user
+/// under %LOCALAPPDATA%\{identifier}\EBWebView. After an in-place installer
+/// upgrade this cache can keep serving the previous release's JS bundle, so the user
 /// keeps seeing the old UI (e.g. the v2.0.0 login page without the QR code).
 /// Clear the cache whenever the installed app version changes.
 #[cfg(windows)]
@@ -12,7 +12,9 @@ fn reset_webview_cache_on_version_change() {
     const IDENTIFIER: &str = "io.github.alaichhe.hdu-library-sniper";
     const MARKER: &str = ".webview-cache-version";
 
-    let Ok(local_app_data) = std::env::var("LOCALAPPDATA") else { return };
+    let Ok(local_app_data) = std::env::var("LOCALAPPDATA") else {
+        return;
+    };
     let root = PathBuf::from(local_app_data).join(IDENTIFIER);
     let version = env!("CARGO_PKG_VERSION");
     let cache_dir = root.join("EBWebView");

@@ -13,7 +13,7 @@
       "@/*": ["./src/*"]
     },
     "skipLibCheck": true,
-    "types": ["bun", "vite/client"]
+    "types": ["vite/client"]
   },
   "include": ["src", "tests", "vite.config.ts"],
   "exclude": ["src-tauri"]

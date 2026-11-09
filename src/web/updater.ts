@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core"
 import type { DownloadEvent, Update } from "@tauri-apps/plugin-updater"
 
 import { isTauri } from "./tauri"
@@ -65,7 +64,6 @@ export async function installPendingUpdate(): Promise<void> {
   installing = true
   commitUpdateProgress({ phase: "downloading", percent: 0, received: 0, total: 0 })
 
-  let stopped = false
   let stale = false
   try {
     const update = await resolvePending()
@@ -76,11 +74,8 @@ export async function installPendingUpdate(): Promise<void> {
     }
     await download(update)
     commitUpdateProgress({ phase: "installing" })
-    await invoke("stop_backend")
-    stopped = true
     await update.install()
   } catch (error) {
-    if (stopped) await invoke("start_backend").catch(() => undefined)
     await release()
     if (!stale) commitUpdateProgress({ phase: "available", percent: 0, received: 0, total: 0 })
     await report("更新失败", error)

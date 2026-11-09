@@ -264,7 +264,7 @@ function Row({
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{booking.roomName}</p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          座位 <span className="font-mono text-foreground/80">{booking.seatNum}</span>
+          座位 <span className="font-sans text-foreground/80">{booking.seatNum}</span>
         </p>
       </div>
 

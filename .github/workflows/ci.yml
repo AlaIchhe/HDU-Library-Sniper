@@ -17,11 +17,17 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
       - run: bun install --frozen-lockfile
       - name: Biome（lint + format）
         run: ./node_modules/.bin/biome ci .
       - name: Typecheck
         run: bun run typecheck
+      - name: Rust tests
+        run: cargo test -p hdu-sniper-core -p hdu-sniper-hdu -p hdu-sniper-auth -p hdu-sniper-store -p hdu-sniper-server
 
   warmup:
     runs-on: windows-latest
@@ -39,12 +45,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release
-          workspaces: src-tauri
+          workspaces: .
       - run: bun install --frozen-lockfile
-      - name: Build frontend and sidecar
+      - name: Build frontend and Rust server
         run: |
           npm run build
-          bun run build:server
+          cargo build -p hdu-sniper-server
       - name: Warm release build cache
         working-directory: src-tauri
         run: cargo build --release

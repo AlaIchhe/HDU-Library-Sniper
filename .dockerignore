@@ -15,3 +15,5 @@ src-tauri/gen
 *.db-wal
 .env
 .env.*
+target
+.toolchain
