@@ -98,6 +98,7 @@ run_args() {
   local restart_policy=$4
 
   local -a args=(
+    --http-proxy=false
     --name "$container_name"
     --restart "$restart_policy"
     --env HDU_SNIPER_HOME=/var/lib/hdu-sniper
