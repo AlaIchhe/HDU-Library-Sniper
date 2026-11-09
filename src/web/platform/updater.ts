@@ -60,7 +60,7 @@ export function startUpdateCheck(): void {
 async function checkOnce(source: string): Promise<void> {
   checking = true
   try {
-    await note("检查更新（" + source + "）")
+    await note(`检查更新（${source}）`)
     const update = await lookup()
     commitUpdateProgress(
       update
@@ -68,7 +68,7 @@ async function checkOnce(source: string): Promise<void> {
         : { phase: "idle", percent: 0, received: 0, total: 0 },
     )
   } catch (error) {
-    await report("检查更新失败（" + source + "）", error)
+    await report(`检查更新失败（${source}）`, error)
   } finally {
     checking = false
   }
@@ -158,7 +158,7 @@ async function report(message: string, error: unknown): Promise<void> {
   if (!isTauri()) return
   try {
     const { error: logError } = await import("@tauri-apps/plugin-log")
-    logError(message + ": " + (error instanceof Error ? error.message : String(error)))
+    logError(`${message}: ${error instanceof Error ? error.message : String(error)}`)
   } catch {
     /* 日志插件不可用时保持静默 */
   }
