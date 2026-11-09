@@ -24,20 +24,8 @@ export default defineConfig({
         icons: [{ src: "favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }],
       },
       workbox: {
-        // CJK 字体有 100 多个 unicode-range 分片，全部预缓存等于首次访问先下 4.6 MB；
-        // 交给浏览器按 unicode-range 按需取，再用运行时缓存兜底。
-        globPatterns: ["**/*.{js,css,html,svg,woff2}"],
-        globIgnores: ["**/noto-sans-sc-*.woff2"],
-        runtimeCaching: [
-          {
-            urlPattern: /\/assets\/noto-sans-sc-.*\.woff2$/,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "cjk-fonts",
-              expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 365 },
-            },
-          },
-        ],
+        // 只使用系统字体，不需要为 Web 字体做预缓存或运行时缓存。
+        globPatterns: ["**/*.{js,css,html,svg}"],
       },
     }),
   ],

@@ -51,7 +51,7 @@ export function PageHeader({
     <motion.header variants={rise} className="flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
         {eyebrow ? (
-          <p className="font-serif text-xs font-normal tracking-widest text-muted-foreground">{eyebrow}</p>
+          <p className="font-sans text-xs font-normal tracking-widest text-muted-foreground">{eyebrow}</p>
         ) : null}
         <h1 className={cn("text-3xl font-semibold tracking-tight", eyebrow && "mt-2")}>{title}</h1>
       </div>
