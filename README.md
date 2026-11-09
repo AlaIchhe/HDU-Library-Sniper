@@ -77,5 +77,5 @@ https://github.com/user-attachments/assets/f8abc8a4-c9f6-4fd9-881b-3f6ec2d45c0d
 </p>
 
 <p align="center">
-  <sub>愿你张开青春的翅膀，翻过高高的书山，<br>愿你迈开豪迈的脚步，跨过茫茫的题海。</sub>
+  <sub>星光不问赶路人，时光不负有心人。<br>愿所有努力，都不被辜负。</sub>
 </p>
