@@ -6,8 +6,9 @@
 
 推荐环境：
 
-- Bun 1.2+
-- Windows 桌面端开发需要 Rust、Cargo 和 Visual Studio Build Tools（MSVC）
+- Bun 1.2+（前端构建）
+- Rust stable + Cargo
+- Windows 桌面端开发需要 Visual Studio Build Tools（MSVC）和 WebView2
 - 容器部署需要 Docker Compose 或 Podman Compose
 
 安装依赖并启动 Vite 开发服务器：
@@ -17,10 +18,16 @@ bun install
 bun run dev
 ```
 
-浏览器开发模式需要同时启动后台服务：
+浏览器开发模式需要同时启动 Rust 后台服务：
 
 ```bash
 bun run server:dev
+```
+
+桌面端开发直接运行 Tauri，Rust server 会在 Tauri 进程内启动：
+
+```bash
+bun run tauri dev
 ```
 
 后台默认监听 `http://localhost:8000`。生产模式构建并启动：
@@ -37,8 +44,10 @@ bun run typecheck      # TypeScript 类型检查
 bun run lint           # Biome 静态检查（只读）
 bun run format:check   # Biome 格式检查（只读）
 bun run check          # lint + format，CI 用同一个入口
-bun run test           # 单测（vitest）
+bun run test           # 前端单测
 bun run build          # 前端构建
+cargo test -p hdu-sniper-core -p hdu-sniper-hdu -p hdu-sniper-auth -p hdu-sniper-store -p hdu-sniper-server
+cargo check -p hdu-library-sniper  # 桌面 Tauri 集成
 ```
 
 需要自动修复时用 `bun run check:fix`（或 `lint:fix` / `format`）。
@@ -51,7 +60,6 @@ Biome 的配置在 `biome.jsonc`：2 空格缩进、双引号、行宽 110；
 
 ```powershell
 bun install
-bun run build:server
 bun run tauri build --bundles msi
 ```
 
@@ -65,14 +73,13 @@ src-tauri/target/release/bundle/msi/
 
 ## 日志
 
-桌面端有两份日志，都在用户目录下：
+桌面端日志：
 
 ```text
-%USERPROFILE%\.hdu-library-sniper\logs\server.log            后端 Bun 服务的 stdout/stderr
 %LOCALAPPDATA%\io.github.alaichhe.hdu-library-sniper\logs\hdu-library-sniper.log   Tauri 与前端日志
 ```
 
-后端输出由 Tauri 启动时重定向到文件，超过 5 MiB 轮转为 `server.log.1`；设置 `HDU_SNIPER_HOME` 时日志目录跟着该变量走。GUI 日志按 500 KB 轮转并保留全部历史，轮转文件名里的时间是 UTC。
+Rust 后端在 Tauri 进程内运行，不再有单独的 `server.log`。GUI 日志按 500 KB 轮转并保留全部历史，轮转文件名里的时间是 UTC。
 
 ## 自动更新与发布
 
@@ -96,7 +103,7 @@ git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-`.github/workflows/release.yml` 会在 Windows runner 上完成依赖安装、Bun 后端编译、MSI 打包、签名并生成 `latest.json`。工作流会直接发布正式 Release，上传 MSI 后客户端即可通过 `releases/latest` 获取自动更新，无需再手动发布。
+`.github/workflows/release.yml` 会在 Windows runner 上完成依赖安装、Rust 后端编译、MSI 打包、签名并生成 `latest.json`。工作流会直接发布正式 Release，上传 MSI 后客户端即可通过 `releases/latest` 获取自动更新，无需再手动发布。
 
 工作流最后会把 `latest.json` 里的 GitHub API 资产地址改写成 `releases/download` 的浏览器地址。前者受公开仓库 API 未认证限流影响，客户端下载时可能收到 403；后者不受这个限制。手动发布时也要保持同样的地址格式。
 
@@ -104,18 +111,22 @@ git push origin vX.Y.Z
 
 1. 开机启动（`--background`）后延迟 5 秒静默请求一次 `latest.json`，失败按 15 秒、60 秒各重试一次；全程不弹提示，失败只写 GUI 日志。
 2. 检出更高版本时，顶栏出现「更新到 vX.Y.Z」控件；平时不渲染任何更新入口（设置菜单里也不再提供手动检查）。
-3. 点击控件就地变成进度条：下载（15 分钟上限）→ 签名校验 → 停止后端 → 交给 MSI 安装。Windows 安装器会结束当前进程并重新拉起新版本，安装期间若弹出 UAC 需要允许。
+3. 点击控件就地变成进度条：下载（15 分钟上限）→ 签名校验 → 交给 MSI 安装。Windows 安装器会结束当前进程并重新拉起新版本，安装期间若弹出 UAC 需要允许。
 4. 任一步失败都会退回「更新到 vX.Y.Z」并弹一次 toast，日志里留有完整原因。
 
 ## 项目结构
 
 ```text
-src/server/              Bun 后台服务、预约/签到调度和 API
+crates/core/             领域类型、上海时区、plan validation
+crates/hdu/              馆方 HTTP、Cookie、AES/MD5
+crates/auth/             SSO/openid/QR 登录、会话
+crates/store/            SQLite schema/CRUD
+crates/server/           axum API、scheduler、booking
 src/web/                 React WebUI、通知和自动更新封装
-src-tauri/               Tauri v2 桌面端、托盘、Windows 自启命令
+src-tauri/               Tauri v2 桌面端、托盘、进程内 Rust server
 src-tauri/wix-fragments/ MSI WiX 安装/卸载 hook
 scripts/                 Podman 和 systemd 定时器脚本
-tests/                   前端和服务测试
-Containerfile            容器镜像定义（compose.yaml 引用它；镜像构建前先 vite build）
+tests/                   前端测试
+Containerfile            Rust server + 静态前端容器镜像
 compose.yaml             Docker Compose 编排
 ```

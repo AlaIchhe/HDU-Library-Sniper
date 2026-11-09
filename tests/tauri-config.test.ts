@@ -17,17 +17,17 @@ describe("tauri plugin configuration", () => {
     expect(html).toContain("connect-src 'self' http://127.0.0.1:8000");
   });
 
-  test("maps the backend resource into the install root dir", () => {
+  test("no longer bundles a Bun sidecar resource", () => {
     const config = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
-    expect(config.bundle?.resources).toEqual({
-      "../dist/hdu-sniper-server.exe": "hdu-sniper-server.exe",
-    });
+    expect(config.bundle?.resources).toBeUndefined();
   });
 
-  test("redirects backend output into the app log directory", () => {
+  test("starts the Rust API inside the Tauri process", () => {
     const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
-    expect(lib).toContain('join("server.log")');
-    expect(lib).toContain(".stdout(Stdio::from(file))");
-    expect(lib).toContain(".stderr(Stdio::from(stderr))");
+    expect(lib).toContain("build_router");
+    expect(lib).toContain("Scheduler::new");
+    expect(lib).toContain('TcpListener::bind(("127.0.0.1", 8000))');
+    expect(lib).not.toContain("hdu-sniper-server.exe");
+    expect(lib).not.toContain("Command::new");
   });
 });

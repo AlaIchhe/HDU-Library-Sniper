@@ -1,27 +1,99 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, Request, State},
     http::StatusCode,
+    middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{any, get, post},
     Json, Router,
 };
+use hdu_sniper_auth::AuthService;
 use hdu_sniper_core::PlanListItem;
-use hdu_sniper_store::Store;
+use hdu_sniper_hdu::HduError;
+use hdu_sniper_store::{Store, StoreError};
 use serde_json::{json, Value};
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::{ServeDir, ServeFile};
+
+mod booking;
+mod bookings;
+mod catalog;
+pub use booking::BookingExecutor;
+pub use scheduler::Scheduler;
 
 mod plans;
+mod runtime;
+mod scheduler;
+mod session;
 use plans::{GroupInput, PlanError, PlanInput};
+
+#[derive(Debug)]
+pub(crate) struct ApiError {
+    status: StatusCode,
+    message: String,
+}
+
+impl ApiError {
+    pub(crate) fn new(status: StatusCode, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+        }
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        (self.status, Json(json!({ "detail": self.message }))).into_response()
+    }
+}
+
+impl From<HduError> for ApiError {
+    fn from(error: HduError) -> Self {
+        let status = match &error {
+            HduError::AuthenticationExpired(_) => StatusCode::UNAUTHORIZED,
+            HduError::RequestTimeout => StatusCode::GATEWAY_TIMEOUT,
+            _ => StatusCode::BAD_GATEWAY,
+        };
+        Self::new(status, error.to_string())
+    }
+}
+
+impl From<StoreError> for ApiError {
+    fn from(error: StoreError) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
     pub store: Arc<Store>,
+    pub auth: Arc<AuthService>,
+    pub scheduler: Arc<Scheduler>,
 }
 
-pub fn build_router(store: Arc<Store>) -> Router {
-    Router::new()
+pub fn build_router(
+    store: Arc<Store>,
+    auth: Arc<AuthService>,
+    scheduler: Arc<Scheduler>,
+) -> Router {
+    auth.install_refresh_callback();
+    let state = AppState {
+        store,
+        auth,
+        scheduler,
+    };
+    let public = Router::new()
         .route("/api/health", get(health))
+        .route("/api/session", get(session::status))
+        .route("/api/session/login", post(session::login))
+        .route("/api/session/openid", post(session::login_openid))
+        .route("/api/session/qr", post(session::create_qr))
+        .route("/api/session/qr/{uuid}/status", get(session::qr_status))
+        .route("/api/session/logout", post(session::logout));
+    let protected = Router::new()
+        .route("/api/audit", get(list_audit))
         .route("/api/plans", get(list_plans).post(create_plan))
         .route(
             "/api/plans/{id}",
@@ -33,7 +105,63 @@ pub fn build_router(store: Arc<Store>) -> Router {
             "/api/groups/{id}",
             get(get_group).patch(update_group).delete(delete_group),
         )
-        .with_state(AppState { store })
+        .route("/api/catalog/room-types", get(catalog::room_types))
+        .route("/api/catalog/floors", get(catalog::floors))
+        .route("/api/catalog/durations", get(catalog::durations))
+        .route("/api/bookings/current", get(bookings::current))
+        .route("/api/bookings/{id}/{action}", post(bookings::action))
+        .route("/api/booking/run", post(runtime::booking_run))
+        .route("/api/runtime/status", get(runtime::status))
+        .route("/api/runtime/next-target", get(runtime::next_target))
+        .route("/api/checkin", get(runtime::get_checkin))
+        .route("/api/checkin/enable", post(runtime::enable_checkin))
+        .route("/api/checkin/disable", post(runtime::disable_checkin))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
+    Router::new()
+        .merge(public)
+        .merge(protected)
+        .route(
+            "/api/{*path}",
+            any(|| async {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "detail": "not found" })),
+                )
+            }),
+        )
+        .fallback_service(
+            ServeDir::new("dist/web").not_found_service(ServeFile::new("dist/web/index.html")),
+        )
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+        .with_state(state)
+}
+
+async fn require_auth(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    if state.auth.authenticated() {
+        next.run(request).await
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "detail": "authentication required" })),
+        )
+            .into_response()
+    }
+}
+
+async fn list_audit(
+    State(state): State<AppState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, PlanError> {
+    let limit = params
+        .get("limit")
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(20);
+    Ok(Json(json!({ "events": state.store.list_audit(limit)? })))
 }
 
 async fn health() -> Json<Value> {
@@ -156,7 +284,12 @@ mod tests {
     use tower::ServiceExt;
 
     fn app() -> Router {
-        build_router(Arc::new(Store::open_in_memory().unwrap()))
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let auth = Arc::new(AuthService::new(store.clone()).unwrap());
+        auth.client.set_identity("304174".into(), "陈同学".into());
+        let booking = Arc::new(crate::booking::BookingExecutor::new(store.clone()));
+        let scheduler = Arc::new(Scheduler::new(store.clone(), auth.clone(), booking));
+        build_router(store, auth, scheduler)
     }
 
     async fn request(

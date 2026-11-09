@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -36,6 +38,7 @@ pub enum HduError {
 pub type HduLibraryError = HduError;
 pub type RequestTimeoutError = HduError;
 pub type AuthenticationExpiredError = HduError;
+pub type RefreshHandler = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RoomType {
@@ -66,6 +69,7 @@ pub struct LibraryClient {
     name: Mutex<String>,
     categories: Mutex<HashMap<String, Category>>,
     on_jar_change: Option<Arc<dyn Fn(&CookieJar) + Send + Sync>>,
+    refresh_handler: Mutex<Option<RefreshHandler>>,
 }
 
 impl LibraryClient {
@@ -87,6 +91,7 @@ impl LibraryClient {
             name: Mutex::new(String::new()),
             categories: Mutex::new(HashMap::new()),
             on_jar_change: None,
+            refresh_handler: Mutex::new(None),
         })
     }
 
@@ -120,12 +125,46 @@ impl LibraryClient {
         self.name.lock().expect("name poisoned").clone()
     }
 
-    fn set_identity(&self, uid: String, name: String) {
+    pub fn set_identity(&self, uid: String, name: String) {
         *self.uid.lock().expect("uid poisoned") = uid;
         *self.name.lock().expect("name poisoned") = name;
     }
 
+    pub fn set_refresh_handler(&self, handler: RefreshHandler) {
+        *self
+            .refresh_handler
+            .lock()
+            .expect("refresh handler poisoned") = Some(handler);
+    }
+
     async fn request_json(
+        &self,
+        path: &str,
+        method: Method,
+        form: Option<Vec<(String, String)>>,
+        extra_headers: Vec<(String, String)>,
+    ) -> Result<Value, HduError> {
+        let result = self
+            .request_json_once(path, method.clone(), form.clone(), extra_headers.clone())
+            .await;
+        if matches!(&result, Err(HduError::AuthenticationExpired(_))) {
+            let handler = self
+                .refresh_handler
+                .lock()
+                .expect("refresh handler poisoned")
+                .clone();
+            if let Some(handler) = handler {
+                if handler().await {
+                    return self
+                        .request_json_once(path, method, form, extra_headers)
+                        .await;
+                }
+            }
+        }
+        result
+    }
+
+    async fn request_json_once(
         &self,
         path: &str,
         method: Method,
@@ -625,6 +664,38 @@ mod tests {
             .await;
         let error = client.bookings().await.unwrap_err();
         assert!(matches!(error, HduError::AuthenticationExpired(_)));
+    }
+
+    #[tokio::test]
+    async fn retries_once_after_refreshing_the_session() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/Seat/Index/myBookingList"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "ui_type": "com.Redirect",
+                "href": "https://hdu.huitu.zhishulib.com/User/Index/hduCASLogin"
+            })))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/Seat/Index/myBookingList"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"content": {"defaultItems": [{"id": "b1"}]}})),
+            )
+            .mount(&server)
+            .await;
+        let client = LibraryClient::with_base_url(&server.uri()).unwrap();
+        let refreshes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = refreshes.clone();
+        client.set_refresh_handler(Arc::new(move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async { true })
+        }));
+        let bookings = client.bookings().await.unwrap();
+        assert_eq!(bookings.len(), 1);
+        assert_eq!(refreshes.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

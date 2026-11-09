@@ -70,6 +70,17 @@ pub struct Store {
     conn: Mutex<Connection>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionRow {
+    pub uid: String,
+    pub name: String,
+    pub student_id: String,
+    pub password: String,
+    pub openid: String,
+    pub cookies: String,
+    pub updated_at: String,
+}
+
 struct GroupRow {
     id: String,
     name: String,
@@ -306,6 +317,49 @@ impl Store {
         )? > 0)
     }
 
+    pub fn load_session(&self) -> Result<Option<SessionRow>> {
+        let conn = self.lock()?;
+        let row = conn
+            .query_row(
+                "SELECT uid, name, student_id, password, openid, cookies, updated_at FROM session WHERE id = 1",
+                [],
+                |row| {
+                    Ok(SessionRow {
+                        uid: row.get(0)?,
+                        name: row.get(1)?,
+                        student_id: row.get(2)?,
+                        password: row.get(3)?,
+                        openid: row.get(4)?,
+                        cookies: row.get(5)?,
+                        updated_at: row.get(6)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    pub fn save_session(&self, session: &SessionRow) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            r#"INSERT INTO session(id, uid, name, student_id, password, openid, cookies, updated_at)
+               VALUES(1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
+               ON CONFLICT(id) DO UPDATE SET uid=excluded.uid, name=excluded.name,
+                 student_id=excluded.student_id, password=excluded.password,
+                 openid=excluded.openid, cookies=excluded.cookies, updated_at=excluded.updated_at"#,
+            params![
+                &session.uid,
+                &session.name,
+                &session.student_id,
+                &session.password,
+                &session.openid,
+                &session.cookies,
+                &session.updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
     pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
         let conn = self.lock()?;
         conn.execute(
@@ -469,6 +523,30 @@ mod tests {
         assert_eq!(disabled, vec!["p2"]);
         assert!(store.get_plan("p1").unwrap().unwrap().enabled);
         assert!(!store.get_plan("p2").unwrap().unwrap().enabled);
+    }
+
+    #[test]
+    fn persists_the_single_session_row() {
+        let store = Store::open_in_memory().unwrap();
+        let session = SessionRow {
+            uid: "304174".into(),
+            name: "陈同学".into(),
+            student_id: "304174".into(),
+            password: "secret".into(),
+            openid: "abcdefghij_123".into(),
+            cookies: r#"[{"name":"sid","value":"abc"}]"#.into(),
+            updated_at: "2026-01-01T00:00:00.000Z".into(),
+        };
+        store.save_session(&session).unwrap();
+        assert_eq!(store.load_session().unwrap(), Some(session.clone()));
+        store
+            .save_session(&SessionRow {
+                cookies: "[]".into(),
+                updated_at: "2026-01-02T00:00:00.000Z".into(),
+                ..session
+            })
+            .unwrap();
+        assert_eq!(store.load_session().unwrap().unwrap().cookies, "[]");
     }
 
     #[test]

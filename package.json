@@ -16,9 +16,9 @@
     "format:check": "biome format .",
     "check": "biome check .",
     "check:fix": "biome check --write .",
-    "server": "bun run src/server/index.ts",
-    "server:dev": "bun --watch src/server/index.ts",
-    "local": "bun run build && bun run server",
+    "server": "cargo run -p hdu-sniper-server",
+    "server:dev": "cargo run -p hdu-sniper-server",
+    "local": "bun run build && cargo run -p hdu-sniper-server",
     "podman:build": "bash scripts/podman-build.sh",
     "podman:up": "bash scripts/podman-up.sh",
     "podman:down": "bash scripts/podman-down.sh",
@@ -28,8 +28,7 @@
     "podman:auto-update:status": "bash scripts/podman-auto-update-status.sh",
     "autostart:install": "bash scripts/install-systemd-autostart.sh",
     "autostart:uninstall": "bash scripts/uninstall-systemd-autostart.sh",
-    "tauri": "tauri",
-    "build:server": "bun build src/server/index.ts --compile --minify --sourcemap=none --outfile dist/hdu-sniper-server.exe"
+    "tauri": "tauri"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -61,7 +60,6 @@
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.8.0",
     "@testing-library/jest-dom": "^7.0.1",
-    "@types/bun": "^1.2.21",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^4.3.4",

@@ -12,7 +12,9 @@ fn reset_webview_cache_on_version_change() {
     const IDENTIFIER: &str = "io.github.alaichhe.hdu-library-sniper";
     const MARKER: &str = ".webview-cache-version";
 
-    let Ok(local_app_data) = std::env::var("LOCALAPPDATA") else { return };
+    let Ok(local_app_data) = std::env::var("LOCALAPPDATA") else {
+        return;
+    };
     let root = PathBuf::from(local_app_data).join(IDENTIFIER);
     let version = env!("CARGO_PKG_VERSION");
     let cache_dir = root.join("EBWebView");

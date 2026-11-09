@@ -1,0 +1,22 @@
+[package]
+name = "hdu-sniper-auth"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+base64 = "0.22"
+chrono.workspace = true
+hdu-sniper-core = { path = "../core" }
+hdu-sniper-hdu = { path = "../hdu" }
+hdu-sniper-store = { path = "../store" }
+regex = "1"
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+urlencoding = "2"
+url = "2"
+
+[dev-dependencies]
+wiremock.workspace = true
