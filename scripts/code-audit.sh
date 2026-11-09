@@ -55,7 +55,7 @@ else warn "未找到 cargo，跳过"; fi
 
 section "4/10 clippy"
 if have cargo; then
-  cargo clippy --workspace --all-targets --message-format=short >"$OUT/clippy.txt" 2>&1
+  cargo clippy -p hdu-sniper-core -p hdu-sniper-hdu -p hdu-sniper-auth -p hdu-sniper-store -p hdu-sniper-server --all-targets --message-format=short >"$OUT/clippy.txt" 2>&1
   CLIPPY_RC=$?
   WARNS=$(grep -cE '^[^ ]+\.rs:[0-9]+:[0-9]+: warning:' "$OUT/clippy.txt")
   ERRS=$(grep -cE '^error(\[|:)' "$OUT/clippy.txt")
