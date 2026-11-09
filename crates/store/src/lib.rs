@@ -104,8 +104,13 @@ impl Store {
         for (table, column, definition) in [
             ("plans", "kind", "TEXT NOT NULL DEFAULT 'single'"),
             ("plans", "name", "TEXT"),
+            ("session", "uid", "TEXT NOT NULL DEFAULT ''"),
+            ("session", "name", "TEXT NOT NULL DEFAULT ''"),
             ("session", "student_id", "TEXT NOT NULL DEFAULT ''"),
             ("session", "password", "TEXT NOT NULL DEFAULT ''"),
+            ("session", "openid", "TEXT NOT NULL DEFAULT ''"),
+            ("session", "cookies", "TEXT NOT NULL DEFAULT '[]'"),
+            ("session", "updated_at", "TEXT NOT NULL DEFAULT ''"),
         ] {
             ensure_column(&conn, table, column, definition)?;
         }
@@ -523,6 +528,31 @@ mod tests {
         assert_eq!(disabled, vec!["p2"]);
         assert!(store.get_plan("p1").unwrap().unwrap().enabled);
         assert!(!store.get_plan("p2").unwrap().unwrap().enabled);
+    }
+
+    #[test]
+    fn migrates_a_legacy_session_without_openid() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE session (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                uid TEXT NOT NULL DEFAULT '',
+                name TEXT NOT NULL DEFAULT '',
+                student_id TEXT NOT NULL DEFAULT '',
+                password TEXT NOT NULL DEFAULT '',
+                cookies TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO session(id, uid, name, student_id, password, cookies, updated_at)
+            VALUES(1, '304174', '陈同学', '304174', 'secret', '[]', '2026-01-01T00:00:00.000Z');
+            "#,
+        )
+        .unwrap();
+        let store = Store::init(conn).unwrap();
+        let session = store.load_session().unwrap().unwrap();
+        assert_eq!(session.uid, "304174");
+        assert_eq!(session.openid, "");
     }
 
     #[test]

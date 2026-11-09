@@ -2,8 +2,10 @@
 
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use hdu_sniper_auth::AuthService;
 use hdu_sniper_server::{build_router, BookingExecutor, Scheduler};
@@ -21,6 +23,23 @@ fn app_home_dir() -> PathBuf {
         .join(".hdu-library-sniper")
 }
 
+fn log_startup_line(message: &str) {
+    let dir = app_home_dir().join("logs");
+    let _ = fs::create_dir_all(&dir);
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or_default();
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("startup.log"))
+    {
+        let _ = writeln!(file, "[{timestamp}] {message}");
+    }
+    eprintln!("{message}");
+}
+
 fn start_api() -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = app_home_dir().join("data");
     fs::create_dir_all(&data_dir)?;
@@ -34,10 +53,12 @@ fn start_api() -> Result<(), Box<dyn std::error::Error>> {
         match tokio::net::TcpListener::bind(("127.0.0.1", 8000)).await {
             Ok(listener) => {
                 if let Err(error) = axum::serve(listener, router).await {
-                    eprintln!("local API stopped: {error}");
+                    log_startup_line(&format!("local API stopped: {error}"));
                 }
             }
-            Err(error) => eprintln!("cannot bind local API on 127.0.0.1:8000: {error}"),
+            Err(error) => {
+                log_startup_line(&format!("cannot bind local API on 127.0.0.1:8000: {error}"))
+            }
         }
     });
     Ok(())
@@ -45,6 +66,9 @@ fn start_api() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    std::panic::set_hook(Box::new(|info| {
+        log_startup_line(&format!("panic: {info}"));
+    }));
     let mut builder = tauri::Builder::default();
 
     #[cfg(desktop)]
@@ -83,7 +107,9 @@ pub fn run() {
                     .plugin(tauri_plugin_window_state::Builder::default().build());
             }
 
-            start_api()?;
+            if let Err(error) = start_api() {
+                log_startup_line(&format!("startup API error: {error}"));
+            }
 
             let handle = app.handle().clone();
             let background = std::env::args().any(|arg| arg == "--background");
