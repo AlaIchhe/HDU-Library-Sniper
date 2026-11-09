@@ -1,0 +1,23 @@
+[package]
+name = "hdu-sniper-hdu"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+aes = "0.8"
+base64 = "0.22"
+chrono.workspace = true
+cipher = "0.4"
+hdu-sniper-core = { path = "../core" }
+md-5 = "0.10"
+percent-encoding = "2"
+urlencoding = "2"
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url = "2"
+
+[dev-dependencies]
+wiremock.workspace = true
