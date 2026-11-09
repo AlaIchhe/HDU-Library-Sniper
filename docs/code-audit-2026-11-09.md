@@ -35,7 +35,7 @@
 | P2-1 | ✅ | 三个千行文件已拆：`auth` → `sso`/`qr`/`session`/`secrets`，`booking` → `types`/`classify`/`burst`/`execute`，`hdu` → `catalog`/`booking`/`parse`；千行文件清零；最大单文件 565 行（library.rs，其中测试约 280 行） |
 | P3-1 | ⏳ | 随机端口 + 资源目录涉及前后端启动协议，单独做 |
 | P3-2 | ✅ | `plans-page` 拆为 337 行页面 + `fields`/`plan-editor`/`group-editor`；`app-shell` 拆为 360 行壳 + `header`/`status` |
-| P3-3 | ◐ | 文档已更新；`@tauri-apps/api` 未删（需同步 `bun.lock`），媒体文件未迁移 |
+| P3-3 | ◐ | 未用的直接依赖 `@tauri-apps/api` 已删并同步 `bun.lock`（插件仍传递依赖）；`bun audit` 剩 3 条 dev-only 告警（vite-plugin-pwa → workbox 链，上游范围锁死）；28MB 演示媒体仍在 git |
 
 修复后基线：**61 个 Rust 测试 + 29 个前端测试全绿**，clippy `-D warnings` 0 告警，重复率仍低于 3%。
 
