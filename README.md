@@ -75,3 +75,7 @@ https://github.com/user-attachments/assets/f8abc8a4-c9f6-4fd9-881b-3f6ec2d45c0d
   <a href="docs/DEVELOPMENT.md">开发与发布</a> ·
   <a href="LICENSE">License</a>
 </p>
+
+<p align="center">
+  <sub>愿你张开青春的翅膀，翻过高高的书山，<br>愿你迈开豪迈的脚步，跨过茫茫的题海。</sub>
+</p>
