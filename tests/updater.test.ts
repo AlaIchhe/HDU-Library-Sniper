@@ -3,6 +3,7 @@ import type { DownloadEvent } from "@tauri-apps/plugin-updater";
 
 import {
   applyDownloadEvent,
+  canCheckUpdate,
   commitUpdateProgress,
   emptyTick,
   getUpdateProgress,
@@ -81,5 +82,25 @@ describe("update progress store", () => {
     subscribeUpdateProgress(listener)();
     commitUpdateProgress({ phase: "downloading" });
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe("canCheckUpdate", () => {
+  const base = { now: 1_000_000, lastCheckAt: 0, phase: "idle" as const, checking: false };
+
+  test("allows a check after the cooldown", () => {
+    expect(canCheckUpdate({ ...base, lastCheckAt: base.now - 600_000 })).toBe(true);
+  });
+
+  test("suppresses checks inside the cooldown", () => {
+    expect(canCheckUpdate({ ...base, lastCheckAt: base.now - 1_000 })).toBe(false);
+  });
+
+  test("does not check while another check is running", () => {
+    expect(canCheckUpdate({ ...base, checking: true })).toBe(false);
+  });
+
+  test("does not overwrite a pending update", () => {
+    expect(canCheckUpdate({ ...base, phase: "available" })).toBe(false);
   });
 });

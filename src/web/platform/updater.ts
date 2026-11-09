@@ -1,55 +1,74 @@
 import type { DownloadEvent, Update } from "@tauri-apps/plugin-updater"
 
 import { isTauri } from "./tauri"
-import { applyDownloadEvent, commitUpdateProgress, emptyTick, getUpdateProgress } from "../update-state"
+import {
+  applyDownloadEvent,
+  canCheckUpdate,
+  commitUpdateProgress,
+  emptyTick,
+  getUpdateProgress,
+} from "../update-state"
 
 /** 更新源在 GitHub 上，国内直连经常挂住，所有请求都要自带超时。 */
 const checkTimeoutMs = 15_000
 /** 整包接近 60 MB，慢速网络也要几分钟；但断流必须能失败，不能永远停在某个百分比。 */
 const downloadTimeoutMs = 15 * 60_000
-/** 开机那一刻网络常常还没就绪，检查失败后按这个间隔补两次，之后放弃。 */
-const retryDelaysMs = [15_000, 60_000]
-/** 让一让启动阶段的后端探测和登录请求。 */
-const startDelayMs = 5_000
+/** 同一时间窗口内最多查一次，避免 Alt-Tab 来回切时反复请求 GitHub。 */
+const CHECK_COOLDOWN_MS = 10 * 60_000
 
 /** check 出来的更新对象，下载和安装都复用它，避免点一次再等十几秒。 */
 let pending: Update | null = null
 let installing = false
-let scheduled = false
-/** 已经拿到明确答案（有更新或确实没有），不再重复查。 */
-let settled = false
+let started = false
 let checking = false
+let lastCheckAt = 0
 
 /**
- * 启动后查一次有没有新版本。全程静默：失败只写日志，
- * 检出更新也只点亮顶栏控件，不下载任何字节。
+ * 只在用户把窗口带回前台时检查：
+ * - Alt-Tab / 任务栏切换：window focus；
+ * - 最小化恢复：visibilitychange；
+ * - 关闭到托盘后从托盘打开：Rust 侧显式 emit 的 tray-window-shown。
+ * 首次启动不检查，后台常驻也不检查。
  */
 export function startUpdateCheck(): void {
-  if (scheduled || !isTauri() || !import.meta.env.PROD) return
-  scheduled = true
-  // 开机时网卡常常还没就绪：联网事件来了再补一次。
-  window.addEventListener("online", () => {
-    if (!settled) void checkOnce(0)
+  if (started || !isTauri() || !import.meta.env.PROD) return
+  started = true
+
+  const trigger = (source: string) => {
+    const phase = getUpdateProgress().phase
+    const allowed = canCheckUpdate({
+      now: Date.now(),
+      lastCheckAt,
+      phase,
+      checking,
+      cooldownMs: CHECK_COOLDOWN_MS,
+    })
+    if (!allowed) return
+    lastCheckAt = Date.now()
+    void checkOnce(source)
+  }
+
+  window.addEventListener("focus", () => trigger("focus"))
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") trigger("visible")
   })
-  setTimeout(() => void checkOnce(0), startDelayMs)
+  void import("@tauri-apps/api/event")
+    .then(({ listen }) => listen("tray-window-shown", () => trigger("tray")))
+    .catch((error: unknown) => report("订阅托盘事件失败", error))
 }
 
-async function checkOnce(attempt: number): Promise<void> {
-  if (checking) return
+async function checkOnce(source: string): Promise<void> {
   checking = true
   try {
+    await note("检查更新（" + source + "）")
     const update = await lookup()
-    settled = true
-    if (!update) {
-      commitUpdateProgress({ phase: "idle" })
-      return
-    }
-    pending = update
-    commitUpdateProgress({ phase: "available", version: update.version, percent: 0, received: 0, total: 0 })
+    commitUpdateProgress(
+      update
+        ? { phase: "available", version: update.version, percent: 0, received: 0, total: 0 }
+        : { phase: "idle", percent: 0, received: 0, total: 0 },
+    )
   } catch (error) {
-    await report("检查更新失败", error)
-    const delay = retryDelaysMs[attempt]
-    if (delay !== undefined) setTimeout(() => void checkOnce(attempt + 1), delay)
+    await report("检查更新失败（" + source + "）", error)
   } finally {
     checking = false
   }
@@ -125,11 +144,21 @@ async function release(): Promise<void> {
   if (update) await update.close().catch(() => undefined)
 }
 
+async function note(message: string): Promise<void> {
+  if (!isTauri()) return
+  try {
+    const { info } = await import("@tauri-apps/plugin-log")
+    info(message)
+  } catch {
+    /* 日志插件不可用时保持静默 */
+  }
+}
+
 async function report(message: string, error: unknown): Promise<void> {
   if (!isTauri()) return
   try {
     const { error: logError } = await import("@tauri-apps/plugin-log")
-    logError(`${message}: ${error instanceof Error ? error.message : String(error)}`)
+    logError(message + ": " + (error instanceof Error ? error.message : String(error)))
   } catch {
     /* 日志插件不可用时保持静默 */
   }

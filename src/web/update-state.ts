@@ -55,3 +55,16 @@ export function applyDownloadEvent(tick: DownloadTick, event: DownloadEvent): Do
   }
   return tick
 }
+export type UpdateCheckState = {
+  now: number
+  lastCheckAt: number
+  phase: UpdatePhase
+  checking: boolean
+  cooldownMs?: number
+}
+
+/** 同一冷却窗口内只允许一次检查；已有待安装更新时不要覆盖状态。 */
+export function canCheckUpdate(state: UpdateCheckState): boolean {
+  const cooldown = state.cooldownMs ?? 10 * 60_000
+  return !state.checking && state.phase === "idle" && state.now - state.lastCheckAt >= cooldown
+}

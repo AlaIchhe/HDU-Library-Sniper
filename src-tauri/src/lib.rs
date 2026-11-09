@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use hdu_sniper_auth::AuthService;
 use hdu_sniper_server::{build_router, BookingExecutor, Scheduler};
 use hdu_sniper_store::Store;
-use tauri::{Manager, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
 
 fn app_home_dir() -> PathBuf {
     if let Some(home) = env::var_os("HDU_SNIPER_HOME").filter(|value| !value.is_empty()) {
@@ -77,6 +77,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
+                let _ = window.emit("tray-window-shown", ());
             }
         }));
     }
@@ -129,6 +130,7 @@ pub fn run() {
                         if let Some(window) = tray_handle.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
+                            let _ = window.emit("tray-window-shown", ());
                         }
                     }
                     "quit" => {
