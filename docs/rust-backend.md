@@ -25,7 +25,7 @@ Rust core ───────┤
 - scheduler：20:00 预约锚点、预锁、burst 重试、自动签到、结果审计；
 - LibraryClient 在登录失效时调用 AuthService.refresh 并重试一次原请求；
 - booking executor：主/备选座位、已有预约幂等、封禁/限流/流程异常分类、结果确认；
-- 47 个 Rust 测试通过（core 7、hdu 15、auth 6、store 5、server 14）；
+- 48 个 Rust 测试通过（core 7、hdu 15、auth 6、store 6、server 14）；
 - Tauri 已改为进程内 Rust server，容器镜像已改为 Rust 二进制；
 - 前端移除 stop_backend/start_backend 调用，更新时不再管理 sidecar。
 
