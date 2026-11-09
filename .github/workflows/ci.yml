@@ -1,8 +1,18 @@
-name: CI warmup
+name: CI
 
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  schedule:
+    # 每天 02:00 Asia/Shanghai，只为预热 Windows release 缓存
+    - cron: "0 18 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -38,6 +48,7 @@ jobs:
         run: cargo test -p hdu-sniper-core -p hdu-sniper-hdu -p hdu-sniper-auth -p hdu-sniper-store -p hdu-sniper-server
 
   warmup:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
