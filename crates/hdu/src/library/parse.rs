@@ -42,6 +42,11 @@ pub(crate) fn api_token(
     base64::engine::general_purpose::STANDARD.encode(hex.as_bytes())
 }
 
+/// 动作类接口的成功判定。
+/// 实测 2026-11-13：cancelBooking 成功时返回 CODE=ok、MESSAGE=取消预约成功，
+/// 但 DATA 中**没有 result 字段**（DATA 只含用户信息）。旧实现强求 result=success，
+/// 会把成功取消误判为失败。因此：result 存在时必须为 success；缺失时以 CODE=ok 为准。
+/// 限流响应 CODE=1，仍会被 CODE 判定挡住，不受此放宽影响。
 pub(crate) fn assert_action_success(body: &Value) -> Result<(), HduError> {
     let code = body
         .get("CODE")
@@ -54,7 +59,7 @@ pub(crate) fn assert_action_success(body: &Value) -> Result<(), HduError> {
         .map(value_to_string)
         .unwrap_or_default()
         .to_ascii_lowercase();
-    if code == "ok" && result == "success" {
+    if code == "ok" && (result == "success" || result.is_empty()) {
         return Ok(());
     }
     let message = body

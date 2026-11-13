@@ -1,6 +1,6 @@
 # 开发与发布
 
-[返回项目首页](../README.md) · [部署说明](DEPLOYMENT.md)
+[返回项目首页](../README.md) · [部署说明](DEPLOYMENT.md) · [馆方限制实测](HUITU-LIMITS.md)
 
 ## 开发环境
 

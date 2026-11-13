@@ -22,26 +22,37 @@ impl BookingExecutor {
                 .collect()
         };
         let mut last = BookingMemberResult::failure(plan, None, "未找到可用座位");
+        // 座位图每轮只查一次：它只用于把座位号解析成 seatId 并筛掉已占座位。
+        // 实测 2026-11-13：提交前并不强制重新查询（免查询提交同样成功），
+        // 因此不必为每个候选各查一次，省下的读取时间留给提交。
+        let floors = match self
+            .paced(|| client.floors(&plan.room_query, begin, plan.duration_hours))
+            .await
+        {
+            Ok(floors) => Some(floors),
+            Err(error) => {
+                last = BookingMemberResult::failure(
+                    plan,
+                    None,
+                    format!("房间或座位查询失败: {error}"),
+                );
+                // 查询失败时仍可提交已预锁的座位（seatId 已知），否则本轮无候选可试。
+                None
+            }
+        };
         for seat_num in candidates {
-            let floors = match self
-                .paced(|| client.floors(&plan.room_query, begin, plan.duration_hours))
-                .await
-            {
-                Ok(floors) => floors,
-                Err(error) => {
-                    last = BookingMemberResult::failure(
-                        plan,
-                        Some(seat_num),
-                        format!("房间或座位查询失败: {error}"),
-                    );
-                    continue;
-                }
-            };
             let seat_id = preferred
                 .filter(|lock| lock.seat_num == seat_num)
                 .map(|lock| lock.seat_id.clone())
-                .or_else(|| seat_id_from_floors(&floors, plan, &seat_num));
+                .or_else(|| {
+                    floors
+                        .as_ref()
+                        .and_then(|floors| seat_id_from_floors(floors, plan, &seat_num))
+                });
             let Some(seat_id) = seat_id else {
+                if floors.is_none() {
+                    continue;
+                }
                 last = BookingMemberResult::failure(
                     plan,
                     Some(seat_num.clone()),
@@ -49,6 +60,18 @@ impl BookingExecutor {
                 );
                 continue;
             };
+            // 实测：state!=0 的座位提交必然失败，且会消耗写入额度（累积 6 次即封号 10 分钟）。
+            // 先用座位图筛掉已占用座位，把宝贵的提交次数留给真正空闲的座位。
+            if let Some(floors) = floors.as_ref() {
+                if !seat_is_free(floors, plan, &seat_num) {
+                    last = BookingMemberResult::failure(
+                        plan,
+                        Some(seat_num.clone()),
+                        format!("座位 {seat_num} 已被占用"),
+                    );
+                    continue;
+                }
+            }
             if dry_run {
                 return BookingMemberResult {
                     plan_id: plan.id.clone(),
@@ -59,7 +82,7 @@ impl BookingExecutor {
                 };
             }
             let response = match self
-                .paced(|| client.book_seat(&seat_id, begin, plan.duration_hours))
+                .paced_write(|| client.book_seat(&seat_id, begin, plan.duration_hours))
                 .await
             {
                 Ok(response) => response,
@@ -161,14 +184,10 @@ impl BookingExecutor {
                 ),
                 ..BookingMemberResult::failure(plan, Some(seat_num.into()), "")
             },
-            Some("throttle") => BookingMemberResult {
-                retry_after_ms: Some(THROTTLE_MS),
-                ..BookingMemberResult::failure(plan, Some(seat_num.into()), message)
-            },
-            Some("flow") => BookingMemberResult {
-                retry_after_ms: Some(DEFAULT_INTERVAL_MS),
-                ..BookingMemberResult::failure(plan, Some(seat_num.into()), message)
-            },
+            // 固定轮询：不再按错误类型抬高睡眠，交由写入节拍统一限速。
+            Some("throttle") | Some("flow") => {
+                BookingMemberResult::failure(plan, Some(seat_num.into()), message)
+            }
             _ => match self.confirm_booking(client, begin, snapshot).await {
                 Confirm::Found(Some(item)) => BookingMemberResult {
                     plan_id: plan.id.clone(),

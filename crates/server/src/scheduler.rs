@@ -18,12 +18,11 @@ use tokio::time::sleep;
 use crate::booking::BookingExecutor;
 
 const CHECKIN_OFFSET_MS: i64 = 60_000;
-const CHECKIN_RETRY_MS: i64 = 30_000;
-const CHECKIN_MAX_RETRY_MS: i64 = 8 * 60_000;
-const CHECKIN_THROTTLE_MS: i64 = 15_000;
+/// 签到是写入类接口，按实测的写入节拍固定轮询（见 docs/HUITU-LIMITS.md）。
+const CHECKIN_WRITE_POLL_MS: i64 = 10_000;
 const CHECKIN_AUTH_RETRY_MS: i64 = 10 * 60_000;
+/// 实测：命中“请求过于频繁，请10分钟后再试”后需等满 10 分钟。
 const CHECKIN_BAN_MS: i64 = 10 * 60_000;
-const CHECKIN_MAX_ATTEMPTS: u32 = 8;
 
 #[derive(Debug, Clone)]
 struct PendingCheckIn {
@@ -313,7 +312,7 @@ impl Scheduler {
             self.set_state("running");
             let result = self
                 .booking
-                .run_burst(&self.auth.client, 4_000, 10 * 60_000)
+                .run_burst(&self.auth.client, 1_100, 10 * 60_000)
                 .await;
             self.set_message(result.message);
             self.set_state("idle");
@@ -401,28 +400,21 @@ impl Scheduler {
                             &serde_json::json!({"bookingId": item.booking_id, "message": message}),
                         );
                     } else if message.contains("请求过于频繁") {
+                        // 实测：封禁期内继续提交无效，等满服务端声明的 10 分钟。
                         self.update_next_at(&item.booking_id, now + CHECKIN_BAN_MS);
-                    } else if message.contains("请求太频繁了") {
-                        self.update_next_at(&item.booking_id, now + CHECKIN_THROTTLE_MS);
                     } else if matches!(error, hdu_sniper_hdu::HduError::AuthenticationExpired(_)) {
                         let restored = self.auth.restore().await;
                         self.update_next_at(
                             &item.booking_id,
                             now + if restored {
-                                60_000
+                                CHECKIN_WRITE_POLL_MS
                             } else {
                                 CHECKIN_AUTH_RETRY_MS
                             },
                         );
                     } else {
-                        let attempts = item.attempts + 1;
-                        if attempts >= CHECKIN_MAX_ATTEMPTS {
-                            self.finish_missed(&item, &format!("签到失败：{message}"));
-                        } else {
-                            let backoff = (CHECKIN_RETRY_MS * (1 << (attempts - 1)))
-                                .min(CHECKIN_MAX_RETRY_MS);
-                            self.update_next_at(&item.booking_id, now + backoff);
-                        }
+                        // 固定轮询：不翻倍、不设次数上限，直到签到窗口截止。
+                        self.update_next_at(&item.booking_id, now + CHECKIN_WRITE_POLL_MS);
                     }
                     let _ = self.store.write_audit(
                         "checkin_failed",

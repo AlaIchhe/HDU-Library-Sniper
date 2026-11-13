@@ -562,4 +562,63 @@ mod more_tests {
             .unwrap_err();
         assert!(error.to_string().contains("预约单不存在"));
     }
+
+    /// 实测 2026-11-13：cancelBooking 成功时 CODE=ok、MESSAGE=取消预约成功，
+    /// DATA 只含用户信息、**没有 result 字段**。旧实现强求 result=success 会误判为失败。
+    #[tokio::test]
+    async fn cancel_succeeds_without_a_result_field() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/Seat/Index/cancelBooking"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "CODE": "ok",
+                "MESSAGE": "取消预约成功",
+                "DATA": {"href": "", "is_login": true, "lab_content_org_id": "104"}
+            })))
+            .mount(&server)
+            .await;
+        client(&server)
+            .await
+            .action(Action::Cancel, "123")
+            .await
+            .expect("CODE=ok 且无 result 字段应视为成功");
+    }
+
+    /// result 字段存在时仍须为 success，放宽不得掩盖真实失败。
+    #[tokio::test]
+    async fn explicit_result_fail_still_fails() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/Seat/Index/cancelBooking"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "CODE": "ok", "DATA": {"result": "fail", "msg": "预约单不存在"}
+            })))
+            .mount(&server)
+            .await;
+        let error = client(&server)
+            .await
+            .action(Action::Cancel, "123")
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("预约单不存在"));
+    }
+
+    /// 限流响应 CODE=1，不得因 result 缺失而被当成成功。
+    #[tokio::test]
+    async fn rate_limit_is_not_treated_as_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/Seat/Index/checkIn"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "CODE": "1", "MESSAGE": "请求过于频繁，请10分钟后再试"
+            })))
+            .mount(&server)
+            .await;
+        let error = client(&server)
+            .await
+            .action(Action::CheckIn, "123")
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("请求过于频繁"));
+    }
 }

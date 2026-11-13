@@ -35,11 +35,6 @@ pub fn member_begin(plan: &BookingPlan, now: DateTime<Utc>) -> Option<DateTime<U
         .map(|value| value.with_timezone(&Utc))
 }
 
-pub(crate) fn next_backoff_ms(current: u64, base: u64, max: u64) -> u64 {
-    let current = if current > 0 { current } else { base };
-    (current * 2).max(base).min(max)
-}
-
 pub(crate) fn seat_id_from_floors(
     floors: &[Value],
     plan: &BookingPlan,
@@ -66,6 +61,38 @@ pub(crate) fn seat_id_from_floors(
             == seat_num)
             .then(|| seat.get("id").map(value_to_string))
             .flatten()
+    })
+}
+
+/// 座位在查询时段是否空闲。
+/// 实测（2026-11-13）：POI.state=0 提交成功；state=1/3 提交返回
+/// “选择的座位无法预约，可能座位不可用或已经被其他人锁定或占用”。
+/// state 可能是字符串或数字，统一按字符串比较。
+pub(crate) fn seat_is_free(floors: &[Value], plan: &BookingPlan, seat_num: &str) -> bool {
+    let Some(floor) = floors.iter().find(|floor| {
+        floor
+            .get("seatMap")
+            .and_then(|map| map.get("info"))
+            .and_then(|info| info.get("id"))
+            .map(value_to_i64)
+            == Some(plan.floor_id)
+    }) else {
+        return false;
+    };
+    let Some(seats) = floor
+        .get("seatMap")
+        .and_then(|map| map.get("POIs"))
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    seats.iter().any(|seat| {
+        seat.get("title")
+            .map(value_to_string)
+            .unwrap_or_default()
+            .trim()
+            == seat_num
+            && seat.get("state").map(value_to_string).unwrap_or_default() == "0"
     })
 }
 
@@ -105,6 +132,9 @@ pub(crate) fn booking_succeeded(response: &Value) -> bool {
             .is_some_and(|message| message.contains("成功"))
 }
 
+/// 预锁是否真的成功。
+/// 实测（2026-11-13）：座位被他人占用时 lockSeats 仍返回 CODE=ok、DATA.time>0，
+/// 只有 DATA.result=fail 能区分，因此必须同时校验 result=success。
 pub(crate) fn lock_succeeded(response: &Result<Value, HduError>) -> bool {
     response.as_ref().is_ok_and(|response| {
         response
@@ -114,10 +144,10 @@ pub(crate) fn lock_succeeded(response: &Result<Value, HduError>) -> bool {
             .eq_ignore_ascii_case("ok")
             && response
                 .get("DATA")
-                .and_then(|data| data.get("time"))
-                .map(value_to_i64)
-                .unwrap_or(0)
-                > 0
+                .and_then(|data| data.get("result"))
+                .map(value_to_string)
+                .unwrap_or_default()
+                .eq_ignore_ascii_case("success")
     })
 }
 

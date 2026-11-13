@@ -24,14 +24,14 @@ impl BookingExecutor {
         interval_ms: u64,
         timeout_ms: u64,
     ) -> BookingRunResult {
-        self.set_interval_ms(interval_ms);
+        // 固定轮询：interval_ms 是读取节拍，不随失败翻倍；写入另有独立节拍。
+        self.read_interval_ms.store(interval_ms.max(1), Ordering::Relaxed);
         self.abort_prelock();
         let started = Instant::now();
         let deadline = started + Duration::from_millis(timeout_ms);
         let mut finished: Vec<BookingMemberResult> = Vec::new();
         let mut unverified: std::collections::HashMap<String, u8> =
             std::collections::HashMap::new();
-        let mut backoff = interval_ms.max(1);
         let mut first_attempt = true;
         loop {
             let result = self
@@ -72,6 +72,7 @@ impl BookingExecutor {
                     .iter()
                     .any(|member| !member.success && !member.terminal);
             if result.success || !pending || Instant::now() >= deadline {
+                self.locked_seats.lock().expect("locked seats poisoned").clear();
                 let _ = self.store.write_audit(
                     "booking_run_finished",
                     &serde_json::json!({
@@ -84,18 +85,22 @@ impl BookingExecutor {
                 );
                 return result;
             }
-            let retry_after = result
-                .members
-                .iter()
-                .filter_map(|member| member.retry_after_ms)
-                .max()
-                .unwrap_or(0);
-            backoff = retry_after.max(next_backoff_ms(backoff, interval_ms.max(1), MAX_BACKOFF_MS));
+            // 固定间隔轮询，无抖动、无指数退避；只保证不睡过 deadline。
             let remaining = deadline
                 .saturating_duration_since(Instant::now())
                 .as_millis() as u64;
-            self.sleep_ms(backoff.min(remaining)).await;
+            self.poll_sleep_ms(interval_ms.max(1).min(remaining)).await;
         }
+    }
+
+    /// 轮询间隔的睡眠。单独抽出以便测试只断言轮询节奏，
+    /// 不与请求节拍（paced/paced_write）的等待混在一起。
+    async fn poll_sleep_ms(&self, ms: u64) {
+        #[cfg(test)]
+        if let Some(log) = self.poll_log.as_ref() {
+            log.lock().expect("poll log poisoned").push(ms);
+        }
+        self.sleep_ms(ms).await;
     }
 
     pub(crate) async fn run_attempt<C: BookingClient>(
@@ -117,18 +122,31 @@ impl BookingExecutor {
             };
         };
         let (plan_id, kind, members) = plan_members(&enabled);
-        let booked = self.booked_begin_times(client, &mut Vec::new()).await;
+        let (finished_items, first_attempt) = match finished {
+            Some((items, first)) => (items.clone(), first),
+            None => (Vec::new(), false),
+        };
+        // 开窗首轮用 19:59 预锁时的快照，省掉 20:00 第一秒的一次列表查询。
+        let snapshot = self
+            .booked_snapshot
+            .lock()
+            .expect("booked snapshot poisoned")
+            .clone();
+        let booked = if first_attempt && snapshot.is_some() {
+            snapshot
+        } else {
+            let live = self.booked_begin_times(client, &mut Vec::new()).await;
+            if let Some(set) = live.as_ref() {
+                *self.booked_snapshot.lock().expect("booked snapshot poisoned") = Some(set.clone());
+            }
+            live
+        };
         let now = Utc::now();
         let mut results = Vec::new();
-        let finished_map: std::collections::HashMap<String, BookingMemberResult> = finished
-            .map(|(items, _)| {
-                items
-                    .iter()
-                    .cloned()
-                    .map(|item| (item.plan_id.clone(), item))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let finished_map: std::collections::HashMap<String, BookingMemberResult> = finished_items
+            .into_iter()
+            .map(|item| (item.plan_id.clone(), item))
+            .collect();
         for plan in members {
             if let Some(settled) = finished_map.get(&plan.id) {
                 results.push(settled.clone());
@@ -150,9 +168,66 @@ impl BookingExecutor {
                     ..BookingMemberResult::default()
                 }
             } else {
-                self.execute_plan(client, &plan, begin, dry_run, None, None, booked.as_ref())
-                    .await
+                // 消费 19:59 的预锁：优先提交锁到的座位，省掉开窗时的座位解析。
+                let preferred = self
+                    .locked_seats
+                    .lock()
+                    .expect("locked seats poisoned")
+                    .iter()
+                    .find(|lock| lock.plan_id == plan.id && lock.begin_seconds == begin_seconds)
+                    .cloned();
+                let mut result = self
+                    .execute_plan(
+                        client,
+                        &plan,
+                        begin,
+                        dry_run,
+                        preferred.as_ref(),
+                        None,
+                        booked.as_ref(),
+                    )
+                    .await;
+                if let Some(lock) = preferred.as_ref() {
+                    if !result.success && !result.terminal && !result.unverified {
+                        // 预锁失效（被占/过期）：丢锁后按主座位 + 备选重试，不死磕同一座位。
+                        self.locked_seats
+                            .lock()
+                            .expect("locked seats poisoned")
+                            .retain(|item| !(item.plan_id == lock.plan_id && item.begin_seconds == lock.begin_seconds));
+                        // 锁定座位就是主座位且无备选时，跳过它会得到空候选，
+                        // 这正是旧版“未找到可用座位”的成因，故此时保留主座位。
+                        let skip = if plan.seat_num == lock.seat_num && plan.fallback_seats.is_empty()
+                        {
+                            None
+                        } else {
+                            Some(lock.seat_num.as_str())
+                        };
+                        result = self
+                            .execute_plan(
+                                client,
+                                &plan,
+                                begin,
+                                dry_run,
+                                None,
+                                skip,
+                                booked.as_ref(),
+                            )
+                            .await;
+                    }
+                }
+                result
             };
+            if result.success {
+                self.booked_snapshot
+                    .lock()
+                    .expect("booked snapshot poisoned")
+                    .get_or_insert_with(Default::default)
+                    .insert(begin_seconds);
+                self.locked_seats
+                    .lock()
+                    .expect("locked seats poisoned")
+                    .retain(|item| !(item.plan_id == plan.id && item.begin_seconds == begin_seconds));
+            }
             let _ = self.store.write_audit(
                 "booking_member_finished",
                 &serde_json::json!({
@@ -234,7 +309,10 @@ impl BookingExecutor {
             };
             let seat_num = std::iter::once(plan.seat_num.clone())
                 .chain(plan.fallback_seats.iter().cloned())
-                .find(|seat| seat_id_from_floors(&floors, &plan, seat).is_some());
+                .find(|seat| {
+                    seat_id_from_floors(&floors, &plan, seat).is_some()
+                        && seat_is_free(&floors, &plan, seat)
+                });
             let Some(seat_num) = seat_num else {
                 continue;
             };
@@ -242,9 +320,14 @@ impl BookingExecutor {
                 continue;
             };
             let response = self
-                .paced(|| client.lock_seat(&seat_id, begin, plan.duration_hours))
+                .paced_write(|| client.lock_seat(&seat_id, begin, plan.duration_hours))
                 .await;
             let locked = lock_succeeded(&response);
+            // 实测：预锁与正式预约共用同一写入额度（累积桶，约 6 次即封号 10 分钟）。
+            // 命中封禁必须立刻收手，否则会把 20:00 的预约额度一起打没。
+            let banned = response.as_ref().is_ok_and(|body| {
+                classify_booking_failure(&response_message(body)) == Some("ban")
+            });
             locks.push(BookingLock {
                 plan_id: plan.id.clone(),
                 seat_id,
@@ -253,6 +336,9 @@ impl BookingExecutor {
                 duration_hours: plan.duration_hours,
                 locked,
             });
+            if banned {
+                break;
+            }
         }
         let success = !locks.is_empty() && locks.iter().all(|lock| lock.locked);
         let message = if success {
@@ -260,6 +346,11 @@ impl BookingExecutor {
         } else {
             "预锁未完成，不影响正式预约".into()
         };
+        // 正式预约已抢占时不回写，避免把过期座位提示塞回去。
+        if !self.prelock_aborted.load(Ordering::Relaxed) {
+            *self.locked_seats.lock().expect("locked seats poisoned") = locks.clone();
+            *self.booked_snapshot.lock().expect("booked snapshot poisoned") = Some(booked.clone());
+        }
         let _ = self.store.write_audit(
             "booking_prelock_finished",
             &serde_json::json!({"planId": plan_id, "kind": kind, "success": success, "locks": locks.len(), "message": message}),
