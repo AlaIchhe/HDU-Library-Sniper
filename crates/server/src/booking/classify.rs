@@ -167,3 +167,18 @@ pub(crate) fn classify_booking_failure(message: &str) -> Option<&'static str> {
 pub(crate) fn is_duplicate_message(message: &str) -> bool {
     message.contains("已有预约") || message.contains("请勿重复") || message.contains("重复预约")
 }
+
+/// 座位本身不可用（被他人锁定或占用）。两个来源都要认：
+/// - 馆方文案（实测见 docs/HUITU-LIMITS.md §2）：
+///   `选择的座位无法预约，可能座位不可用或已经被其他人锁定或占用`
+/// - 本地按 `POI.state` 预筛的文案：`座位 101 已被占用`
+///
+/// 只有这类失败才说明预锁锁到的座位失效、该丢锁换座位。
+/// 限流、"未到预约时间"、座位图 404 都**不代表座位有问题**——
+/// 若据此丢锁，20:00 持续 404 期间就再也解析不出 seatId，整个窗口不再提交。
+pub(crate) fn is_seat_unavailable_message(message: &str) -> bool {
+    message.contains("座位无法预约")
+        || message.contains("已经被其他人锁定")
+        || message.contains("座位不可用")
+        || message.contains("已被占用")
+}

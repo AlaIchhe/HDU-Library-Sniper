@@ -2,6 +2,9 @@ use chrono::{DateTime, Duration, Timelike, Utc};
 use chrono_tz::Asia::Shanghai;
 
 pub const BOOKING_DAY_OFFSET: i64 = 2;
+/// 预锁提前量：19:59:00 触发，对启用方案的每个成员各锁一次。
+/// 每个成员只请求一次，失败不回退、不兜底，只记日志（见 docs/HUITU-LIMITS.md §8）。
+/// 60s 提前量 > HTTP 30s 超时，正常路径每成员约 0.5s + 写入节拍。
 pub const BOOKING_PRELOCK_LEAD_SECONDS: i64 = 60;
 
 const BOOKING_ANCHOR_SECONDS: i64 = 20 * 3600;
@@ -90,15 +93,36 @@ mod tests {
     }
 
     #[test]
-    fn prelock_starts_one_minute_before_anchor() {
-        assert_eq!(booking_prelock_delay_seconds(0, 60), 20 * 3600 - 60);
-        assert_eq!(booking_prelock_delay_seconds(19 * 3600 + 58 * 60, 60), 60);
-        assert_eq!(booking_prelock_delay_seconds(19 * 3600 + 59 * 60, 60), 0);
+    fn prelock_fires_at_1959() {
+        let lead = BOOKING_PRELOCK_LEAD_SECONDS;
+        assert_eq!(lead, 60);
+        // 19:59:00 之前：睡到 19:59:00
+        assert_eq!(booking_prelock_delay_seconds(0, lead), 20 * 3600 - 60);
+        assert_eq!(booking_prelock_delay_seconds(19 * 3600 + 58 * 60, lead), 60);
+        // 19:59:00 起：立即触发，不再等
+        assert_eq!(booking_prelock_delay_seconds(19 * 3600 + 59 * 60, lead), 0);
         assert_eq!(
-            booking_prelock_delay_seconds(19 * 3600 + 59 * 60 + 59, 60),
+            booking_prelock_delay_seconds(19 * 3600 + 59 * 60 + 59, lead),
             0
         );
-        assert_eq!(booking_prelock_delay_seconds(20 * 3600, 60), 24 * 3600 - 60);
-        assert_eq!(booking_prelock_delay_seconds(21 * 3600, 60), 23 * 3600 - 60);
+        assert_eq!(
+            booking_prelock_delay_seconds(20 * 3600, lead),
+            24 * 3600 - 60
+        );
+        assert_eq!(
+            booking_prelock_delay_seconds(21 * 3600, lead),
+            23 * 3600 - 60
+        );
+    }
+
+    /// 提前量必须大于 HTTP 单次请求超时：单个成员的请求不会跨过 20:00。
+    /// 逐成员预锁不做预算计算，靠这个不变量 + 写入节拍保证整体在锚点前收尾。
+    #[test]
+    fn prelock_lead_exceeds_the_http_timeout() {
+        const HTTP_TIMEOUT_MS: u64 = 30_000;
+        assert!(
+            (BOOKING_PRELOCK_LEAD_SECONDS as u64) * 1_000 > HTTP_TIMEOUT_MS,
+            "提前量必须大于单次请求超时，否则预锁可能跨过 20:00"
+        );
     }
 }

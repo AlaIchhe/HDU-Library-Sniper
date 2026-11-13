@@ -8,7 +8,7 @@ use hdu_sniper_auth::AuthService;
 use hdu_sniper_core::json::{format_iso, value_to_i64, value_to_string};
 use hdu_sniper_core::{
     booking_anchor_delay_seconds, booking_prelock_delay_seconds, shanghai_seconds_of_day,
-    CheckInPolling, RuntimeStatus,
+    CheckInPolling, RuntimeStatus, BOOKING_PRELOCK_LEAD_SECONDS,
 };
 use hdu_sniper_hdu::Action;
 use hdu_sniper_store::Store;
@@ -284,20 +284,10 @@ impl Scheduler {
                 continue;
             }
             let seconds = shanghai_seconds_of_day(Utc::now());
-            let prelock = booking_prelock_delay_seconds(seconds, 60);
+            let prelock = booking_prelock_delay_seconds(seconds, BOOKING_PRELOCK_LEAD_SECONDS);
             if prelock > 0 {
                 sleep(Duration::from_secs(prelock as u64)).await;
-                if !self.has_enabled_plan() {
-                    continue;
-                }
-                if !self.auth.authenticated() && !self.auth.restore().await {
-                    self.set_state("auth_required");
-                    continue;
-                }
-                self.set_state("running");
-                let result = self.booking.lock_burst(&self.auth.client, 90_000).await;
-                self.set_message(result.message);
-                self.set_state("idle");
+                self.prelock_once().await;
             }
             let seconds = shanghai_seconds_of_day(Utc::now());
             let anchor = booking_anchor_delay_seconds(seconds);
@@ -310,16 +300,30 @@ impl Scheduler {
                 continue;
             }
             self.set_state("running");
-            let result = self
-                .booking
-                .run_burst(&self.auth.client, 1_100, 10 * 60_000)
-                .await;
+            let result = self.booking.run_burst(&self.auth.client, 10 * 60_000).await;
             self.set_message(result.message);
             self.set_state("idle");
             if result.success {
                 self.sync_check_ins().await;
             }
         }
+    }
+
+    /// 19:59:00 预锁一次。失败不回退、不兜底，只记日志。
+    /// 单次请求超时 30s < 提前量 60s，故不会跨过 20:00 锚点。
+    async fn prelock_once(&self) {
+        if !self.has_enabled_plan() {
+            return;
+        }
+        if !self.auth.authenticated() && !self.auth.restore().await {
+            let _ = self.store.write_audit(
+                "booking_prelock_skipped",
+                &serde_json::json!({"reason": "登录态失效"}),
+            );
+            return;
+        }
+        let result = self.booking.lock_once(&self.auth.client).await;
+        self.set_message(result.message);
     }
 
     async fn checkin_loop(&self) {

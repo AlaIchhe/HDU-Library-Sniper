@@ -69,6 +69,11 @@ pub struct BookingMemberResult {
     pub unverified: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub blocked: bool,
+    /// 座位图查询被服务端并发保护挡回（HTTP 404 / CODE=NotFound）。
+    /// 实测：该状态瞬时恢复、不累积。轮询间隔与业务失败相同（`POLL_MS`），
+    /// 此标记只用于审计与拥堵期间冻结写入槽。
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub seat_query_busy: bool,
 }
 
 impl BookingMemberResult {

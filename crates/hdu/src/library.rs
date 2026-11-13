@@ -90,6 +90,8 @@ impl LibraryClient {
 
     pub fn with_base_url(base_url: &str) -> Result<Self, HduError> {
         let http = Client::builder()
+            // 30s 单次超时。预锁提前量 60s > 30s，故 19:59:00 起
+            // 单个成员的请求最坏也在 19:59:30 结束，不会跨过 20:00 锚点。
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::limited(10))
             .build()
@@ -561,6 +563,39 @@ mod more_tests {
             .await
             .unwrap_err();
         assert!(error.to_string().contains("预约单不存在"));
+    }
+
+    /// 实测 2026-11-13：读路径并发保护返回 HTTP 404 + `{"CODE":"NotFound"}`。
+    /// 状态判定先于 JSON 解析，故必须落成 Http(404) 变体，
+    /// 上层据此立即重试（该状态瞬时恢复，不累积）。
+    #[tokio::test]
+    async fn seat_map_concurrency_guard_maps_to_http_404() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/Seat/Index/searchSeats"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {"space_category": {"category_id": "1", "content_id": "91"}}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/Seat/Index/searchSeats"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                "CODE": "NotFound", "ui_type": "com.Message"
+            })))
+            .mount(&server)
+            .await;
+        let error = client(&server)
+            .await
+            .floors(
+                "space_category[category_id]=1&space_category[content_id]=91",
+                Utc::now(),
+                1,
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, HduError::Http(404)), "实际：{error:?}");
+        assert_eq!(error.to_string(), "HTTP 404");
     }
 
     /// 实测 2026-11-13：cancelBooking 成功时 CODE=ok、MESSAGE=取消预约成功，

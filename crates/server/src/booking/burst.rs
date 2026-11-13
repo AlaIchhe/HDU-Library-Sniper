@@ -3,7 +3,6 @@ use super::*;
 
 impl BookingExecutor {
     pub async fn run<C: BookingClient>(&self, client: &C) -> BookingRunResult {
-        self.abort_prelock();
         let result = self.run_attempt(client, false, None).await;
         let _ = self.store.write_audit(
             "booking_run_finished",
@@ -18,26 +17,23 @@ impl BookingExecutor {
         result
     }
 
+    /// 开窗后的固定轮询：读请求直接发（实测无速率限制），
+    /// 写入由 `paced_write` 按实测 10s 限速。轮询睡眠恒为 `POLL_MS`，无抖动、无退避。
     pub async fn run_burst<C: BookingClient>(
         &self,
         client: &C,
-        interval_ms: u64,
         timeout_ms: u64,
     ) -> BookingRunResult {
-        // 固定轮询：interval_ms 是读取节拍，不随失败翻倍；写入另有独立节拍。
-        self.read_interval_ms.store(interval_ms.max(1), Ordering::Relaxed);
-        self.abort_prelock();
         let started = Instant::now();
         let deadline = started + Duration::from_millis(timeout_ms);
         let mut finished: Vec<BookingMemberResult> = Vec::new();
         let mut unverified: std::collections::HashMap<String, u8> =
             std::collections::HashMap::new();
-        let mut first_attempt = true;
+        // 20:00 拥堵可观测性：记录 404 轮数与首次/恢复时刻，便于事后核对窗口
+        let mut busy_rounds = 0u32;
+        let mut busy_since: Option<Instant> = None;
         loop {
-            let result = self
-                .run_attempt(client, false, Some((&mut finished, first_attempt)))
-                .await;
-            first_attempt = false;
+            let result = self.run_attempt(client, false, Some(&mut finished)).await;
             if let Some(blocked) = result.members.iter().find(|member| member.blocked) {
                 return BookingRunResult {
                     success: false,
@@ -66,13 +62,19 @@ impl BookingExecutor {
                     }
                 }
             }
-            let pending = result.members.is_empty()
-                || result
+            // 结束条件：全部成功、没有可继续的成员、或到点。
+            // members 为空表示本轮没有任何可执行成员（例如今日不在方案的重复日期内），
+            // 这种情况重试也不会有变化，必须立即结束——否则整个窗口空转。
+            let pending = !result.members.is_empty()
+                && result
                     .members
                     .iter()
                     .any(|member| !member.success && !member.terminal);
             if result.success || !pending || Instant::now() >= deadline {
-                self.locked_seats.lock().expect("locked seats poisoned").clear();
+                self.locked_seats
+                    .lock()
+                    .expect("locked seats poisoned")
+                    .clear();
                 let _ = self.store.write_audit(
                     "booking_run_finished",
                     &serde_json::json!({
@@ -89,7 +91,32 @@ impl BookingExecutor {
             let remaining = deadline
                 .saturating_duration_since(Instant::now())
                 .as_millis() as u64;
-            self.poll_sleep_ms(interval_ms.max(1).min(remaining)).await;
+            // 404 只用于可观测性与写入槽冻结，不再影响轮询间隔：
+            // 读路径无速率限制，任何失败都按同一个 POLL_MS 重试。
+            let seat_query_busy = result.members.iter().any(|member| member.seat_query_busy);
+            if seat_query_busy {
+                busy_rounds += 1;
+                if busy_since.is_none() {
+                    busy_since = Some(Instant::now());
+                    let _ = self.store.write_audit(
+                        "booking_seat_query_busy",
+                        &serde_json::json!({"reason": "HTTP 404 并发保护", "at": "first"}),
+                    );
+                }
+                // 20:00 拥堵可持续 1–2 分钟（用户实况）。这段时间写入槽会一直"过期"，
+                // 若不处理，恢复瞬间攒下的欠账会让多个候选连发提交——而实测写入
+                // 3 次即封号。故拥堵期间把写入槽顶到当前时刻，恢复后重新计时。
+                *self.write_slot.lock().expect("pacing slot poisoned") = Instant::now();
+            } else if let Some(since) = busy_since.take() {
+                let _ = self.store.write_audit(
+                    "booking_seat_query_recovered",
+                    &serde_json::json!({
+                        "busyRounds": busy_rounds,
+                        "busyMs": since.elapsed().as_millis() as u64,
+                    }),
+                );
+            }
+            self.poll_sleep_ms(POLL_MS.min(remaining)).await;
         }
     }
 
@@ -107,7 +134,7 @@ impl BookingExecutor {
         &self,
         client: &C,
         dry_run: bool,
-        finished: Option<(&mut Vec<BookingMemberResult>, bool)>,
+        finished: Option<&mut Vec<BookingMemberResult>>,
     ) -> BookingRunResult {
         let enabled = self
             .store
@@ -122,25 +149,8 @@ impl BookingExecutor {
             };
         };
         let (plan_id, kind, members) = plan_members(&enabled);
-        let (finished_items, first_attempt) = match finished {
-            Some((items, first)) => (items.clone(), first),
-            None => (Vec::new(), false),
-        };
-        // 开窗首轮用 19:59 预锁时的快照，省掉 20:00 第一秒的一次列表查询。
-        let snapshot = self
-            .booked_snapshot
-            .lock()
-            .expect("booked snapshot poisoned")
-            .clone();
-        let booked = if first_attempt && snapshot.is_some() {
-            snapshot
-        } else {
-            let live = self.booked_begin_times(client, &mut Vec::new()).await;
-            if let Some(set) = live.as_ref() {
-                *self.booked_snapshot.lock().expect("booked snapshot poisoned") = Some(set.clone());
-            }
-            live
-        };
+        let finished_items = finished.map(|items| items.clone()).unwrap_or_default();
+        let booked = self.booked_begin_times(client, &mut Vec::new()).await;
         let now = Utc::now();
         let mut results = Vec::new();
         let finished_map: std::collections::HashMap<String, BookingMemberResult> = finished_items
@@ -168,7 +178,8 @@ impl BookingExecutor {
                     ..BookingMemberResult::default()
                 }
             } else {
-                // 消费 19:59 的预锁：优先提交锁到的座位，省掉开窗时的座位解析。
+                // 消费 19:59 的预锁：优先提交锁到的座位。关键价值在于 seatId 已知——
+                // 20:00 座位图可能持续 404，此时预锁是唯一的 seatId 来源。
                 let preferred = self
                     .locked_seats
                     .lock()
@@ -188,20 +199,31 @@ impl BookingExecutor {
                     )
                     .await;
                 if let Some(lock) = preferred.as_ref() {
-                    if !result.success && !result.terminal && !result.unverified {
-                        // 预锁失效（被占/过期）：丢锁后按主座位 + 备选重试，不死磕同一座位。
+                    // 只有"座位本身不可用"才丢锁。限流、未到点、座位图 404 都不说明
+                    // 座位有问题：20:00 持续 404 时若丢掉预锁，seatId 就再也解析不出来
+                    // （备选座位需要座位图），整个窗口会退化成只读不提交。
+                    if !result.success
+                        && !result.terminal
+                        && !result.unverified
+                        && !result.seat_query_busy
+                        && is_seat_unavailable_message(&result.message)
+                    {
+                        // 预锁失效（被占）：丢锁后按主座位 + 备选重试，不死磕同一座位。
                         self.locked_seats
                             .lock()
                             .expect("locked seats poisoned")
-                            .retain(|item| !(item.plan_id == lock.plan_id && item.begin_seconds == lock.begin_seconds));
+                            .retain(|item| {
+                                !(item.plan_id == lock.plan_id
+                                    && item.begin_seconds == lock.begin_seconds)
+                            });
                         // 锁定座位就是主座位且无备选时，跳过它会得到空候选，
                         // 这正是旧版“未找到可用座位”的成因，故此时保留主座位。
-                        let skip = if plan.seat_num == lock.seat_num && plan.fallback_seats.is_empty()
-                        {
-                            None
-                        } else {
-                            Some(lock.seat_num.as_str())
-                        };
+                        let skip =
+                            if plan.seat_num == lock.seat_num && plan.fallback_seats.is_empty() {
+                                None
+                            } else {
+                                Some(lock.seat_num.as_str())
+                            };
                         result = self
                             .execute_plan(
                                 client,
@@ -218,15 +240,12 @@ impl BookingExecutor {
                 result
             };
             if result.success {
-                self.booked_snapshot
-                    .lock()
-                    .expect("booked snapshot poisoned")
-                    .get_or_insert_with(Default::default)
-                    .insert(begin_seconds);
                 self.locked_seats
                     .lock()
                     .expect("locked seats poisoned")
-                    .retain(|item| !(item.plan_id == plan.id && item.begin_seconds == begin_seconds));
+                    .retain(|item| {
+                        !(item.plan_id == plan.id && item.begin_seconds == begin_seconds)
+                    });
             }
             let _ = self.store.write_audit(
                 "booking_member_finished",
@@ -244,6 +263,9 @@ impl BookingExecutor {
             "预约预演完成，未提交预约请求".to_string()
         } else if success {
             "预约任务完成".to_string()
+        } else if results.is_empty() {
+            // 今日不在任何成员的重复日期内：没有可执行成员，直接结束而非空转。
+            "今日不在方案的重复日期内，无需预约".to_string()
         } else {
             format!(
                 "预约失败：{}",
@@ -263,11 +285,15 @@ impl BookingExecutor {
         }
     }
 
-    pub async fn lock_burst<C: BookingClient>(
-        &self,
-        client: &C,
-        deadline_ms: u64,
-    ) -> BookingLockResult {
+    /// 19:59:00 预锁：对启用方案的**每个成员**各发一次请求
+    /// （单方案 1 个成员；组合方案 N 个成员就 N 次），然后结束。
+    /// 每个成员只请求一次，失败不回退、不兜底、不重试，只写日志。
+    /// 正式预约照常按主座位 + 备选进行。
+    ///
+    /// 时间上界：单次请求最坏 30s（HTTP 超时），提前量 60s，
+    /// 故最多容得下一个成员走满超时；正常路径每成员约 0.5s + 写入节拍。
+    /// 写入节拍由 `paced_write` 按实测 10s 保证，不会撞馆方写入额度。
+    pub async fn lock_once<C: BookingClient>(&self, client: &C) -> BookingLockResult {
         let Some(enabled) = self
             .store
             .list_plan_items()
@@ -281,79 +307,59 @@ impl BookingExecutor {
             };
         };
         let (plan_id, kind, members) = plan_members(&enabled);
+        if members.is_empty() {
+            return BookingLockResult {
+                plan_id: Some(plan_id),
+                kind: Some(kind),
+                success: false,
+                message: "方案没有成员".into(),
+                ..BookingLockResult::default()
+            };
+        }
+        let started = Instant::now();
         let now = Utc::now();
-        let deadline = Instant::now() + Duration::from_millis(deadline_ms);
-        let booked = self
-            .booked_begin_times(client, &mut Vec::new())
-            .await
-            .unwrap_or_default();
         let mut locks = Vec::new();
-        self.prelock_aborted.store(false, Ordering::Relaxed);
-        for plan in members {
-            if self.prelock_aborted.load(Ordering::Relaxed) || Instant::now() >= deadline {
-                break;
-            }
-            let Some(begin) = member_begin(&plan, now) else {
+        let mut failures: Vec<String> = Vec::new();
+        let mut attempted = 0usize;
+        for plan in &members {
+            let Some(begin) = member_begin(plan, now) else {
+                failures.push(format!("{}：今日不在重复日期内", plan.seat_num));
                 continue;
             };
-            let begin_seconds = begin.timestamp();
-            if booked.contains(&begin_seconds) {
-                continue;
-            }
-            let floors = match self
-                .paced(|| client.floors(&plan.room_query, begin, plan.duration_hours))
-                .await
-            {
-                Ok(floors) => floors,
-                Err(_) => continue,
-            };
-            let seat_num = std::iter::once(plan.seat_num.clone())
-                .chain(plan.fallback_seats.iter().cloned())
-                .find(|seat| {
-                    seat_id_from_floors(&floors, &plan, seat).is_some()
-                        && seat_is_free(&floors, &plan, seat)
-                });
-            let Some(seat_num) = seat_num else {
-                continue;
-            };
-            let Some(seat_id) = seat_id_from_floors(&floors, &plan, &seat_num) else {
-                continue;
-            };
-            let response = self
-                .paced_write(|| client.lock_seat(&seat_id, begin, plan.duration_hours))
-                .await;
-            let locked = lock_succeeded(&response);
-            // 实测：预锁与正式预约共用同一写入额度（累积桶，约 6 次即封号 10 分钟）。
-            // 命中封禁必须立刻收手，否则会把 20:00 的预约额度一起打没。
-            let banned = response.as_ref().is_ok_and(|body| {
-                classify_booking_failure(&response_message(body)) == Some("ban")
-            });
-            locks.push(BookingLock {
-                plan_id: plan.id.clone(),
-                seat_id,
-                seat_num,
-                begin_seconds,
-                duration_hours: plan.duration_hours,
-                locked,
-            });
-            if banned {
-                break;
+            attempted += 1;
+            // 每个成员各一次：失败只记原因，继续下一个成员，不重试、不换备选。
+            match self.prelock_attempt(client, plan, begin).await {
+                Ok(lock) => locks.push(lock),
+                Err(reason) => failures.push(format!("{}：{reason}", plan.seat_num)),
             }
         }
-        let success = !locks.is_empty() && locks.iter().all(|lock| lock.locked);
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        let success = attempted > 0 && failures.is_empty();
         let message = if success {
-            "座位预锁成功".into()
+            format!("座位预锁成功（{}/{}）", locks.len(), attempted)
+        } else if failures.is_empty() {
+            "今日无需预锁".to_string()
         } else {
-            "预锁未完成，不影响正式预约".into()
+            format!(
+                "预锁 {}/{} 成功（失败不重试）：{}",
+                locks.len(),
+                attempted,
+                failures.join("；")
+            )
         };
-        // 正式预约已抢占时不回写，避免把过期座位提示塞回去。
-        if !self.prelock_aborted.load(Ordering::Relaxed) {
-            *self.locked_seats.lock().expect("locked seats poisoned") = locks.clone();
-            *self.booked_snapshot.lock().expect("booked snapshot poisoned") = Some(booked.clone());
-        }
+        *self.locked_seats.lock().expect("locked seats poisoned") = locks.clone();
         let _ = self.store.write_audit(
             "booking_prelock_finished",
-            &serde_json::json!({"planId": plan_id, "kind": kind, "success": success, "locks": locks.len(), "message": message}),
+            &serde_json::json!({
+                "planId": plan_id,
+                "kind": kind,
+                "success": success,
+                "members": members.len(),
+                "attempted": attempted,
+                "elapsedMs": elapsed_ms,
+                "locks": locks.len(),
+                "message": message,
+            }),
         );
         BookingLockResult {
             plan_id: Some(plan_id),
@@ -363,5 +369,40 @@ impl BookingExecutor {
             locks,
             terminal: false,
         }
+    }
+
+    /// 单个成员的单次预锁：一次座位图查询 + 一次锁座。Err 即失败原因，交由调用方记日志。
+    async fn prelock_attempt<C: BookingClient>(
+        &self,
+        client: &C,
+        plan: &BookingPlan,
+        begin: DateTime<Utc>,
+    ) -> Result<BookingLock, String> {
+        let floors = client
+            .floors(&plan.room_query, begin, plan.duration_hours)
+            .await
+            .map_err(|error| format!("座位查询失败: {error}"))?;
+        let seat_id = seat_id_from_floors(&floors, plan, &plan.seat_num)
+            .ok_or_else(|| format!("座位 {} 不在座位图中", plan.seat_num))?;
+        if !seat_is_free(&floors, plan, &plan.seat_num) {
+            return Err(format!("座位 {} 已被占用", plan.seat_num));
+        }
+        // 组合方案有 N 个成员就有 N 次锁座写请求，必须走实测的写入节拍，
+        // 否则会撞上馆方累积额度（实测 3 次即封号 10 分钟）。
+        let response = self
+            .paced_write(|| client.lock_seat(&seat_id, begin, plan.duration_hours))
+            .await
+            .map_err(|error| format!("锁座失败: {error}"))?;
+        if !lock_succeeded(&Ok(response.clone())) {
+            return Err(format!("锁座未生效: {}", response_message(&response)));
+        }
+        Ok(BookingLock {
+            plan_id: plan.id.clone(),
+            seat_id,
+            seat_num: plan.seat_num.clone(),
+            begin_seconds: begin.timestamp(),
+            duration_hours: plan.duration_hours,
+            locked: true,
+        })
     }
 }
