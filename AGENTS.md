@@ -1,3 +1,1 @@
-# 发布前要求
-
-发布新版本前，先将 `README.md` 中 MSI 下载链接的版本号改为本次发布版本号。
+This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
