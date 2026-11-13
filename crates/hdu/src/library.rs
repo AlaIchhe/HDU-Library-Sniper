@@ -14,12 +14,24 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use hdu_sniper_core::json::{value_to_i64, value_to_string};
+use hdu_sniper_core::{READ_TIMEOUT_SECONDS, WRITE_TIMEOUT_SECONDS};
 
 use crate::auth::LIBRARY_BASE;
 use crate::cookies::CookieJar;
 
 const MOBILE_USER_AGENT: &str =
     "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36";
+
+/// 写请求（bookSeats / lockSeats / 签到等）的单次超时。
+/// 预锁提前量 60s > 30s，故 19:59:00 起单个成员最坏也在 19:59:30 结束，
+/// 不会跨过 20:00 锚点（`booking_anchor_delay_seconds` 在 ≥20:00 时返回 +24h）。
+const WRITE_TIMEOUT: Duration = Duration::from_secs(WRITE_TIMEOUT_SECONDS);
+
+/// 读请求（座位图 / 预约列表 / 房间目录）的单次超时。
+/// 实测 2026-11-13：读路径正常 205–510ms（docs/HUITU-LIMITS.md §1）。
+/// 20:00 拥堵时一个卡住的连接会一直占满超时才放弃，期间无法重试——
+/// 当晚两次 30s 超时吃掉 136s 窗口的 44%。读无速率限制，早放弃早重试才对。
+const READ_TIMEOUT: Duration = Duration::from_secs(READ_TIMEOUT_SECONDS);
 
 #[derive(Debug, thiserror::Error)]
 pub enum HduError {
@@ -90,9 +102,9 @@ impl LibraryClient {
 
     pub fn with_base_url(base_url: &str) -> Result<Self, HduError> {
         let http = Client::builder()
-            // 30s 单次超时。预锁提前量 60s > 30s，故 19:59:00 起
-            // 单个成员的请求最坏也在 19:59:30 结束，不会跨过 20:00 锚点。
-            .timeout(Duration::from_secs(30))
+            // 兜底超时。实际每个请求都会按读/写覆盖（见 request_json_once）：
+            // 读 READ_TIMEOUT=5s，写 WRITE_TIMEOUT=30s。
+            .timeout(WRITE_TIMEOUT)
             .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .map_err(|error| HduError::Network(error.to_string()))?;
@@ -156,9 +168,16 @@ impl LibraryClient {
         method: Method,
         form: Option<Vec<(String, String)>>,
         extra_headers: Vec<(String, String)>,
+        timeout: Duration,
     ) -> Result<Value, HduError> {
         let result = self
-            .request_json_once(path, method.clone(), form.clone(), extra_headers.clone())
+            .request_json_once(
+                path,
+                method.clone(),
+                form.clone(),
+                extra_headers.clone(),
+                timeout,
+            )
             .await;
         if matches!(&result, Err(HduError::AuthenticationExpired(_))) {
             let handler = self
@@ -169,7 +188,7 @@ impl LibraryClient {
             if let Some(handler) = handler {
                 if handler().await {
                     return self
-                        .request_json_once(path, method, form, extra_headers)
+                        .request_json_once(path, method, form, extra_headers, timeout)
                         .await;
                 }
             }
@@ -183,6 +202,7 @@ impl LibraryClient {
         method: Method,
         form: Option<Vec<(String, String)>>,
         extra_headers: Vec<(String, String)>,
+        timeout: Duration,
     ) -> Result<Value, HduError> {
         let url = if path.starts_with("http") {
             path.to_string()
@@ -197,6 +217,7 @@ impl LibraryClient {
         let mut request = self
             .http
             .request(method, &url)
+            .timeout(timeout)
             .header(ACCEPT, "application/json, text/plain, */*")
             .header(
                 CONTENT_TYPE,
@@ -254,7 +275,13 @@ impl LibraryClient {
 
     pub async fn validate(&self) -> bool {
         let Ok(body) = self
-            .request_json("/User/Center/baseInfo", Method::GET, None, Vec::new())
+            .request_json(
+                "/User/Center/baseInfo",
+                Method::GET,
+                None,
+                Vec::new(),
+                READ_TIMEOUT,
+            )
             .await
         else {
             return false;
@@ -655,5 +682,55 @@ mod more_tests {
             .await
             .unwrap_err();
         assert!(error.to_string().contains("请求过于频繁"));
+    }
+
+    /// 读请求必须在 READ_TIMEOUT 内放弃，不能沿用写请求的 30s。
+    /// 实测 2026-11-13：20:00 两次 30s 读超时吃掉 136s 窗口的 44%，
+    /// 期间无法重试。读路径正常 205–510ms，卡住就该早点放弃。
+    #[tokio::test]
+    async fn read_requests_give_up_at_the_read_timeout() {
+        let server = MockServer::start().await;
+        // 延迟远超 READ_TIMEOUT(5s)、但小于 WRITE_TIMEOUT(30s)：
+        // 若读仍用 30s，这个请求会成功而不是超时。
+        Mock::given(method("GET"))
+            .and(path("/Seat/Index/myBookingList"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(8))
+                    .set_body_json(json!({"content": {"defaultItems": []}})),
+            )
+            .mount(&server)
+            .await;
+        let started = std::time::Instant::now();
+        let error = client(&server).await.bookings().await.unwrap_err();
+        let elapsed = started.elapsed();
+        assert!(matches!(error, HduError::RequestTimeout), "实际：{error:?}");
+        assert!(
+            elapsed < Duration::from_secs(7),
+            "读请求应在 5s 超时，实际等了 {elapsed:?}"
+        );
+    }
+
+    /// 写请求仍保留 30s：预锁提前量 60s 的上界依赖它，且写入不能轻易放弃
+    /// （放弃后无从判断馆方是否已落单）。
+    #[tokio::test]
+    async fn write_requests_keep_the_longer_timeout() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/Seat/Index/lockSeats"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(7))
+                    .set_body_json(json!({"CODE": "ok", "DATA": {"result": "fail"}})),
+            )
+            .mount(&server)
+            .await;
+        // 7s > READ_TIMEOUT，若写请求误用读超时就会失败
+        let response = client(&server)
+            .await
+            .lock_seat("42", Utc::now(), 1)
+            .await
+            .expect("写请求不应在 5s 被放弃");
+        assert_eq!(response.get("CODE").and_then(Value::as_str), Some("ok"));
     }
 }

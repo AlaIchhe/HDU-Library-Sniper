@@ -9,6 +9,7 @@ impl LibraryClient {
                 Method::GET,
                 None,
                 Vec::new(),
+                READ_TIMEOUT,
             )
             .await?;
         let items = [body.get("content"), body.get("data"), body.get("DATA")]
@@ -49,6 +50,7 @@ impl LibraryClient {
                 Method::GET,
                 None,
                 Vec::new(),
+                READ_TIMEOUT,
             )
             .await?;
         let range = body
@@ -83,6 +85,7 @@ impl LibraryClient {
                 Method::POST,
                 Some(form),
                 Vec::new(),
+                READ_TIMEOUT,
             )
             .await?;
         let floors = body
@@ -112,6 +115,7 @@ impl LibraryClient {
                 Method::GET,
                 None,
                 Vec::new(),
+                READ_TIMEOUT,
             )
             .await?;
         let category = body

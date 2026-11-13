@@ -91,7 +91,7 @@ impl BookingExecutor {
             let remaining = deadline
                 .saturating_duration_since(Instant::now())
                 .as_millis() as u64;
-            // 404 只用于可观测性与写入槽冻结，不再影响轮询间隔：
+            // 座位图不可用只用于可观测性与写入槽冻结，不再影响轮询间隔：
             // 读路径无速率限制，任何失败都按同一个 POLL_MS 重试。
             let seat_query_busy = result.members.iter().any(|member| member.seat_query_busy);
             if seat_query_busy {
@@ -100,7 +100,10 @@ impl BookingExecutor {
                     busy_since = Some(Instant::now());
                     let _ = self.store.write_audit(
                         "booking_seat_query_busy",
-                        &serde_json::json!({"reason": "HTTP 404 并发保护", "at": "first"}),
+                        &serde_json::json!({
+                            "reason": "座位图不可用（404 并发保护或请求超时）",
+                            "at": "first",
+                        }),
                     );
                 }
                 // 20:00 拥堵可持续 1–2 分钟（用户实况）。这段时间写入槽会一直"过期"，
@@ -115,6 +118,9 @@ impl BookingExecutor {
                         "busyMs": since.elapsed().as_millis() as u64,
                     }),
                 );
+                // 轮数必须与 busyMs 同窗口：旧实现跨窗口累加，
+                // 2026-11-13 第二段记成 10 轮（含第一段的 3 轮），与实际时长不符。
+                busy_rounds = 0;
             }
             self.poll_sleep_ms(POLL_MS.min(remaining)).await;
         }
@@ -290,7 +296,7 @@ impl BookingExecutor {
     /// 每个成员只请求一次，失败不回退、不兜底、不重试，只写日志。
     /// 正式预约照常按主座位 + 备选进行。
     ///
-    /// 时间上界：单次请求最坏 30s（HTTP 超时），提前量 60s，
+    /// 时间上界：写请求最坏 30s（`WRITE_TIMEOUT_SECONDS`），提前量 60s，
     /// 故最多容得下一个成员走满超时；正常路径每成员约 0.5s + 写入节拍。
     /// 写入节拍由 `paced_write` 按实测 10s 保证，不会撞馆方写入额度。
     pub async fn lock_once<C: BookingClient>(&self, client: &C) -> BookingLockResult {
@@ -335,8 +341,16 @@ impl BookingExecutor {
         }
         let elapsed_ms = started.elapsed().as_millis() as u64;
         let success = attempted > 0 && failures.is_empty();
+        // 真正锁住的成员数。实测空闲座位回 result=fail，故 held 常为 0——
+        // 这不影响 seatId 可用性，只是让日志不再谎报"锁住了"。
+        let held = locks.iter().filter(|lock| lock.locked).count();
         let message = if success {
-            format!("座位预锁成功（{}/{}）", locks.len(), attempted)
+            format!(
+                "座位号已就绪（{}/{}，其中锁住 {}）",
+                locks.len(),
+                attempted,
+                held
+            )
         } else if failures.is_empty() {
             "今日无需预锁".to_string()
         } else {
@@ -358,6 +372,7 @@ impl BookingExecutor {
                 "attempted": attempted,
                 "elapsedMs": elapsed_ms,
                 "locks": locks.len(),
+                "held": held,
                 "message": message,
             }),
         );
@@ -372,6 +387,9 @@ impl BookingExecutor {
     }
 
     /// 单个成员的单次预锁：一次座位图查询 + 一次锁座。Err 即失败原因，交由调用方记日志。
+    ///
+    /// 保留 seatId 的条件是"座位空闲（state=0）且馆方受理了锁座（CODE=ok）"，
+    /// **不要求 `DATA.result=success`**——实测空闲座位就是回 fail（§3）。
     async fn prelock_attempt<C: BookingClient>(
         &self,
         client: &C,
@@ -393,8 +411,8 @@ impl BookingExecutor {
             .paced_write(|| client.lock_seat(&seat_id, begin, plan.duration_hours))
             .await
             .map_err(|error| format!("锁座失败: {error}"))?;
-        if !lock_succeeded(&Ok(response.clone())) {
-            return Err(format!("锁座未生效: {}", response_message(&response)));
+        if !lock_accepted(&Ok(response.clone())) {
+            return Err(format!("锁座被拒: {}", response_message(&response)));
         }
         Ok(BookingLock {
             plan_id: plan.id.clone(),
@@ -402,7 +420,11 @@ impl BookingExecutor {
             seat_num: plan.seat_num.clone(),
             begin_seconds: begin.timestamp(),
             duration_hours: plan.duration_hours,
-            locked: true,
+            // 只要 CODE=ok 就保留 seatId：实测空闲座位也回 result=fail（§3），
+            // 据此丢号会让 20:00 座位图持续 404 时无号可提交
+            // （2026-11-13 实战复现：locks=0，随后 12 轮空转 86s）。
+            // locked 仅记录"是否真锁住"，供日志展示，不参与消费决策。
+            locked: lock_effective(&Ok(response)),
         })
     }
 }

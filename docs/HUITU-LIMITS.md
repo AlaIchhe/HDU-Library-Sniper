@@ -59,8 +59,12 @@ HTTP/1.1 404   server: nginx   content-type: application/json; charset=utf-8
 404 是并发保护，实测中停掉并发即刻恢复；20:00 全校客户端持续猛打，压力不退，故持续 1–2 分钟。
 **同一机制、两种表现**。推论：404 期间不该退避（它不是封禁），但也不该高频空打。
 
-写入侧不存在"404 挡回"：5 路并发 `bookSeats` 实测得到 15 次 200 + **直接封禁**，零个 404。
+写入侧在**非高峰时段**不存在"404 挡回"：5 路并发 `bookSeats` 实测得到 15 次 200 + **直接封禁**，零个 404。
 写入限流优先级高于并发保护，撞上去就是封号 10 分钟。
+
+**但 20:00 高峰例外**：11-11 / 11-12 / 11-13 连续三晚首轮 `bookSeats` 都收到 `HTTP 404`
+（审计中表现为无前缀的 `HTTP 404` + 带 `seatNum`，区别于座位图失败的 `房间或座位查询失败: HTTP 404`）。
+说明高峰期的并发保护同样覆盖写端点。这类 404 与读侧同性质：不累积、下一拍可重试。
 
 ## 2. 座位可用性由 `POI.state` 决定
 
@@ -98,7 +102,34 @@ HTTP/1.1 404   server: nginx   content-type: application/json; charset=utf-8
 
 - 对**空闲座位**（state=0）调 `lockSeats`：`CODE=ok`、`DATA.time>0`，但 **`DATA.result=fail`**；紧接着 `bookSeats` 直接成功。
 - 对已占座位调 `lockSeats`：同样 `CODE=ok` + `time>0` + `result=fail`。
-- 结论：`lockSeats` 只能当**座位提示**，`result=fail` 不代表不能预约；判定锁成功必须校验 `result=success`（旧代码只看 `time>0`，会误判）。
+- 结论：`lockSeats` 只能当**座位提示**，`result=fail` **不代表不能预约**。
+
+### 3.1 `result=fail` 不得导致 seatId 被丢弃（2026-11-13 实战教训）
+
+既然空闲座位就是回 `fail`，那么"要求 `result=success` 才保留 seatId"等价于**永远不保留**。
+v2.1.4 首晚实战即因此失效：
+
+```
+19:59:01  预锁 CODE=ok / result=fail → 判失败 → locks=0（seatId 被扔）
+20:00:15  首轮提交被 404 挡回
+20:00:19  起 12 轮座位图 404/超时 → 无 seatId → 一次提交都发不出
+20:02:15  座位图恢复，重新解析 seatId → 提交成功（耗时 136s，其中 86s 干等）
+```
+
+座位全程空闲（最后原样抢到即证明），19:59 拿到的 seatId 完全可用。
+
+**正确判据**：座位空闲（`POI.state=0`，§2）**且**馆方受理了请求（`CODE=ok`）→ 保留 seatId。
+`CODE != ok`（如限流 `CODE=1`）才代表请求没被受理，此时不保留。
+`DATA.result` 只写进日志与审计的 `held` 字段，**不参与决策**。
+
+| 函数 | 含义 | 用途 |
+|---|---|---|
+| `lock_accepted` | `CODE=ok` | 决定是否保留 seatId |
+| `lock_effective` | `CODE=ok` 且 `result=success` | 仅日志展示（`BookingLock.locked`） |
+
+测试夹具的 `lock_result` 默认值必须是 "fail"（与真馆方一致）。
+此前默认 "success"，导致所有"预锁被消费"的用例都跑在现实中不存在的前提上，
+当时 94 个测试全绿却漏掉了这个缺陷。
 
 ## 4. 提交前不强制重查座位图
 
@@ -148,11 +179,14 @@ HTTP/1.1 404   server: nginx   content-type: application/json; charset=utf-8
 | 签到固定 10s 轮询至窗口截止，去掉 8 次上限与指数退避 | §1 写入量级 + §5 窗口 |
 | 命中 ban 仍立即停手并等 10 分钟 | §1 封禁期内写入无效 |
 | 选座按 `state=0` 过滤 | §2 / §2.1 被拒提交同样消耗写入额度 |
-| `lock_succeeded` 增加 `result=success` 校验 | §3 |
+| `lock_accepted`（`CODE=ok`）决定保留 seatId；`result` 只进日志 | §3 / §3.1 空闲座位就是回 fail |
 | 预锁结果存入 executor 并被正式预约消费；失效则丢锁换备选 | §3 预锁仅作提示 |
 | 座位图每轮只查一次；查询失败仍可提交已预锁座位 | §4 / §4.1 404 期间预锁是唯一 seatId 来源 |
 | 仅"座位不可用"才丢预锁，限流/未到点/404 都保留 | §4.1 否则 404 期间整窗口不再提交 |
 | `seat_query_busy` 独立记录，不被提交结果覆盖 | §4.1 否则写入槽冻结失效 |
+| 请求超时也算 `seat_query_busy` | §6.3 否则写出假的"已恢复" |
+| 读请求 5s 超时，写请求 30s | §6.3 读正常 205–510ms，30s 白占窗口 |
+| 每段拥堵的 `busyRounds` 独立计数 | §6.3 跨段累加会与 `busyMs` 不符 |
 | `assert_action_success`：`result` 缺失时以 `CODE=ok` 为准 | §5 取消成功报文无 `result` |
 
 对应回归测试：[booking.rs](../crates/server/src/booking.rs) 中标注"实测驱动"的用例（选座 state、预锁消费、固定轮询、读零节流、逐成员预锁、查询失败直提），以及 [library.rs](../crates/hdu/src/library.rs) 中的 404 映射与取消契约用例。
@@ -198,6 +232,32 @@ HTTP/1.1 404   server: nginx   content-type: application/json; charset=utf-8
 对应测试：`success_ends_polling_immediately`、`group_success_ends_polling_immediately`、
 `no_actionable_member_ends_polling_immediately`、`terminal_failure_ends_polling_immediately`。
 
+### 6.3 超时与拥堵统计（2026-11-13 实战修正）
+
+**读超时必须远短于写超时。** 原实现读写共用 30s（Rust 迁移时的取值，为的是"预锁不跨 20:00"）。
+但读路径正常只要 205–510ms，一个卡住的连接要占满 30s 才放弃，期间无法重试。
+当晚两次读超时各耗 30.6s / 30.8s，合计约 60s，占 136s 窗口的 **44%**。
+
+| 路径 | 超时 | 依据 |
+|---|---|---|
+| 读（座位图 / 预约列表 / 房间目录 / baseInfo） | `READ_TIMEOUT_SECONDS = 5` | 正常上限 510ms 的约 10 倍，留足拥堵余量 |
+| 写（bookSeats / lockSeats / 签到 / 取消等） | `WRITE_TIMEOUT_SECONDS = 30` | 预锁提前量 60s 的上界依赖它；写入放弃后无从判断是否已落单 |
+
+两个常量都在 `core::time`，由 `prelock_lead_exceeds_the_http_timeout` 与
+`read_timeout_is_much_shorter_than_write_timeout` 守住关系。
+
+**超时也算"座位图不可用"。** `seat_query_busy` 原先只认 `Http(404)`，
+`RequestTimeout` 不匹配 → 上层以为拥堵退了 → 写出假的 `booking_seat_query_recovered`。
+当晚两次 recovered（`busyMs` 34866 / 51554）都是这么来的，馆方其实一直在 404。
+假恢复还会解冻写入槽，让真正恢复的瞬间连发提交。
+现由 `is_seat_query_blocked` 统一判定：`Http(404)` 与 `RequestTimeout` 都算。
+
+**`busyRounds` 按段计数。** 原实现跨段累加，当晚第二段记成 10 轮（含第一段的 3 轮），
+与 `busyMs` 不符。现在每次写 recovered 后归零。
+
+对应测试：`a_read_timeout_is_not_a_recovery`、`busy_rounds_are_counted_per_window`、
+`read_requests_give_up_at_the_read_timeout`、`write_requests_keep_the_longer_timeout`。
+
 ## 7. 读写节拍的最终取值
 
 **读路径零节流**：零间隔 60 次全过说明读路径根本不需要节流；
@@ -220,7 +280,7 @@ HTTP/1.1 404   server: nginx   content-type: application/json; charset=utf-8
   20:00 照常按主座位 + 备选进行。
 - **写入必须走节拍**：组合有 N 个成员就有 N 次 `lockSeats`，
   故锁座走 `paced_write`（实测 10s）。直连发会撞累积额度（§1，3 次即封号）。
-- **不跨 20:00**：提前量 60s，单次请求最坏 30s（HTTP 超时），
+- **不跨 20:00**：提前量 60s，写请求最坏 30s（`WRITE_TIMEOUT_SECONDS`），
   正常路径每成员约 0.5s + 写入节拍。
   这一点很关键——`booking_anchor_delay_seconds` 在时刻 ≥20:00 时返回 `+24h`，
   预锁跨过锚点会把当天预约推到**第二天**，当天完全不抢。
@@ -231,15 +291,31 @@ HTTP/1.1 404   server: nginx   content-type: application/json; charset=utf-8
 |---|---|
 | `core::BOOKING_PRELOCK_LEAD_SECONDS = 60` | 提前量 60s，即 19:59:00 |
 | `scheduler::prelock_once` | 到点调用一次；登录态失效只记 `booking_prelock_skipped` |
-| `BookingExecutor::lock_once` | 遍历成员，每个各一次；成功的才存座位提示 |
+| `BookingExecutor::lock_once` | 遍历成员，每个各一次；受理成功的才存座位提示 |
 | `BookingExecutor::prelock_attempt` | 单成员一次查询 + 一次锁座（走写入节拍） |
-| 审计 `booking_prelock_finished` | 记 `success`/`members`/`attempted`/`locks`/`elapsedMs`/`message` |
+| 审计 `booking_prelock_finished` | 记 `success`/`members`/`attempted`/`locks`/`held`/`elapsedMs`/`message` |
 
-失败原因带座位号进日志：座位查询失败、座位不在座位图中、座位已被占用、锁座失败、锁座未生效。
-`result=fail` 不算成功（§3），也不会被存成座位提示。
-整体 `success` 仅在"有成员被尝试且全部成功"时为真。
+失败原因带座位号进日志：座位查询失败、座位不在座位图中、座位已被占用、锁座失败、锁座被拒。
+
+**`result=fail` 不算失败**（§3.1）：空闲座位就是回 fail，seatId 照常保留并被正式预约消费。
+`locks` 是就绪的座位号数量，`held` 是其中真正锁住的数量（常为 0，仅供观察）。
+整体 `success` 仅在"有成员被尝试且全部就绪"时为真。
 
 对应测试：`prelock_covers_every_group_member_once`、`prelock_continues_after_one_member_fails`、
 `prelock_issues_one_request_for_a_single_plan`、`prelock_failure_is_logged_without_retry`、
 `prelock_skips_an_occupied_seat_without_retry`、`prelock_logs_the_ban_without_retrying`、
-`lock_with_result_fail_is_not_a_success`，以及 core 的 `prelock_lead_exceeds_the_http_timeout`。
+`lock_result_fail_still_keeps_the_seat_id`、`lock_rejected_by_code_keeps_no_seat_id`、
+`real_world_prelock_survives_a_persistent_404_window`，
+以及 core 的 `prelock_lead_exceeds_the_http_timeout`。
+
+## 9. 实战复盘索引
+
+| 日期 | 版本 | 结果 | 暴露的问题 | 落在哪节 |
+|---|---|---|---|---|
+| 2026-11-13 | v2.1.4 | 成功，136s | 预锁 `result=fail` 丢 seatId → 12 轮空转 86s | §3.1 |
+| 同上 | 同上 | 同上 | 读超时 30s 吃掉窗口 44% | §6.3 |
+| 同上 | 同上 | 同上 | 超时被误判成"恢复"，两次假 recovered | §6.3 |
+| 同上 | 同上 | 同上 | `busyRounds` 跨段累加 | §6.3 |
+| 同上 | 同上 | 同上 | 高峰写端点也会 404 | §1.2 |
+
+原始审计与馆方预约列表留在本机 `artifacts/tonight/`（已 gitignore、已脱敏）。

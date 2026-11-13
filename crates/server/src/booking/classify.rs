@@ -132,23 +132,38 @@ pub(crate) fn booking_succeeded(response: &Value) -> bool {
             .is_some_and(|message| message.contains("成功"))
 }
 
-/// 预锁是否真的成功。
-/// 实测（2026-11-13）：座位被他人占用时 lockSeats 仍返回 CODE=ok、DATA.time>0，
-/// 只有 DATA.result=fail 能区分，因此必须同时校验 result=success。
-pub(crate) fn lock_succeeded(response: &Result<Value, HduError>) -> bool {
+/// 锁座请求是否被馆方**接受**（`CODE=ok`），与 `DATA.result` 无关。
+///
+/// 实测（2026-11-13，docs/HUITU-LIMITS.md §3）：**空闲座位**的 `lockSeats` 也返回
+/// `CODE=ok` + `DATA.time>0` + `DATA.result=fail`，紧接着 `bookSeats` 直接成功。
+/// 也就是说 `result=fail` 是空闲座位的常态回复，**不能**用它决定是否保留 seatId：
+/// 那样 seatId 永远存不下，20:00 座位图持续 404 时就再也提交不出去
+/// （2026-11-13 实战复现：预锁 locks=0，随后 12 轮全部空转 86s）。
+///
+/// 真正该拒绝的是 `CODE != ok`（例如限流 `CODE=1`）——那说明请求本身没被受理。
+/// 座位是否可用另由 `seat_is_free`（`POI.state=0`）判定，见 §2。
+pub(crate) fn lock_accepted(response: &Result<Value, HduError>) -> bool {
     response.as_ref().is_ok_and(|response| {
         response
             .get("CODE")
             .map(value_to_string)
             .unwrap_or_default()
             .eq_ignore_ascii_case("ok")
-            && response
+    })
+}
+
+/// 锁座是否真的把座位锁住了（`DATA.result=success`）。
+/// 仅用于日志与审计展示，**不参与是否保留 seatId 的决策**（见 `lock_accepted`）。
+pub(crate) fn lock_effective(response: &Result<Value, HduError>) -> bool {
+    lock_accepted(response)
+        && response.as_ref().is_ok_and(|response| {
+            response
                 .get("DATA")
                 .and_then(|data| data.get("result"))
                 .map(value_to_string)
                 .unwrap_or_default()
                 .eq_ignore_ascii_case("success")
-    })
+        })
 }
 
 pub(crate) fn classify_booking_failure(message: &str) -> Option<&'static str> {
@@ -166,6 +181,19 @@ pub(crate) fn classify_booking_failure(message: &str) -> Option<&'static str> {
 
 pub(crate) fn is_duplicate_message(message: &str) -> bool {
     message.contains("已有预约") || message.contains("请勿重复") || message.contains("重复预约")
+}
+
+/// 座位图查询是否被服务端挡住（而非"座位不存在"之类的确定性失败）。
+///
+/// 两种都算：
+/// - `Http(404)`：并发保护（`CODE=NotFound`），实测瞬时恢复、不累积（§1.1）。
+/// - `RequestTimeout`：20:00 拥堵时连接卡死。**必须一起算**——
+///   2026-11-13 实战中两次超时都不匹配 404，被上层当成"恢复"，
+///   写出假的 `booking_seat_query_recovered`，而馆方其实一直在 404。
+///
+/// 这个标记只用于审计与拥堵期间冻结写入槽，不改变轮询间隔。
+pub(crate) fn is_seat_query_blocked(error: &HduError) -> bool {
+    matches!(error, HduError::Http(404) | HduError::RequestTimeout)
 }
 
 /// 座位本身不可用（被他人锁定或占用）。两个来源都要认：

@@ -153,9 +153,15 @@ mod tests {
         floor_error: Mutex<Option<String>>,
         /// 仅首次 floors 返回该错误，之后恢复（模拟瞬时并发保护）
         floor_error_once: Mutex<Option<String>>,
+        /// 逐轮 floors 错误脚本：每次调用弹出一个，None 表示该轮正常。
+        /// 用于编排"拥堵—恢复—再拥堵"的多段时序。
+        floor_errors: Mutex<VecDeque<Option<String>>>,
         /// 座位 state 覆盖：title -> state（实测 0=空闲，1/3=已占用）
         seat_states: Mutex<std::collections::HashMap<String, String>>,
-        /// lockSeats 的 DATA.result，实测失败时为 fail 但 time 仍 >0
+        /// lockSeats 的 DATA.result。**实测默认是 fail**：空闲座位也回 fail，
+        /// 紧接着 bookSeats 直接成功（docs/HUITU-LIMITS.md §3）。
+        /// 夹具默认值必须与真馆方一致，否则"预锁被消费"的用例会跑在
+        /// 现实中不存在的前提上（2026-11-13 实战就是这么漏掉的）。
         lock_result: Mutex<String>,
         /// lockSeats 的顶层 MESSAGE，用于模拟预锁阶段命中限流
         lock_message: Mutex<Option<String>>,
@@ -173,8 +179,9 @@ mod tests {
                 responses: Mutex::new(VecDeque::new()),
                 floor_error: Mutex::new(None),
                 floor_error_once: Mutex::new(None),
+                floor_errors: Mutex::new(VecDeque::new()),
                 seat_states: Mutex::new(std::collections::HashMap::new()),
-                lock_result: Mutex::new("success".into()),
+                lock_result: Mutex::new("fail".into()),
                 lock_message: Mutex::new(None),
                 book_calls: AtomicUsize::new(0),
                 lock_calls: AtomicUsize::new(0),
@@ -202,6 +209,9 @@ mod tests {
                 return Err(hdu_error_from_text(&error));
             }
             if let Some(error) = self.floor_error_once.lock().unwrap().take() {
+                return Err(hdu_error_from_text(&error));
+            }
+            if let Some(Some(error)) = self.floor_errors.lock().unwrap().pop_front() {
                 return Err(hdu_error_from_text(&error));
             }
             self.floors_calls.fetch_add(1, Ordering::SeqCst);
@@ -241,7 +251,8 @@ mod tests {
             _duration_hours: i64,
         ) -> Result<Value, HduError> {
             self.lock_calls.fetch_add(1, Ordering::SeqCst);
-            // 实测：锁座失败时 CODE 仍是 ok、DATA.time 仍 >0，只有 result=fail 能区分
+            // 实测：空闲座位也回 CODE=ok + DATA.time>0 + result=fail，
+            // 只有 CODE!=ok（限流等）才代表请求没被受理。
             let result = self.lock_result.lock().unwrap().clone();
             if let Some(message) = self.lock_message.lock().unwrap().clone() {
                 return Ok(json!({"CODE": "1", "MESSAGE": message}));
@@ -259,6 +270,7 @@ mod tests {
     fn hdu_error_from_text(text: &str) -> HduError {
         match text.trim() {
             "HTTP 404" => HduError::Http(404),
+            "请求超时" => HduError::RequestTimeout,
             other => HduError::Library(other.to_string()),
         }
     }
@@ -420,25 +432,77 @@ mod tests {
         assert!(result.members[0].message.contains("已被占用"));
     }
 
-    /// 实测：座位被他人占用时 lockSeats 仍返回 CODE=ok + DATA.time>0，
-    /// 只有 DATA.result=fail 能区分，不得据此认为预锁成功，也不得把失败锁存为提示。
+    /// 实测（docs/HUITU-LIMITS.md §3）：**空闲座位**的 lockSeats 也返回
+    /// `CODE=ok` + `DATA.time>0` + `result=fail`，紧接着 bookSeats 直接成功。
+    /// 因此 `result=fail` 不得导致 seatId 被丢弃——否则 20:00 座位图持续 404 时
+    /// 无号可提交（2026-11-13 实战复现：locks=0，随后 12 轮空转 86s）。
     #[tokio::test]
-    async fn lock_with_result_fail_is_not_a_success() {
+    async fn lock_result_fail_still_keeps_the_seat_id() {
         let store = Arc::new(Store::open_in_memory().unwrap());
         store.save_plan(&plan()).unwrap();
         let client = Fake::new();
         *client.lock_result.lock().unwrap() = "fail".into();
         let executor = executor(store.clone());
         let result = executor.lock_once(&client).await;
-        assert!(!result.success, "result=fail 不能算预锁成功");
+        assert!(
+            result.success,
+            "空闲座位回 fail 仍算预锁就绪：{}",
+            result.message
+        );
         assert_eq!(
             client.lock_calls.load(Ordering::SeqCst),
             1,
             "单成员只发一次，不重试"
         );
-        assert!(result.locks.is_empty(), "失败的锁不得存为座位提示");
+        assert_eq!(
+            result.locks.len(),
+            1,
+            "seatId 必须留下，它是 404 期间唯一的号"
+        );
+        assert_eq!(result.locks[0].seat_id, "seat-1");
         assert!(
-            result.message.contains("锁座未生效"),
+            !result.locks[0].locked,
+            "result=fail 时 locked 应为 false，仅作日志展示"
+        );
+    }
+
+    /// 真馆方常态（result=fail）下，预锁必须仍能穿过持续 404 的座位图完成提交。
+    /// 这是 2026-11-13 实战失败的直接回归：当时 locks=0，12 轮全部空转。
+    #[tokio::test]
+    async fn real_world_prelock_survives_a_persistent_404_window() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let mut plan = plan();
+        plan.fallback_seats.clear();
+        store.save_plan(&plan).unwrap();
+        let client = Fake::new();
+        // 不覆盖 lock_result：夹具默认就是真馆方的 fail
+        let executor = executor(store);
+        let lock = executor.lock_once(&client).await;
+        assert!(lock.success, "{}", lock.message);
+        assert!(!lock.locks[0].locked, "真馆方空闲座位就是回 fail");
+        *client.floor_error.lock().unwrap() = Some("HTTP 404".into());
+        let result = executor.run_burst(&client, 5_000).await;
+        assert!(result.success, "{}", result.message);
+        assert_eq!(
+            client.booked_seats.lock().unwrap().as_slice(),
+            ["seat-1"],
+            "座位图全程 404，仍须用预锁的 seatId 提交成功"
+        );
+    }
+
+    /// `CODE != ok`（限流）才代表锁座请求没被受理，此时不得留下 seatId。
+    #[tokio::test]
+    async fn lock_rejected_by_code_keeps_no_seat_id() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        store.save_plan(&plan()).unwrap();
+        let client = Fake::new();
+        *client.lock_message.lock().unwrap() = Some("请求太频繁了，请稍后再试".into());
+        let executor = executor(store);
+        let result = executor.lock_once(&client).await;
+        assert!(!result.success);
+        assert!(result.locks.is_empty(), "请求未被受理，不得存座位提示");
+        assert!(
+            result.message.contains("锁座被拒"),
             "实际：{}",
             result.message
         );
@@ -1006,6 +1070,103 @@ mod tests {
             slot >= Instant::now() - Duration::from_secs(1),
             "拥堵期间应重置写入槽，避免恢复瞬间连发"
         );
+    }
+
+    /// 请求超时必须与 404 一样算"座位图不可用"。
+    /// 回归 2026-11-13 实战：两次 30s 超时都不匹配 Http(404)，
+    /// 于是被当成"恢复"，写出假的 booking_seat_query_recovered，
+    /// 而馆方其实一直在 404。假恢复还会解冻写入槽，让恢复瞬间连发提交。
+    #[tokio::test]
+    async fn a_read_timeout_is_not_a_recovery() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let mut plan = plan();
+        plan.fallback_seats.clear();
+        store.save_plan(&plan).unwrap();
+        let client = Fake::new();
+        let executor = executor(store.clone());
+        assert!(executor.lock_once(&client).await.success);
+        // 座位图一直超时（不是 404）：整窗口都不该出现"已恢复"
+        *client.floor_error.lock().unwrap() = Some("请求超时".into());
+        for _ in 0..2 {
+            client
+                .responses
+                .lock()
+                .unwrap()
+                .push_back(json!({"CODE": "error", "MESSAGE": "未到预约时间"}));
+        }
+        let result = executor.run_burst(&client, 60_000).await;
+        assert!(result.success, "{}", result.message);
+        let audit = store.list_audit(50).unwrap();
+        assert!(
+            !audit
+                .iter()
+                .any(|item| item.event == "booking_seat_query_recovered"),
+            "超时不是恢复，不得写 recovered"
+        );
+        assert!(
+            audit
+                .iter()
+                .any(|item| item.event == "booking_seat_query_busy"),
+            "超时必须被记为座位图不可用"
+        );
+    }
+
+    /// 每段拥堵的轮数独立计数，不跨段累加。
+    /// 回归 2026-11-13：第二段记成 10 轮（含第一段的 3 轮），与 busyMs 不符。
+    ///
+    /// 注意：有预锁时 404 轮**照样提交**（这正是预锁的价值），所以脚本必须
+    /// 为每一轮都备好提交响应，否则时序会错位。
+    #[tokio::test]
+    async fn busy_rounds_are_counted_per_window() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let mut plan = plan();
+        plan.fallback_seats.clear();
+        store.save_plan(&plan).unwrap();
+        let client = Fake::new();
+        let executor = executor(store.clone());
+        assert!(executor.lock_once(&client).await.success);
+        // 座位图：404, 404, 通, 404, 404, 通, 通
+        {
+            let mut errors = client.floor_errors.lock().unwrap();
+            for _ in 0..2 {
+                errors.push_back(Some("HTTP 404".into()));
+            }
+            errors.push_back(None);
+            for _ in 0..2 {
+                errors.push_back(Some("HTTP 404".into()));
+            }
+            errors.push_back(None);
+            errors.push_back(None);
+        }
+        // 每轮都有预锁 seatId，故每轮都会提交：前 6 轮业务失败，第 7 轮成功。
+        // 第 6 轮（座位图已通但提交失败）才会触发第二段的 recovered——
+        // 成功轮直接 return，不再走拥堵统计分支。
+        for _ in 0..6 {
+            client
+                .responses
+                .lock()
+                .unwrap()
+                .push_back(json!({"CODE": "error", "MESSAGE": "未到预约时间"}));
+        }
+        let result = executor.run_burst(&client, 60_000).await;
+        assert!(result.success, "{}", result.message);
+        assert_eq!(client.book_calls.load(Ordering::SeqCst), 7);
+        let mut recovered: Vec<_> = store
+            .list_audit(80)
+            .unwrap()
+            .into_iter()
+            .filter(|item| item.event == "booking_seat_query_recovered")
+            .collect();
+        recovered.sort_by_key(|item| item.id);
+        assert_eq!(recovered.len(), 2, "两段拥堵应各记一次恢复");
+        for item in &recovered {
+            let rounds = item
+                .payload
+                .get("busyRounds")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            assert_eq!(rounds, 2, "每段各 2 轮，不得累加：{:?}", item.payload);
+        }
     }
 
     /// 只有写入需要节拍：实测写入 10s 可持续；读路径无速率限制，不设节拍。

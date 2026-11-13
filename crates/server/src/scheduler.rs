@@ -310,7 +310,7 @@ impl Scheduler {
     }
 
     /// 19:59:00 预锁一次。失败不回退、不兜底，只记日志。
-    /// 单次请求超时 30s < 提前量 60s，故不会跨过 20:00 锚点。
+    /// 写请求超时 30s < 提前量 60s，故不会跨过 20:00 锚点。
     async fn prelock_once(&self) {
         if !self.has_enabled_plan() {
             return;

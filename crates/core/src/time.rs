@@ -4,8 +4,15 @@ use chrono_tz::Asia::Shanghai;
 pub const BOOKING_DAY_OFFSET: i64 = 2;
 /// 预锁提前量：19:59:00 触发，对启用方案的每个成员各锁一次。
 /// 每个成员只请求一次，失败不回退、不兜底，只记日志（见 docs/HUITU-LIMITS.md §8）。
-/// 60s 提前量 > HTTP 30s 超时，正常路径每成员约 0.5s + 写入节拍。
+/// 60s 提前量 > 写请求 30s 超时，正常路径每成员约 0.5s + 写入节拍。
 pub const BOOKING_PRELOCK_LEAD_SECONDS: i64 = 60;
+
+/// 写请求单次超时（秒）。预锁不跨 20:00 锚点的上界就是它：
+/// `BOOKING_PRELOCK_LEAD_SECONDS` 必须大于它。
+pub const WRITE_TIMEOUT_SECONDS: u64 = 30;
+/// 读请求单次超时（秒）。实测读路径正常 205–510ms，取 5s 留足拥堵余量。
+/// 20:00 卡住的连接必须尽早放弃重试——30s 会白占窗口（实测吃掉 44%）。
+pub const READ_TIMEOUT_SECONDS: u64 = 5;
 
 const BOOKING_ANCHOR_SECONDS: i64 = 20 * 3600;
 
@@ -119,10 +126,17 @@ mod tests {
     /// 逐成员预锁不做预算计算，靠这个不变量 + 写入节拍保证整体在锚点前收尾。
     #[test]
     fn prelock_lead_exceeds_the_http_timeout() {
-        const HTTP_TIMEOUT_MS: u64 = 30_000;
         assert!(
-            (BOOKING_PRELOCK_LEAD_SECONDS as u64) * 1_000 > HTTP_TIMEOUT_MS,
-            "提前量必须大于单次请求超时，否则预锁可能跨过 20:00"
+            (BOOKING_PRELOCK_LEAD_SECONDS as u64) > WRITE_TIMEOUT_SECONDS,
+            "提前量必须大于写请求超时，否则预锁可能跨过 20:00"
         );
+    }
+
+    /// 读超时必须远小于写超时：20:00 卡住的读连接要尽早放弃重试。
+    /// 实测读路径正常 205–510ms，30s 会让单次卡顿白占窗口 44%（2026-11-13）。
+    #[test]
+    fn read_timeout_is_much_shorter_than_write_timeout() {
+        const { assert!(READ_TIMEOUT_SECONDS < WRITE_TIMEOUT_SECONDS) };
+        const { assert!(READ_TIMEOUT_SECONDS >= 3) };
     }
 }

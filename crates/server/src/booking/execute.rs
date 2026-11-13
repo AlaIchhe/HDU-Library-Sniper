@@ -37,7 +37,10 @@ impl BookingExecutor {
             Err(error) => {
                 // 实测：读路径无速率限制，404 是服务端并发保护（CODE=NotFound），
                 // 并发退去即刻恢复。标记出来让上层按 POLL_MS 快速重试。
-                seat_query_busy = matches!(error, HduError::Http(404));
+                // 超时同样算"座位图不可用"：2026-11-13 实战中两次 30s 超时
+                // 都不匹配 Http(404)，于是被上层误判成"恢复"，写出假的
+                // booking_seat_query_recovered，而馆方其实一直在 404。
+                seat_query_busy = is_seat_query_blocked(&error);
                 last = BookingMemberResult {
                     seat_query_busy,
                     ..BookingMemberResult::failure(

@@ -69,9 +69,10 @@ pub struct BookingMemberResult {
     pub unverified: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub blocked: bool,
-    /// 座位图查询被服务端并发保护挡回（HTTP 404 / CODE=NotFound）。
-    /// 实测：该状态瞬时恢复、不累积。轮询间隔与业务失败相同（`POLL_MS`），
-    /// 此标记只用于审计与拥堵期间冻结写入槽。
+    /// 座位图查询不可用：服务端并发保护（HTTP 404 / CODE=NotFound）或请求超时。
+    /// 实测：404 瞬时恢复、不累积；超时在 20:00 拥堵时同样代表通路没打开，
+    /// 必须一起算，否则会写出假的"已恢复"（2026-11-13 实战两次误报）。
+    /// 轮询间隔与业务失败相同（`POLL_MS`），此标记只用于审计与拥堵期间冻结写入槽。
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub seat_query_busy: bool,
 }
@@ -110,6 +111,9 @@ pub struct BookingLock {
     pub seat_num: String,
     pub begin_seconds: i64,
     pub duration_hours: i64,
+    /// 锁座是否真的生效（`DATA.result=success`）。**仅供日志展示**：
+    /// 实测空闲座位也返回 `result=fail`，故 `locked=false` 的 seatId 依然可用、
+    /// 依然会被正式预约消费（docs/HUITU-LIMITS.md §3）。
     pub locked: bool,
 }
 

@@ -9,6 +9,7 @@ impl LibraryClient {
                 Method::GET,
                 None,
                 Vec::new(),
+                READ_TIMEOUT,
             )
             .await?;
         body.get("content")
@@ -45,6 +46,7 @@ impl LibraryClient {
             Method::POST,
             Some(form),
             vec![("Api-Token".into(), token)],
+            WRITE_TIMEOUT,
         )
         .await
     }
@@ -69,6 +71,7 @@ impl LibraryClient {
             Method::POST,
             Some(form),
             Vec::new(),
+            WRITE_TIMEOUT,
         )
         .await
     }
@@ -79,6 +82,7 @@ impl LibraryClient {
             Method::POST,
             None,
             Vec::new(),
+            WRITE_TIMEOUT,
         )
         .await
     }
@@ -94,6 +98,7 @@ impl LibraryClient {
                     Method::POST,
                     None,
                     Vec::new(),
+                    WRITE_TIMEOUT,
                 )
                 .await?;
             assert_action_success(&latest)?;
@@ -111,6 +116,7 @@ impl LibraryClient {
                     Method::POST,
                     Some(vec![("comeBackTime".into(), come_back_time.to_string())]),
                     Vec::new(),
+                    WRITE_TIMEOUT,
                 )
                 .await?;
             assert_action_success(&body)?;
@@ -129,6 +135,7 @@ impl LibraryClient {
                 Method::POST,
                 None,
                 Vec::new(),
+                WRITE_TIMEOUT,
             )
             .await?;
         assert_action_success(&body)?;
