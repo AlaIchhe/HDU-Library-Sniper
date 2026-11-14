@@ -13,23 +13,21 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY src-tauri ./src-tauri
-RUN cargo build --release -p hdu-sniper-server
+RUN cargo build --release -p hdu-sniper-server \
+    && mkdir -p /var/lib/hdu-sniper/data
 
-FROM docker.io/library/debian:bookworm-slim
+FROM gcr.io/distroless/cc-debian12
 ARG SOURCE_REVISION=unknown
 LABEL com.hdu-library-sniper.source-revision=$SOURCE_REVISION
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates wget \
-    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=rust /src/target/release/hdu-sniper-server /usr/local/bin/hdu-sniper-server
 COPY --from=web /app/dist/web /app/dist/web
+COPY --from=rust /var/lib/hdu-sniper /var/lib/hdu-sniper
 ENV HDU_SNIPER_HOME=/var/lib/hdu-sniper \
     HDU_WEB_PORT=8000 \
     HDU_WEB_HOST=0.0.0.0 \
     TZ=Asia/Shanghai
-RUN mkdir -p /var/lib/hdu-sniper/data
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:8000/api/health || exit 1
-CMD ["hdu-sniper-server"]
+  CMD ["/usr/local/bin/hdu-sniper-server", "--healthcheck"]
+CMD ["/usr/local/bin/hdu-sniper-server"]

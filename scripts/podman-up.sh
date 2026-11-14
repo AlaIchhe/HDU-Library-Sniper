@@ -11,7 +11,7 @@ run_args=(
   -p "${HDU_WEB_PORT:-8000}:8000"
   -v hdu-sniper-data:/var/lib/hdu-sniper:Z
   --restart=always
-  --health-cmd='wget -qO- http://127.0.0.1:8000/api/health'
+  --health-cmd='["/usr/local/bin/hdu-sniper-server","--healthcheck"]'
   --health-interval=30s
   --health-timeout=5s
   --health-retries=3

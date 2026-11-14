@@ -105,7 +105,7 @@ run_args() {
     --env HDU_WEB_PORT=8000
     --volume "$volume_name:/var/lib/hdu-sniper:Z"
     --publish "$publish"
-    --health-cmd "wget -qO- http://127.0.0.1:8000/api/health"
+    --health-cmd '["/usr/local/bin/hdu-sniper-server","--healthcheck"]'
     --health-interval 30s
     --health-timeout 5s
     --health-retries 3
