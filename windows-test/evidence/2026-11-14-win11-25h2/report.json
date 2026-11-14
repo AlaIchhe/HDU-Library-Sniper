@@ -1,0 +1,149 @@
+﻿{
+    "product":  "HDU Library Sniper",
+    "startedAt":  "2026-11-13T21:54:09.2369799-08:00",
+    "finishedAt":  "2026-11-13T21:54:45.4916337-08:00",
+    "durationS":  36.3,
+    "share":  true,
+    "summary":  {
+                    "pass":  21,
+                    "fail":  0,
+                    "total":  27
+                },
+    "checks":  [
+                   {
+                       "id":  "env.os",
+                       "status":  "INFO",
+                       "detail":  "Microsoft Windows 11 Pro 25H2 (build 26200)"
+                   },
+                   {
+                       "id":  "env.hardware",
+                       "status":  "INFO",
+                       "detail":  "2 vCPU, 6.0 GB RAM, QEMU"
+                   },
+                   {
+                       "id":  "env.webview2",
+                       "status":  "INFO",
+                       "detail":  "WebView2 runtime 157.0.4341.46"
+                   },
+                   {
+                       "id":  "env.uac",
+                       "status":  "INFO",
+                       "detail":  "EnableLUA=0 ConsentPromptBehaviorAdmin=5"
+                   },
+                   {
+                       "id":  "baseline.clean",
+                       "status":  "PASS",
+                       "detail":  "no previous installation present"
+                   },
+                   {
+                       "id":  "install.exit",
+                       "status":  "PASS",
+                       "detail":  "silent install finished in 3.2s (exit 0)"
+                   },
+                   {
+                       "id":  "files.exe",
+                       "status":  "PASS",
+                       "detail":  "installed C:\\Program Files\\HDU Library Sniper\\hdu-library-sniper.exe"
+                   },
+                   {
+                       "id":  "files.version",
+                       "status":  "INFO",
+                       "detail":  "FileVersion=2.1.5 ProductVersion=2.1.5 size=12,269,056 bytes"
+                   },
+                   {
+                       "id":  "files.uninstaller",
+                       "status":  "PASS",
+                       "detail":  "uninstall.exe present"
+                   },
+                   {
+                       "id":  "shortcut.desktop",
+                       "status":  "PASS",
+                       "detail":  "desktop shortcut C:\\Users\\Public\\Desktop\\HDU Library Sniper.lnk"
+                   },
+                   {
+                       "id":  "shortcut.startmenu",
+                       "status":  "PASS",
+                       "detail":  "start menu shortcut C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\HDU Library Sniper.lnk"
+                   },
+                   {
+                       "id":  "registry.uninstall",
+                       "status":  "PASS",
+                       "detail":  "DisplayName=\u0027HDU Library Sniper\u0027 version=2.1.5 location=C:\\Program Files\\HDU Library Sniper"
+                   },
+                   {
+                       "id":  "registry.installlocation",
+                       "status":  "PASS",
+                       "detail":  "InstallLocation matches C:\\Program Files\\HDU Library Sniper"
+                   },
+                   {
+                       "id":  "registry.autostart",
+                       "status":  "PASS",
+                       "detail":  "HKCU Run = \"C:\\Program Files\\HDU Library Sniper\\hdu-library-sniper.exe\" --background"
+                   },
+                   {
+                       "id":  "launch.survives",
+                       "status":  "PASS",
+                       "detail":  "process still running after 20s"
+                   },
+                   {
+                       "id":  "launch.health",
+                       "status":  "PASS",
+                       "detail":  "GET /api/health -\u003e 200 {\"status\":\"ok\"}"
+                   },
+                   {
+                       "id":  "data.sqlite",
+                       "status":  "PASS",
+                       "detail":  "database created at C:\\Users\\Docker\\.hdu-library-sniper\\data\\hdu-sniper.sqlite"
+                   },
+                   {
+                       "id":  "data.logs",
+                       "status":  "PASS",
+                       "detail":  "log directory C:\\Users\\Docker\\AppData\\Local\\io.github.alaichhe.hdu-library-sniper\\logs"
+                   },
+                   {
+                       "id":  "single-instance",
+                       "status":  "PASS",
+                       "detail":  "second launch did not spawn a second process"
+                   },
+                   {
+                       "id":  "reinstall.data",
+                       "status":  "PASS",
+                       "detail":  "user data untouched by reinstall (sha256 513598FB84A0)"
+                   },
+                   {
+                       "id":  "reinstall.no-duplicate",
+                       "status":  "PASS",
+                       "detail":  "still a single Add/Remove Programs entry"
+                   },
+                   {
+                       "id":  "uninstall.files",
+                       "status":  "PASS",
+                       "detail":  "application files removed"
+                   },
+                   {
+                       "id":  "uninstall.registry",
+                       "status":  "PASS",
+                       "detail":  "Add/Remove Programs entry removed"
+                   },
+                   {
+                       "id":  "uninstall.autostart",
+                       "status":  "PASS",
+                       "detail":  "HKCU Run entry removed"
+                   },
+                   {
+                       "id":  "shortcut.removed",
+                       "status":  "PASS",
+                       "detail":  "desktop and start menu shortcuts removed"
+                   },
+                   {
+                       "id":  "uninstall.processes",
+                       "status":  "PASS",
+                       "detail":  "0 app process(es) left running"
+                   },
+                   {
+                       "id":  "uninstall.userdata",
+                       "status":  "INFO",
+                       "detail":  "user data dir preserved (expected: credentials survive)"
+                   }
+               ]
+}

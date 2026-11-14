@@ -1,0 +1,61 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261113215404
+Username: WIN-4PIC3EQ91SB\Docker
+RunAs User: WIN-4PIC3EQ91SB\Docker
+Configuration Name: 
+Machine: WIN-4PIC3EQ91SB (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell -NoProfile -ExecutionPolicy Bypass -File Z:\verify-next.ps1
+Process ID: 8752
+PSVersion: 5.1.26100.7920
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.7920
+BuildVersion: 10.0.26100.7920
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+[21:54:09] === HDU Library Sniper Windows install verification ===
+[21:54:09] host: user=Docker elevated=True share=True
+[21:54:09] INFO      env.os: Microsoft Windows 11 Pro 25H2 (build 26200)
+[21:54:09] INFO      env.hardware: 2 vCPU, 6.0 GB RAM, QEMU
+[21:54:09] INFO      env.webview2: WebView2 runtime 157.0.4341.46
+[21:54:09] INFO      env.uac: EnableLUA=0 ConsentPromptBehaviorAdmin=5
+[21:54:10] PASS      baseline.clean: no previous installation present
+[21:54:10] screenshot pre-install (1280x800)
+[21:54:10] installer: C:\OEM\setup.exe (3,971,176 bytes)
+[21:54:13] PASS      install.exit: silent install finished in 3.2s (exit 0)
+[21:54:15] PASS      files.exe: installed C:\Program Files\HDU Library Sniper\hdu-library-sniper.exe
+[21:54:15] INFO      files.version: FileVersion=2.1.5 ProductVersion=2.1.5 size=12,269,056 bytes
+[21:54:15] PASS      files.uninstaller: uninstall.exe present
+[21:54:16] PASS      shortcut.desktop: desktop shortcut C:\Users\Public\Desktop\HDU Library Sniper.lnk
+[21:54:16] PASS      shortcut.startmenu: start menu shortcut C:\ProgramData\Microsoft\Windows\Start Menu\Programs\HDU Library Sniper.lnk
+[21:54:16] PASS      registry.uninstall: DisplayName='HDU Library Sniper' version=2.1.5 location=C:\Program Files\HDU Library Sniper
+[21:54:16] PASS      registry.installlocation: InstallLocation matches C:\Program Files\HDU Library Sniper
+[21:54:16] PASS      registry.autostart: HKCU Run = "C:\Program Files\HDU Library Sniper\hdu-library-sniper.exe" --background
+[21:54:17] launched pid 2032
+[21:54:17] PASS      launch.survives: process still running after 20s
+[21:54:20] PASS      launch.health: GET /api/health -> 200 {"status":"ok"}
+[21:54:24] screenshot running-background (1280x800)
+[21:54:24] PASS      data.sqlite: database created at C:\Users\Docker\.hdu-library-sniper\data\hdu-sniper.sqlite
+[21:54:24] PASS      data.logs: log directory C:\Users\Docker\AppData\Local\io.github.alaichhe.hdu-library-sniper\logs
+[21:54:30] PASS      single-instance: second launch did not spawn a second process
+[21:54:30] screenshot second-launch (1280x800)
+[21:54:39] PASS      reinstall.data: user data untouched by reinstall (sha256 513598FB84A0)
+[21:54:39] PASS      reinstall.no-duplicate: still a single Add/Remove Programs entry
+[21:54:43] uninstaller exit 0
+[21:54:43] PASS      uninstall.files: application files removed
+[21:54:45] PASS      uninstall.registry: Add/Remove Programs entry removed
+[21:54:45] PASS      uninstall.autostart: HKCU Run entry removed
+[21:54:45] PASS      shortcut.removed: desktop and start menu shortcuts removed
+[21:54:45] PASS      uninstall.processes: 0 app process(es) left running
+[21:54:45] INFO      uninstall.userdata: user data dir preserved (expected: credentials survive)
+[21:54:45] screenshot after-uninstall (1280x800)
+[21:54:45] === done: 21 passed, 0 failed -> Z:\results\20261113-215403\report.json ===
+PS>$global:?
+True
+**********************
+Windows PowerShell transcript end
+End time: 20261113215445
+**********************

@@ -1,0 +1,54 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261113215826
+Username: WIN-4PIC3EQ91SB\Docker
+RunAs User: WIN-4PIC3EQ91SB\Docker
+Configuration Name: 
+Machine: WIN-4PIC3EQ91SB (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\verify.ps1 -Watch
+Process ID: 5780
+PSVersion: 5.1.26100.7920
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.7920
+BuildVersion: 10.0.26100.7920
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+[21:58:31] === HDU Library Sniper Windows install verification ===
+[21:58:31] host: user=Docker elevated=True share=True
+[21:58:33] INFO      env.os: Microsoft Windows 11 Pro 25H2 (build 26200)
+[21:58:33] INFO      env.hardware: 2 vCPU, 6.0 GB RAM, QEMU
+[21:58:33] INFO      env.webview2: WebView2 runtime 157.0.4341.46
+[21:58:33] INFO      env.uac: EnableLUA=0 ConsentPromptBehaviorAdmin=5
+[21:58:33] PASS      baseline.clean: no previous installation present
+[21:58:33] screenshot pre-install (1280x800)
+[21:58:33] installer: C:\OEM\setup.exe (3,971,176 bytes)
+[21:58:44] PASS      install.exit: silent install finished in 10.4s (exit 0)
+[21:58:46] PASS      files.exe: installed C:\Program Files\HDU Library Sniper\hdu-library-sniper.exe
+[21:58:46] INFO      files.version: FileVersion=2.1.5 ProductVersion=2.1.5 size=12,269,056 bytes
+[21:58:46] PASS      files.uninstaller: uninstall.exe present
+[21:58:46] PASS      registry.uninstall: DisplayName='HDU Library Sniper' version=2.1.5 location=C:\Program Files\HDU Library Sniper
+[21:58:46] PASS      registry.installlocation: InstallLocation matches C:\Program Files\HDU Library Sniper
+[21:58:46] PASS      registry.autostart: HKCU Run = "C:\Program Files\HDU Library Sniper\hdu-library-sniper.exe" --background
+[21:58:47] launched pid 9108
+[21:58:47] PASS      launch.survives: process still running after 20s
+PS>TerminatingError(Invoke-WebRequest): "The operation has timed out."
+[21:58:54] PASS      launch.health: GET /api/health -> 200 {"status":"ok"}
+[21:58:58] screenshot running-background (1280x800)
+[21:58:58] PASS      data.sqlite: database created at C:\Users\Docker\.hdu-library-sniper\data\hdu-sniper.sqlite
+[21:58:58] PASS      data.logs: log directory C:\Users\Docker\AppData\Local\io.github.alaichhe.hdu-library-sniper\logs
+[21:59:04] PASS      single-instance: second launch did not spawn a second process
+[21:59:04] screenshot second-launch (1280x800)
+[21:59:14] PASS      reinstall.data: user data untouched by reinstall (sha256 513598FB84A0)
+[21:59:14] PASS      reinstall.no-duplicate: still a single Add/Remove Programs entry
+[21:59:18] uninstaller exit 0
+[21:59:18] PASS      uninstall.files: application files removed
+[21:59:20] PASS      uninstall.registry: Add/Remove Programs entry removed
+[21:59:20] PASS      uninstall.autostart: HKCU Run entry removed
+[21:59:20] PASS      uninstall.processes: 0 app process(es) left running
+[21:59:20] INFO      uninstall.userdata: user data dir preserved (expected: credentials survive)
+[21:59:20] screenshot after-uninstall (1280x800)
+[21:59:20] === done: 18 passed, 0 failed -> Z:\results\20261113-215825\report.json ===
+[21:59:20] watch mode: polling Z:\jobs every 3s

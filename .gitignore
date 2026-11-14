@@ -18,3 +18,10 @@ gui-test-screenshots
 
 .dsh-im
 artifacts
+
+# Windows VM install-test scratch (dockur/windows)
+windows-test/storage/
+windows-test/shared/results/
+windows-test/shared/jobs/
+windows-test/*.iso
+windows-test/oem/setup.exe
