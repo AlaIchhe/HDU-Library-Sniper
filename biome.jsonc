@@ -17,7 +17,8 @@
       "!playwright-report",
       "!test-results",
       "!src/web/index.css",
-      "!**/*.md"
+      "!**/*.md",
+      "!windows-test/evidence"
     ]
   },
   "formatter": {
