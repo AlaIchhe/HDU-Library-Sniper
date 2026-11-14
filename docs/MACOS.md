@@ -47,6 +47,24 @@ xattr -dr com.apple.quarantine "/Applications/HDU Library Sniper.app"
 - **自动启动**：macOS 没有安装器可以写启动项，应用首次运行时会自己注册 LaunchAgent
   （`~/Library/LaunchAgents/`，登录时以 `--background` 启动），对应 Windows 上 NSIS 钩子写的 `HKCU\...\Run`。
 
+## 首次 CI 结果（2026-11-14）
+
+`workflow_dispatch` 手动跑通了一次，13 分 38 秒（runner: `macos-latest`，Apple Silicon）：
+
+```
+HDU Library Sniper.app                 23.39 MiB   universal (x86_64 + arm64)
+HDU Library Sniper_2.1.5_universal.dmg 10.06 MiB
+HDU Library Sniper.app.tar.gz          10.19 MiB   （更新包）
+…app.tar.gz.sig                        440 B        （minisign 签名）
+Signing with identity "-"                          ← ad-hoc 签名
+Warn skipping app notarization                     ← 没有会员，符合预期
+```
+
+产物下载下来核对过：`.app` 里有 `_CodeSignature/CodeResources`（ad-hoc 签名在位）、
+`Info.plist` 的 `CFBundleIdentifier=io.github.alaichhe.hdu-library-sniper`、
+`LSMinimumSystemVersion=11.0`、`CFBundleIconFile=icon.icns`；主程序是
+`Mach-O universal binary with 2 architectures [x86_64, arm64]`；DMG 是合法的 UDIF 镜像。
+
 ## 构建与发版
 
 macOS 二进制只能在 macOS 上构建（需要 Xcode 命令行工具），本仓库用 GitHub Actions 的 `macos-latest` runner，

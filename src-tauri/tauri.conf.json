@@ -39,6 +39,7 @@
     },
     "macOS": {
       "minimumSystemVersion": "11.0",
+      "category": "Education",
       "signingIdentity": "-",
       "hardenedRuntime": false,
       "dmg": {
