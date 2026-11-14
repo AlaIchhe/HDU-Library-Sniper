@@ -10,6 +10,7 @@ chrono.workspace = true
 hdu-sniper-core = { path = "../core" }
 hdu-sniper-hdu = { path = "../hdu" }
 hdu-sniper-store = { path = "../store" }
+log = "0.4"
 regex = "1"
 reqwest.workspace = true
 serde.workspace = true

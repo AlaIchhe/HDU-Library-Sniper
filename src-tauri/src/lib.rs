@@ -4,13 +4,74 @@ use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use hdu_sniper_auth::AuthService;
 use hdu_sniper_server::{build_router, BookingExecutor, Scheduler};
 use hdu_sniper_store::Store;
 use tauri::{Emitter, Manager, WindowEvent};
+
+const LOCAL_API_HOST: &str = "127.0.0.1";
+const LOCAL_API_PORT: u16 = 8000;
+const LOCAL_API_ADDR: &str = "127.0.0.1:8000";
+
+/// 本地 API 的启动状态。前端启动页在超时后通过 `local_api_status` 读取它，
+/// 这样“后端没起来”不再是黑盒：端口被占用、数据库打不开都会带着原文展示。
+#[derive(Default)]
+struct ApiStatus {
+    running: AtomicBool,
+    error: Mutex<Option<String>>,
+}
+
+#[derive(serde::Serialize)]
+struct ApiStatusView {
+    running: bool,
+    error: Option<String>,
+}
+
+#[tauri::command]
+fn local_api_status(status: tauri::State<'_, ApiStatus>) -> ApiStatusView {
+    ApiStatusView {
+        running: status.running.load(Ordering::SeqCst),
+        error: status.error.lock().map(|slot| slot.clone()).unwrap_or(None),
+    }
+}
+
+/// 记下启动失败原因：启动日志（startup.log）、GUI 日志、前端状态各一份。
+fn record_api_failure(app: &tauri::AppHandle, message: String) {
+    if let Some(status) = app.try_state::<ApiStatus>() {
+        status.running.store(false, Ordering::SeqCst);
+        if let Ok(mut slot) = status.error.lock() {
+            *slot = Some(message.clone());
+        }
+    }
+    log::error!("{message}");
+    log_startup_line(&message);
+}
+
+/// 让本地 API 的请求绕过系统代理。
+///
+/// `tauri-plugin-http` 默认启用 reqwest 的 `system-proxy`，Windows 上会读 WinINET。
+/// `ProxyOverride` 里的 `<local>` 这类写法 hyper-util 不认，于是 `127.0.0.1:8000`
+/// 也会被送进代理：后端明明起来了，前端却报“无法连接本地后台服务”。
+/// 把回环地址并进 NO_PROXY 即可；其它域名仍按系统代理走。
+fn ensure_loopback_bypass() {
+    const LOOPBACK: &str = "127.0.0.1,localhost,::1";
+    let current = env::var("NO_PROXY")
+        .or_else(|_| env::var("no_proxy"))
+        .unwrap_or_default();
+    let merged = if current.trim().is_empty() {
+        LOOPBACK.to_string()
+    } else {
+        format!("{current},{LOOPBACK}")
+    };
+    // Windows 的环境变量大小写不敏感，两个写法会落到同一个变量上；
+    // Unix 上两个都写，保证 reqwest/hyper-util 读到。
+    env::set_var("NO_PROXY", &merged);
+    env::set_var("no_proxy", merged);
+}
 
 fn app_home_dir() -> PathBuf {
     if let Some(home) = env::var_os("HDU_SNIPER_HOME").filter(|value| !value.is_empty()) {
@@ -40,7 +101,7 @@ fn log_startup_line(message: &str) {
     eprintln!("{message}");
 }
 
-fn start_api() -> Result<(), Box<dyn std::error::Error>> {
+fn start_api(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = app_home_dir().join("data");
     fs::create_dir_all(&data_dir)?;
     let store = Arc::new(Store::open(data_dir.join("hdu-sniper.sqlite"))?);
@@ -49,17 +110,47 @@ fn start_api() -> Result<(), Box<dyn std::error::Error>> {
     let scheduler = Arc::new(Scheduler::new(store.clone(), auth.clone(), booking));
     let router = build_router(store, auth, scheduler.clone());
     tauri::async_runtime::spawn(scheduler.clone().run());
+    let handle = app.clone();
+    let data_dir = data_dir.display().to_string();
+    let version = env!("CARGO_PKG_VERSION").to_string();
     tauri::async_runtime::spawn(async move {
-        match tokio::net::TcpListener::bind(("127.0.0.1", 8000)).await {
-            Ok(listener) => {
-                if let Err(error) = axum::serve(listener, router).await {
-                    log_startup_line(&format!("local API stopped: {error}"));
+        // 上一次退出的进程可能还没放开端口（Windows 上尤其常见）：
+        // 短暂重试，而不是一次 bind 失败就永久没有后端。
+        let mut last_error = None;
+        for attempt in 1..=5 {
+            match tokio::net::TcpListener::bind((LOCAL_API_HOST, LOCAL_API_PORT)).await {
+                Ok(listener) => {
+                    if let Some(status) = handle.try_state::<ApiStatus>() {
+                        status.running.store(true, Ordering::SeqCst);
+                        if let Ok(mut slot) = status.error.lock() {
+                            *slot = None;
+                        }
+                    }
+                    let message = format!(
+                        "local API listening on http://{LOCAL_API_ADDR} (v{version}, data dir {data_dir})"
+                    );
+                    log::info!("{message}");
+                    log_startup_line(&message);
+                    if let Err(error) = axum::serve(listener, router).await {
+                        record_api_failure(&handle, format!("local API stopped: {error}"));
+                    }
+                    return;
+                }
+                Err(error) => {
+                    last_error = Some(error);
+                    if attempt < 5 {
+                        tokio::time::sleep(Duration::from_millis(400)).await;
+                    }
                 }
             }
-            Err(error) => {
-                log_startup_line(&format!("cannot bind local API on 127.0.0.1:8000: {error}"))
-            }
         }
+        let message = format!(
+            "cannot bind local API on {LOCAL_API_ADDR} after 5 attempts: {}",
+            last_error
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "unknown error".into())
+        );
+        record_api_failure(&handle, message);
     });
     Ok(())
 }
@@ -69,7 +160,11 @@ pub fn run() {
     std::panic::set_hook(Box::new(|info| {
         log_startup_line(&format!("panic: {info}"));
     }));
-    let mut builder = tauri::Builder::default();
+    // 必须在任何 reqwest client 构建之前设置（plugin-http 每个请求都会新建 client）。
+    ensure_loopback_bypass();
+    let mut builder = tauri::Builder::default()
+        .manage(ApiStatus::default())
+        .invoke_handler(tauri::generate_handler![local_api_status]);
 
     #[cfg(desktop)]
     {
@@ -117,8 +212,8 @@ pub fn run() {
                     .plugin(tauri_plugin_window_state::Builder::default().build());
             }
 
-            if let Err(error) = start_api() {
-                log_startup_line(&format!("startup API error: {error}"));
+            if let Err(error) = start_api(app.handle()) {
+                record_api_failure(app.handle(), format!("startup API error: {error}"));
             }
 
             // Windows 的自启动由 NSIS 钩子写进 HKCU\...\Run；macOS 没有安装器，

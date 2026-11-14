@@ -1850,6 +1850,7 @@ dependencies = [
  "hdu-sniper-hdu",
  "hdu-sniper-store",
  "keyring",
+ "log",
  "regex",
  "reqwest 0.12.28",
  "serde",

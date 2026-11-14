@@ -245,6 +245,8 @@ function LoginPage() {
   function closeQr() {
     // 离开扫码页时作废在途请求，避免响应回来后又把旧二维码写回状态。
     qrNonce.current += 1
+    // 同时通知服务端停止扫码轮询：它和密码登录共用 SSO 会话，继续跑会搅乱登录。
+    if (qr) void api.cancelQr(qr.uuid).catch(() => undefined)
     setQr(null)
     setMode("form")
   }

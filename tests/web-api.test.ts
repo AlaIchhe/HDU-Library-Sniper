@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { error as logError } from "@tauri-apps/plugin-log";
-import { api, resolveApiBase } from "../src/web/data/api";
+import { api, pingBackend, resolveApiBase } from "../src/web/data/api";
 
 // The web API now uses @tauri-apps/plugin-http inside Tauri. In the test
 // environment there is no real Tauri runtime, so route the plugin fetch to the
@@ -70,5 +70,39 @@ describe("web API base", () => {
     expect(vi.mocked(logError)).toHaveBeenCalledWith(
       "API 返回错误: http://127.0.0.1:8000/api/runtime/next-target -> 502 (图书馆登录状态已失效)",
     );
+  });
+});
+
+describe("backend startup probe", () => {
+  test("returns ok when the backend answers", async () => {
+    vi.stubGlobal("__TAURI_INTERNALS__", {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response('{"status":"ok"}', { status: 200 })),
+    );
+    await expect(pingBackend()).resolves.toEqual({ ok: true });
+  });
+
+  test("reports the HTTP status instead of a bare false", async () => {
+    vi.stubGlobal("__TAURI_INTERNALS__", {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status: 503 })),
+    );
+    await expect(pingBackend()).resolves.toEqual({ ok: false, detail: "本地服务返回 HTTP 503" });
+  });
+
+  test("reports the transport error", async () => {
+    vi.stubGlobal("__TAURI_INTERNALS__", {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("connect refused");
+      }),
+    );
+    await expect(pingBackend()).resolves.toEqual({
+      ok: false,
+      detail: "无法连接本地服务：connect refused",
+    });
   });
 });

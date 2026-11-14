@@ -32,18 +32,28 @@ export function resolveApiBase(): string {
   return ""
 }
 
-// 启动探针：首次安装后后端可能还在启动（杀毒软件会扫新 exe），
-// 这里只问 /api/health，不写日志、不触发 401 清理。
-export async function pingBackend(): Promise<boolean> {
+export type BackendProbe = { ok: true } | { ok: false; detail: string }
+
+// 启动探针：只问 /api/health，不写日志、不触发 401 清理。
+// 必须带超时：端口被“只接受连接、不应答”的进程占住时，没有超时的 fetch
+// 会永远挂起，启动页就永远停在第一句，连“启动失败”都出不来。
+export async function pingBackend(timeoutMs = 1500): Promise<BackendProbe> {
   const url = `${resolveApiBase()}/api/health`
   try {
     const fetcher = isTauri()
       ? (await import("@tauri-apps/plugin-http")).fetch
       : globalThis.fetch.bind(globalThis)
-    const response = await fetcher(url, { headers: { "Content-Type": "application/json" } })
-    return response.ok
-  } catch {
-    return false
+    const response = await fetcher(url, {
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (response.ok) return { ok: true }
+    return { ok: false, detail: `本地服务返回 HTTP ${response.status}` }
+  } catch (cause) {
+    return {
+      ok: false,
+      detail: `无法连接本地服务：${cause instanceof Error ? cause.message : String(cause)}`,
+    }
   }
 }
 
@@ -131,6 +141,9 @@ export const api = {
   logout: () => call<{ success: boolean }>("/api/session/logout", { method: "POST" }),
   qrStart: () => call<QrLoginStart>("/api/session/qr", { method: "POST" }),
   qrStatus: (uuid: string) => call<QrLoginStatus>(`/api/session/qr/${encodeURIComponent(uuid)}/status`),
+  // 离开扫码页时让服务端停掉这个二维码的 SSO 轮询，避免它继续换掉登录会话。
+  cancelQr: (uuid: string) =>
+    call<{ cancelled: boolean }>(`/api/session/qr/${encodeURIComponent(uuid)}/cancel`, { method: "POST" }),
   plans: () => call<{ plans: PlanListItem[] }>("/api/plans"),
   createPlan: (plan: Partial<BookingPlan>) =>
     call<{ plan: BookingPlan }>("/api/plans", { method: "POST", body: JSON.stringify(plan) }),

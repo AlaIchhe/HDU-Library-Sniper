@@ -99,6 +99,7 @@ pub fn build_router(
         .route("/api/session/openid", post(session::login_openid))
         .route("/api/session/qr", post(session::create_qr))
         .route("/api/session/qr/{uuid}/status", get(session::qr_status))
+        .route("/api/session/qr/{uuid}/cancel", post(session::cancel_qr))
         .route("/api/session/logout", post(session::logout));
     let protected = Router::new()
         .route("/api/audit", get(list_audit))

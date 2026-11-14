@@ -1,8 +1,48 @@
 use super::*;
 
+/// 一次密码登录用到的表单参数。
+struct LoginForm {
+    key: String,
+    execution: String,
+    action_url: Url,
+}
+
+impl LoginForm {
+    fn payload(&self, student_id: &str, password: &str) -> Result<Vec<(String, String)>, String> {
+        let encrypted = encrypt_password(&self.key, password)?;
+        let captcha = encrypt_password(&self.key, "{}")?;
+        Ok(vec![
+            ("username".into(), student_id.to_string()),
+            ("type".into(), "UsernamePassword".into()),
+            ("_eventId".into(), "submit".into()),
+            ("execution".into(), self.execution.clone()),
+            ("croypto".into(), self.key.clone()),
+            ("password".into(), encrypted),
+            ("captcha_payload".into(), captcha),
+        ])
+    }
+}
+
 impl AuthService {
     pub(crate) async fn follow(
         &self,
+        url: &str,
+        method: Method,
+        headers: Vec<(String, String)>,
+        form: Option<Vec<(String, String)>>,
+    ) -> Result<Response, AuthError> {
+        self.follow_with(&self.auth_jar, url, method, headers, form)
+            .await
+    }
+
+    /// 用指定的 CookieJar 跟随重定向。
+    ///
+    /// 密码登录用独立的 jar：扫码轮询和后台刷新共用 `auth_jar`，而 SSO 的
+    /// 登录页把 `croypto`/`login-page-flowkey` 和当次的 `SESSION` cookie 绑在一起，
+    /// 任何并发请求换掉 SESSION 都会让登录 POST 被判成“用户名或密码错误”。
+    pub(crate) async fn follow_with(
+        &self,
+        jar: &Mutex<CookieJar>,
         url: &str,
         method: Method,
         headers: Vec<(String, String)>,
@@ -12,10 +52,9 @@ impl AuthService {
         let mut current_method = method;
         let mut current_form = form;
         for _ in 0..10 {
-            let cookie = self
-                .auth_jar
+            let cookie = jar
                 .lock()
-                .expect("auth jar poisoned")
+                .expect("cookie jar poisoned")
                 .header_for(current.as_str());
             let mut request = self
                 .auth_http
@@ -36,9 +75,8 @@ impl AuthService {
                     HduError::Network(error.to_string())
                 }
             })?;
-            self.auth_jar
-                .lock()
-                .expect("auth jar poisoned")
+            jar.lock()
+                .expect("cookie jar poisoned")
                 .merge_headers(response.headers(), current.as_str());
             let status = response.status();
             let location = response
@@ -65,13 +103,11 @@ impl AuthService {
         Err(AuthError::Invalid("SSO 重定向次数过多".into()))
     }
 
-    pub(crate) async fn login_password_inner(
-        &self,
-        student_id: &str,
-        password: &str,
-    ) -> Result<LoginResult, String> {
+    /// 取 SSO 登录页并解析表单参数。
+    async fn fetch_login_form(&self, jar: &Mutex<CookieJar>) -> Result<LoginForm, String> {
         let response = self
-            .follow(
+            .follow_with(
+                jar,
                 &self.endpoints.login_entry,
                 Method::GET,
                 vec![(HEADER_USER_AGENT.to_string(), USER_AGENT.to_string())],
@@ -80,10 +116,7 @@ impl AuthService {
             .await
             .map_err(|error| error.to_string())?;
         if !response.status().is_success() {
-            return Ok(LoginResult {
-                success: false,
-                message: format!("登录入口不可用: {}", response.status()),
-            });
+            return Err(format!("登录入口不可用: {}", response.status()));
         }
         let final_url = response.url().clone();
         let html = response.text().await.map_err(|error| error.to_string())?;
@@ -110,34 +143,48 @@ impl AuthService {
         )
         .unwrap_or_else(|| "/login".to_string());
         let action_url = final_url.join(&action).map_err(|error| error.to_string())?;
-        let encrypted = encrypt_password(&key, password)?;
-        let captcha = encrypt_password(&key, "{}")?;
-        let form = vec![
-            ("username".into(), student_id.to_string()),
-            ("type".into(), "UsernamePassword".into()),
-            ("_eventId".into(), "submit".into()),
-            ("execution".into(), execution),
-            ("croypto".into(), key),
-            ("password".into(), encrypted),
-            ("captcha_payload".into(), captcha),
-        ];
-        let response = self
-            .follow(
-                action_url.as_str(),
-                Method::POST,
-                vec![(HEADER_USER_AGENT.to_string(), USER_AGENT.to_string())],
-                Some(form),
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-        if response.url().as_str().starts_with(&self.endpoints.sso) {
-            return Ok(LoginResult {
-                success: false,
-                message: "SSO 登录失败，请核对凭据或稍后重试".into(),
-            });
-        }
+        log::info!(
+            "SSO 登录页已获取: final={final_url} action={action_url} key_bytes={} flowkey_bytes={}",
+            key.len(),
+            execution.len()
+        );
+        Ok(LoginForm {
+            key,
+            execution,
+            action_url,
+        })
+    }
+
+    async fn post_login_form(
+        &self,
+        jar: &Mutex<CookieJar>,
+        form: &LoginForm,
+        student_id: &str,
+        password: &str,
+    ) -> Result<Response, String> {
+        let payload = form.payload(student_id, password)?;
+        self.follow_with(
+            jar,
+            form.action_url.as_str(),
+            Method::POST,
+            vec![(HEADER_USER_AGENT.to_string(), USER_AGENT.to_string())],
+            Some(payload),
+        )
+        .await
+        .map_err(|error| error.to_string())
+    }
+
+    /// 登录 POST 回到馆方页面后，把本次登录的 cookie 写回共享会话并校验。
+    async fn finish_password_login(&self, jar: Mutex<CookieJar>) -> Result<LoginResult, String> {
+        let cookies = jar.lock().expect("login jar poisoned").all();
+        self.auth_jar
+            .lock()
+            .expect("auth jar poisoned")
+            .replace_all(cookies);
         self.sync_cookies_to_client();
-        if !self.client.validate().await || self.client.uid().is_empty() {
+        // 刚写完 cookie 的自检不能触发 refresh 重试：登录锁还在当前调用手里。
+        if !self.client.validate_once().await || self.client.uid().is_empty() {
+            log::warn!("SSO 登录回到馆方页面，但登录态校验失败");
             return Ok(LoginResult {
                 success: false,
                 message: "Cookie 无效或登录态未生效".into(),
@@ -146,6 +193,7 @@ impl AuthService {
         *self.openid.lock().expect("openid poisoned") = None;
         self.persist().await.map_err(|error| error.to_string())?;
         let name = self.client.name();
+        log::info!("SSO 登录成功");
         Ok(LoginResult {
             success: true,
             message: if name.is_empty() {
@@ -154,6 +202,47 @@ impl AuthService {
                 format!("认证成功：{name}")
             },
         })
+    }
+
+    pub(crate) async fn login_password_inner(
+        &self,
+        student_id: &str,
+        password: &str,
+    ) -> Result<LoginResult, String> {
+        // 每次登录都用独立 CookieJar。
+        //
+        // 真实 SSO 的登录页把 `login-croypto` / `login-page-flowkey` 和当次
+        // `SESSION` cookie 绑在一起；扫码轮询、后台刷新（refresh）共用 auth_jar 时，
+        // 它们在“取登录页 → POST”之间任何一次请求都会换掉 SESSION，登录随后被
+        // SSO 判成“用户名或密码错误”。隔离后并发流程只影响各自的会话。
+        let jar = Mutex::new(CookieJar::default());
+        let mut attempt = 1;
+        loop {
+            let form = self.fetch_login_form(&jar).await?;
+            let response = self
+                .post_login_form(&jar, &form, student_id, password)
+                .await?;
+            if !response.url().as_str().starts_with(&self.endpoints.sso) {
+                return self.finish_password_login(jar).await;
+            }
+            let status = response.status();
+            let html = response.text().await.unwrap_or_default();
+            // 真实 SSO 的失败页带 <div class="alert alert-danger" id="login-error-msg">，
+            // 这是 SSO 对凭据/流程的确定性答复；没有它说明是网关或会话抖动，重试一次。
+            let credential_error = html.contains("login-error-msg");
+            log::warn!(
+                "SSO 登录未通过: status={status} attempt={attempt} credential_error={credential_error}"
+            );
+            if credential_error || attempt >= 2 {
+                return Ok(LoginResult {
+                    success: false,
+                    message: "SSO 登录失败，请核对凭据或稍后重试".into(),
+                });
+            }
+            // 换一份全新会话重新走一遍，不重用刚被 SSO 处理过的 SESSION。
+            jar.lock().expect("login jar poisoned").clear();
+            attempt += 1;
+        }
     }
 
     pub async fn login_password(&self, student_id: &str, password: &str) -> LoginResult {
@@ -173,6 +262,8 @@ impl AuthService {
             student_id: student_id.to_string(),
             password: password.to_string(),
         });
+        // 手动登录优先：后台刷新/扫码完成要等它把会话写回，避免互相覆盖。
+        let _gate = self.login_gate.lock().await;
         let result = match self.login_password_inner(student_id, password).await {
             Ok(result) => result,
             Err(error) => LoginResult {

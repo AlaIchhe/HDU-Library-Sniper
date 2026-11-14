@@ -53,6 +53,8 @@ pub type HduLibraryError = HduError;
 pub type RequestTimeoutError = HduError;
 pub type AuthenticationExpiredError = HduError;
 pub type RefreshHandler = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
+/// 刷新也失败时的收尾回调：会话确实死了，让上层清掉僵尸会话。
+pub type AuthLostHandler = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RoomType {
@@ -87,6 +89,7 @@ pub struct LibraryClient {
     categories: Mutex<HashMap<String, Category>>,
     on_jar_change: Option<JarChangeHandler>,
     refresh_handler: Mutex<Option<RefreshHandler>>,
+    auth_lost_handler: Mutex<Option<AuthLostHandler>>,
 }
 
 mod booking;
@@ -117,6 +120,7 @@ impl LibraryClient {
             categories: Mutex::new(HashMap::new()),
             on_jar_change: None,
             refresh_handler: Mutex::new(None),
+            auth_lost_handler: Mutex::new(None),
         })
     }
 
@@ -162,6 +166,24 @@ impl LibraryClient {
             .expect("refresh handler poisoned") = Some(handler);
     }
 
+    pub fn set_auth_lost_handler(&self, handler: AuthLostHandler) {
+        *self
+            .auth_lost_handler
+            .lock()
+            .expect("auth lost handler poisoned") = Some(handler);
+    }
+
+    async fn notify_auth_lost(&self) {
+        let handler = self
+            .auth_lost_handler
+            .lock()
+            .expect("auth lost handler poisoned")
+            .clone();
+        if let Some(handler) = handler {
+            handler().await;
+        }
+    }
+
     async fn request_json(
         &self,
         path: &str,
@@ -179,20 +201,28 @@ impl LibraryClient {
                 timeout,
             )
             .await;
-        if matches!(&result, Err(HduError::AuthenticationExpired(_))) {
-            let handler = self
-                .refresh_handler
-                .lock()
-                .expect("refresh handler poisoned")
-                .clone();
-            if let Some(handler) = handler {
-                if handler().await {
-                    return self
-                        .request_json_once(path, method, form, extra_headers, timeout)
-                        .await;
+        if !matches!(&result, Err(HduError::AuthenticationExpired(_))) {
+            return result;
+        }
+        let handler = self
+            .refresh_handler
+            .lock()
+            .expect("refresh handler poisoned")
+            .clone();
+        if let Some(handler) = handler {
+            if handler().await {
+                let retried = self
+                    .request_json_once(path, method, form, extra_headers, timeout)
+                    .await;
+                if matches!(&retried, Err(HduError::AuthenticationExpired(_))) {
+                    self.notify_auth_lost().await;
                 }
+                return retried;
             }
         }
+        // 刷新失败：会话确实死了。通知上层清掉僵尸会话（凭据保留供下次使用），
+        // 否则 /api/session 会继续报 authenticated，前端在登录页和主页面之间弹跳。
+        self.notify_auth_lost().await;
         result
     }
 
@@ -286,6 +316,31 @@ impl LibraryClient {
         else {
             return false;
         };
+        self.apply_base_info(&body)
+    }
+
+    /// 不做自动刷新重试的登录态检查。
+    ///
+    /// 登录流程写完 cookie 后自检时用：此时手动登录已经持有登录锁，
+    /// 若这里再走 [`Self::request_json`] 的 refresh 重试就会撞上锁，
+    /// 登录反而被判成“Cookie 无效”。
+    pub async fn validate_once(&self) -> bool {
+        let Ok(body) = self
+            .request_json_once(
+                "/User/Center/baseInfo",
+                Method::GET,
+                None,
+                Vec::new(),
+                READ_TIMEOUT,
+            )
+            .await
+        else {
+            return false;
+        };
+        self.apply_base_info(&body)
+    }
+
+    fn apply_base_info(&self, body: &Value) -> bool {
         let Some(data) = body.get("DATA") else {
             return false;
         };
@@ -318,6 +373,36 @@ mod tests {
         let server = MockServer::start().await;
         let client = LibraryClient::with_base_url(&server.uri()).unwrap();
         (server, client)
+    }
+
+    #[tokio::test]
+    async fn notifies_when_refresh_also_expires() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/User/Center/baseInfo"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "ui_type": "com.Redirect",
+                "href": "/User/Index/hduCASLogin"
+            })))
+            .mount(&server)
+            .await;
+        let client = LibraryClient::with_base_url(&server.uri()).unwrap();
+        client.set_refresh_handler(Arc::new(
+            || -> Pin<Box<dyn Future<Output = bool> + Send>> { Box::pin(async { false }) },
+        ));
+        let lost = Arc::new(AtomicUsize::new(0));
+        let counter = lost.clone();
+        client.set_auth_lost_handler(Arc::new(move || {
+            let counter = counter.clone();
+            let future: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin(async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+            });
+            future
+        }));
+        assert!(!client.validate().await);
+        assert_eq!(lost.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

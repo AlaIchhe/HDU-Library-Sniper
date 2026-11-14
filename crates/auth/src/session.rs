@@ -116,13 +116,33 @@ impl AuthService {
             future
         });
         self.client.set_refresh_handler(handler);
+
+        // 刷新也失败：馆方会话确实死了。清空本地会话（凭据保留），
+        // 让 /api/session 与实际一致，前端不再在登录页和主页面之间弹跳。
+        let weak = Arc::downgrade(self);
+        let lost: AuthLostHandler = Arc::new(move || {
+            let weak = weak.clone();
+            let future: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin(async move {
+                if let Some(auth) = weak.upgrade() {
+                    log::warn!("馆方登录态失效且刷新失败，清空本地会话（凭据保留）");
+                    auth.logout().await;
+                }
+            });
+            future
+        });
+        self.client.set_auth_lost_handler(lost);
     }
 
     pub async fn refresh(&self) -> bool {
         if self.refreshing.swap(true, Ordering::SeqCst) {
             return false;
         }
-        let result = self.refresh_inner().await;
+        let result = match self.login_gate.try_lock() {
+            Ok(_gate) => self.refresh_inner().await,
+            // 用户正在手动登录：这次后台刷新直接让位。
+            // 用 try_lock 而不是 lock，避免登录流程里的 validate 触发刷新时自锁。
+            Err(_) => false,
+        };
         self.refreshing.store(false, Ordering::SeqCst);
         result
     }

@@ -1,5 +1,8 @@
 use super::*;
 
+/// 前端停止轮询多久后，服务端扫码循环自行退出。
+const QR_POLL_IDLE_MS: i64 = 15_000;
+
 impl AuthService {
     pub async fn create_qr_login(self: &Arc<Self>) -> Result<QrLoginStart, AuthError> {
         let permit = self
@@ -76,6 +79,7 @@ impl AuthService {
                 uuid.clone(),
                 QrSession {
                     created_at: Utc::now().timestamp_millis(),
+                    last_polled_at: Utc::now().timestamp_millis(),
                     status: "waiting".into(),
                     message: None,
                     session: None,
@@ -96,9 +100,13 @@ impl AuthService {
     }
 
     pub fn poll_qr_login(&self, uuid: &str) -> QrLoginStatus {
+        let now = Utc::now().timestamp_millis();
         let entry = {
-            let sessions = self.qr_sessions.lock().expect("qr sessions poisoned");
-            sessions.get(uuid).cloned()
+            let mut sessions = self.qr_sessions.lock().expect("qr sessions poisoned");
+            sessions.get_mut(uuid).map(|entry| {
+                entry.last_polled_at = now;
+                entry.clone()
+            })
         };
         match entry {
             Some(entry) => QrLoginStatus {
@@ -112,6 +120,19 @@ impl AuthService {
                 session: None,
             },
         }
+    }
+
+    /// 前端离开扫码页时调用：让服务端停止扫码轮询。
+    ///
+    /// 扫码循环会持续请求 SSO 直到二维码过期；它和密码登录共用同一个
+    /// `auth_jar`，登录页的 `croypto`/`flowkey` 又和当次 `SESSION` 绑定，
+    /// 所以“看了二维码再改用密码登录”会被正在跑的扫码循环搅乱。
+    pub fn cancel_qr_login(&self, uuid: &str) -> bool {
+        self.qr_sessions
+            .lock()
+            .expect("qr sessions poisoned")
+            .remove(uuid)
+            .is_some()
     }
 
     fn prune_qr_sessions(&self) {
@@ -160,6 +181,8 @@ impl AuthService {
     }
 
     async fn complete_qr_login(&self, token: &str) -> Result<(), AuthError> {
+        // 与手动登录/后台刷新串行，避免两次登录同时写回会话。
+        let _gate = self.login_gate.lock().await;
         if token.is_empty() {
             return Err(AuthError::Invalid("扫码授权令牌为空".into()));
         }
@@ -201,6 +224,14 @@ impl AuthService {
             if entry.status != "waiting" {
                 return;
             }
+            if Utc::now().timestamp_millis() - entry.last_polled_at > QR_POLL_IDLE_MS {
+                log::info!("扫码轮询停止：前端已不再轮询 uuid={uuid}");
+                self.qr_sessions
+                    .lock()
+                    .expect("qr sessions poisoned")
+                    .remove(&uuid);
+                return;
+            }
             match self.poll_qr_round_for_token(&uuid).await {
                 Ok(Some(token)) => match self.complete_qr_login(&token).await {
                     Ok(()) => {
@@ -212,6 +243,7 @@ impl AuthService {
                                 uuid,
                                 QrSession {
                                     created_at: entry.created_at,
+                                    last_polled_at: entry.last_polled_at,
                                     status: "confirmed".into(),
                                     message: None,
                                     session: Some(session),
@@ -227,6 +259,7 @@ impl AuthService {
                                 uuid,
                                 QrSession {
                                     created_at: entry.created_at,
+                                    last_polled_at: entry.last_polled_at,
                                     status: "error".into(),
                                     message: Some(error.to_string()),
                                     session: None,
@@ -246,6 +279,7 @@ impl AuthService {
                             uuid,
                             QrSession {
                                 created_at: entry.created_at,
+                                last_polled_at: entry.last_polled_at,
                                 status: if expired {
                                     "expired".into()
                                 } else {
@@ -270,6 +304,7 @@ impl AuthService {
                 uuid,
                 QrSession {
                     created_at: Utc::now().timestamp_millis(),
+                    last_polled_at: Utc::now().timestamp_millis(),
                     status: "expired".into(),
                     message: Some("二维码已过期，请刷新".into()),
                     session: None,

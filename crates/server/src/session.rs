@@ -86,6 +86,14 @@ pub async fn qr_status(
     Json(result)
 }
 
+pub async fn cancel_qr(
+    State(state): State<AppState>,
+    Path(uuid): Path<String>,
+) -> Json<serde_json::Value> {
+    // 前端离开扫码页时调用：服务端停止这个二维码的 SSO 轮询，不再占用会话和并发槽。
+    Json(serde_json::json!({ "cancelled": state.auth.cancel_qr_login(&uuid) }))
+}
+
 pub async fn logout(State(state): State<AppState>) -> Json<serde_json::Value> {
     state.auth.logout().await;
     Json(serde_json::json!({ "success": true }))

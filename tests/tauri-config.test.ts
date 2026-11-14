@@ -26,7 +26,9 @@ describe("tauri plugin configuration", () => {
     const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
     expect(lib).toContain("build_router");
     expect(lib).toContain("Scheduler::new");
-    expect(lib).toContain('TcpListener::bind(("127.0.0.1", 8000))');
+    // bind 走常量并带重试；确保后端仍在 Tauri 进程内启动。
+    expect(lib).toContain("TcpListener::bind((LOCAL_API_HOST, LOCAL_API_PORT))");
+    expect(lib).toContain("ensure_loopback_bypass");
     expect(lib).not.toContain("hdu-sniper-server.exe");
     expect(lib).not.toContain("Command::new");
   });

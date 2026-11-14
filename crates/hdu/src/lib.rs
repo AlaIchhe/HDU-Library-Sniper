@@ -10,8 +10,8 @@ pub use auth::{
 };
 pub use cookies::{parse_set_cookie, CookieJar, StoredCookie};
 pub use library::{
-    Action, AuthenticationExpiredError, BookingRange, HduError, HduLibraryError, LibraryClient,
-    RefreshHandler, RequestTimeoutError, RoomType,
+    Action, AuthLostHandler, AuthenticationExpiredError, BookingRange, HduError, HduLibraryError,
+    LibraryClient, RefreshHandler, RequestTimeoutError, RoomType,
 };
 
 pub const BASE_URL: &str = "https://hdu.huitu.zhishulib.com";
