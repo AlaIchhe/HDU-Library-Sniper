@@ -28,6 +28,7 @@
     "active": true,
     "targets": ["nsis"],
     "createUpdaterArtifacts": true,
+    "category": "Education",
     "icon": ["icons/icon.icns", "icons/icon.ico", "icons/icon.png"],
     "windows": {
       "nsis": {
@@ -39,7 +40,6 @@
     },
     "macOS": {
       "minimumSystemVersion": "11.0",
-      "category": "Education",
       "signingIdentity": "-",
       "hardenedRuntime": false,
       "dmg": {
