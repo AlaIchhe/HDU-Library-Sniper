@@ -110,6 +110,15 @@ EOF
 
 常驻进程会执行并把输出写到 `windows-test/shared/results/jobs/smoke.out`。
 
+## 启动/登录回归脚本
+
+`scripts/` 下是几段可以在 guest 里直接跑的 probe，用来盯住"前端起来了后端没起来"和 SSO 登录这两类问题：
+
+- `first-launch-test.ps1`：卸载旧版 → 清空用户数据和 WebView2 缓存 → 静默安装 → 不带 `--background` 启动，在 3/8/15/30/45s 截图并用 UIA 读取窗口文本，结果写到 `shared/results/frontend/<时间戳>/`。
+- `failure-modes.ps1`：端口被占、WinINET 代理指向死端口、同会话二次启动三种失败模式。
+- `proxy-bypass.ps1` / `noproxy-fix.ps1`：验证 `ProxyOverride` 各写法对 `127.0.0.1` 的影响，以及 `NO_PROXY` 修复是否生效。
+- `vmctl.py`（宿主机）：通过 QEMU HMP monitor 截图和发键盘（`podman exec` 进容器连 `/run/shm/monitor.sock`），不依赖 RDP/VNC；需要 GUI 的 probe 用它投递到交互会话最省事。
+
 ## 已知坑
 
 1. **同版本静默重装是 no-op。** 2.1.5 覆盖装 2.1.5 只花 3.3 s，文件、快捷方式都不重建
