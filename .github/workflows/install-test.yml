@@ -1,0 +1,80 @@
+name: Windows install test
+
+# 用真实的旧 MSI 升级到本仓库构建出来的 NSIS 安装包，验证 hooks.nsh 里的迁移逻辑。
+# 这条路径 Linux 上测不到（安装器要在 Windows 上打包），所以放在 windows-latest 上跑：
+# 手动触发一次，或者每晚跑一次看有没有回归。
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 18 * * *" # 02:30 Asia/Shanghai
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-install-test
+  cancel-in-progress: true
+
+jobs:
+  legacy-msi-upgrade:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: release
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build the NSIS installer
+        run: bun run tauri build --bundles nsis
+
+      - name: Locate the installer
+        id: locate
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "target\release\bundle\nsis",
+            "src-tauri\target\release\bundle\nsis"
+          )
+          foreach ($dir in $candidates) {
+            $setup = Get-ChildItem $dir -Filter "*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($setup) {
+              "setup=$($setup.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+              Write-Host "installer: $($setup.FullName)"
+              exit 0
+            }
+          }
+          throw "no *-setup.exe under target\release\bundle\nsis"
+
+      - name: Fetch the last MSI release (2.0.33)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/${{ github.repository }}/releases/download/v2.0.33/HDU.Library.Sniper_2.0.33_x64_zh-CN.msi"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\legacy.msi"
+          Get-Item "$env:RUNNER_TEMP\legacy.msi" | Select-Object Length
+
+      - name: Run the migration check
+        shell: pwsh
+        run: |
+          $elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          Write-Host "elevated=$elevated"
+          ./scripts/windows/verify-legacy-msi.ps1 `
+            -OldMsi "$env:RUNNER_TEMP\legacy.msi" `
+            -NewSetup "${{ steps.locate.outputs.setup }}" `
+            -ResultDir "$env:RUNNER_TEMP\migration"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-msi-migration
+          path: ${{ runner.temp }}/migration
+          if-no-files-found: warn

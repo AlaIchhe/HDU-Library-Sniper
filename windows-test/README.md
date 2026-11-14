@@ -140,9 +140,41 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\OEM\upgrade-from-msi.ps1
 
 2026-11-14 已经用它查出并修掉一个真问题：hook 里写死的 ProductCode 和 `2.0.21 / 2.0.29 / 2.0.30 /
 2.0.31 / 2.0.32 / 2.0.33` 六个真实发布过的 MSI **一个都对不上**，`msiexec /x` 一直返回 1605，
-等于这条迁移从来没生效过。修法改成按卸载项枚举（`WindowsInstaller=1` 的键名就是 ProductCode），
-并在真机上用发布的 2.0.33 MSI 验证过：旧条目和旧文件都被清掉了。
+等于这条迁移从来没生效过。修法改成按卸载项枚举（`WindowsInstaller=1` 的键名就是 ProductCode）。
 证据见 [`evidence/2026-11-14-legacy-msi-hook/`](evidence/2026-11-14-legacy-msi-hook)。
+
+修完之后又跑了一遍**端到端**（不是单测 hook，而是 Tauri 打包出来的真实 `*-setup.exe`）：
+Linux 上用 `cargo-xwin` + `clang-cl`/`lld-link` 交叉编译出 Windows 安装包，丢进这台虚拟机，
+先装发布的 2.0.33 MSI 再跑新安装包，断言全过：
+
+```
+old MSI: exit=0 in 13.4s        entries: 2.0.33[msi=1]
+new setup: exit=0 in 10.6s      entries: 2.1.5[msi=]
+PASS legacy MSI uninstall entry removed / exactly one uninstall entry / exe 2.1.5
+PASS autostart / user data preserved
+```
+
+证据见 [`evidence/2026-11-14-legacy-msi-e2e/`](evidence/2026-11-14-legacy-msi-e2e)。
+同一份脚本也挂在 CI 上（[`install-test.yml`](../.github/workflows/install-test.yml)，
+`windows-latest` 每晚或手动跑），用的是发版同款工具链。
+
+## 在 Linux 上交叉构建 Windows 安装包
+
+发版在 `windows-latest` 上打包，但本机也能交叉构建，用于把安装器本身放进虚拟机验证：
+
+```bash
+apt-get install -y clang lld               # clang-cl + lld-link
+rustup target add x86_64-pc-windows-msvc
+cargo install cargo-xwin --locked          # 会把 MSVC CRT/SDK 下到 ~/.cache/cargo-xwin（约 1.7 GB）
+
+./node_modules/.bin/tauri build --debug --runner cargo-xwin \
+  --target x86_64-pc-windows-msvc --bundles nsis
+# 产物：target/x86_64-pc-windows-msvc/debug/bundle/nsis/*-setup.exe
+```
+
+Tauri 会提示「跨平台编译是实验性的」并且跳过签名（`bundler > windows > sign_command` 可以接自定义签名）；
+由于没有 `TAURI_SIGNING_PRIVATE_KEY`，更新包签名的最后一步会报错，但安装包在此之前已经产出。
+`--debug` 足够验证安装器行为，要真产物就去掉它。
 
 ## 为什么没有 macOS
 

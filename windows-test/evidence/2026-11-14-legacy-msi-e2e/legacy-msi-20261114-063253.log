@@ -1,0 +1,11 @@
+﻿== start 2026-11-14T06:32:21.5074749-08:00
+old MSI: exit=0 in 13.4s
+entries after old MSI: 2.0.33[msi=1]
+new setup: exit=0 in 10.6s
+entries after new setup: 2.1.5[msi=]
+PASS  legacy MSI uninstall entry removed
+PASS  exactly one uninstall entry
+PASS  installed exe version 2.1.5
+PASS  autostart = "C:\Program Files\HDU Library Sniper\hdu-library-sniper.exe" --background
+PASS  user data preserved across the migration
+== done, failures=0
