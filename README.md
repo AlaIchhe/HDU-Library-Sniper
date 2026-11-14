@@ -74,6 +74,7 @@ https://github.com/user-attachments/assets/f8abc8a4-c9f6-4fd9-881b-3f6ec2d45c0d
   <a href="docs/DEPLOYMENT.md">容器部署</a> ·
   <a href="docs/DEVELOPMENT.md">开发与发布</a> ·
   <a href="docs/HUITU-LIMITS.md">馆方限制实测</a> ·
+  <a href="docs/MACOS.md">macOS 版说明</a> ·
   <a href="LICENSE">License</a>
 </p>
 

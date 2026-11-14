@@ -82,6 +82,15 @@ pub fn run() {
         }));
     }
 
+    #[cfg(target_os = "macos")]
+    {
+        // LaunchAgent 的 ProgramArguments 里带上 --background，登录后直接进托盘。
+        builder = builder.plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--background"]),
+        ));
+    }
+
     builder = builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -110,6 +119,25 @@ pub fn run() {
 
             if let Err(error) = start_api() {
                 log_startup_line(&format!("startup API error: {error}"));
+            }
+
+            // Windows 的自启动由 NSIS 钩子写进 HKCU\...\Run；macOS 没有安装器，
+            // 首次运行时把 LaunchAgent 装好，之后交给系统管理。
+            #[cfg(target_os = "macos")]
+            {
+                use tauri_plugin_autostart::ManagerExt as _;
+                let autolaunch = app.autolaunch();
+                match autolaunch.is_enabled() {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        if let Err(error) = autolaunch.enable() {
+                            log_startup_line(&format!("autostart enable failed: {error}"));
+                        }
+                    }
+                    Err(error) => {
+                        log_startup_line(&format!("autostart state unavailable: {error}"))
+                    }
+                }
             }
 
             let handle = app.handle().clone();

@@ -1,0 +1,100 @@
+name: Release macOS app
+
+# 没有 Apple Developer Program 会员，所以这里做的是「ad-hoc 签名 + 不公证」的发版：
+#   - bundle.macOS.signingIdentity = "-"  → codesign -s -（Apple Silicon 上必须有签名才跑得起来）
+#   - 不做 notarization                   → 用户首次打开要在「隐私与安全性」里放行（见 docs/MACOS.md）
+# 拿到会员之后只需要：把 sign 步骤换成导入 Developer ID 证书、去掉 signingIdentity，
+# 再加上 tauri-action 的 notarize 环境变量（APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID）。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Universal 二进制：两个架构的 std 都要在
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: macos-release
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build universal app and dmg
+        env:
+          # 更新包用自己的 minisign 密钥签名，和 Apple 证书无关
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          bun run tauri build --target universal-apple-darwin --bundles app,dmg
+
+      - name: Show signature state
+        run: |
+          codesign -dv --verbose=4 "src-tauri/target/universal-apple-darwin/release/bundle/macos/HDU Library Sniper.app" 2>&1 | head -20
+          ls -la src-tauri/target/universal-apple-darwin/release/bundle/dmg/
+
+      - name: Wait for the release created by the Windows job
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for _ in $(seq 1 60); do
+            if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              echo "release $GITHUB_REF_NAME is ready"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "release $GITHUB_REF_NAME never appeared" >&2
+          exit 1
+
+      - name: Upload dmg and updater bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          base="src-tauri/target/universal-apple-darwin/release/bundle"
+          gh release upload "$GITHUB_REF_NAME" "$base"/dmg/*.dmg --clobber
+          gh release upload "$GITHUB_REF_NAME" "$base"/macos/*.app.tar.gz "$base"/macos/*.app.tar.gz.sig --clobber
+
+      # latest.json 由 Windows 任务生成；这里补上两个 darwin 平台条目，
+      # universal 包同时服务 Apple Silicon 和 Intel。
+      - name: Add darwin entries to latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          dir="$RUNNER_TEMP/updater"
+          mkdir -p "$dir"
+          for _ in $(seq 1 60); do
+            if gh release download "$tag" --pattern latest.json --dir "$dir" --clobber 2>/dev/null; then
+              break
+            fi
+            sleep 20
+          done
+          test -f "$dir/latest.json"
+
+          python3 scripts/patch-latest-json.py "$dir/latest.json" \
+            --tarball "src-tauri/target/universal-apple-darwin/release/bundle/macos/HDU Library Sniper.app.tar.gz" \
+            --url-prefix "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag"
+
+          gh release upload "$tag" "$dir/latest.json" --clobber

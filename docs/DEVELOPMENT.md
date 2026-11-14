@@ -76,6 +76,17 @@ target/release/bundle/nsis/
 `dockur/windows` 跑一台 Windows 11，把 release 的 `*-setup.exe` 自动安装、启动、覆盖安装、卸载一遍，
 结果和截图回传到宿主机的 `windows-test/shared/results/`。
 
+## macOS 构建
+
+macOS 产物只能在 macOS 上构建（需要 Xcode 命令行工具），CI 用 GitHub Actions 的 `macos-latest`：
+
+```bash
+bun run tauri build --target universal-apple-darwin --bundles app,dmg
+```
+
+项目没有 Apple Developer Program 会员，发行走 ad-hoc 签名、不做公证，用户首次打开需要手动放行。
+完整说明（用户安装步骤、钥匙串授权限制、买了会员之后怎么切）见 [MACOS.md](MACOS.md)。
+
 ## 日志
 
 桌面端日志：

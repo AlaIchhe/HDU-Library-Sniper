@@ -11,7 +11,7 @@ pub trait SecretStore: Send + Sync {
     fn open(&self, sealed: &str) -> Result<String, AuthError>;
 }
 
-/// AES-256-GCM 实现：密钥来自环境变量或 Windows 钥匙串。
+/// AES-256-GCM 实现：密钥来自环境变量或系统钥匙串（Windows 凭据管理器 / macOS 登录钥匙串）。
 pub struct AesSecretStore {
     cipher: Aes256Gcm,
     scheme: &'static str,
@@ -36,7 +36,8 @@ impl AesSecretStore {
         Self::from_key(&key, "aes-gcm-env").ok()
     }
 
-    #[cfg(windows)]
+    /// Windows 用凭据管理器，macOS 用登录钥匙串；两者都通过 keyring 的 native 后端。
+    #[cfg(any(windows, target_os = "macos"))]
     pub fn from_keyring() -> Option<Self> {
         let entry = keyring::Entry::new("hdu-library-sniper", "credentials-key").ok()?;
         let encoded = match entry.get_password() {
@@ -48,7 +49,7 @@ impl AesSecretStore {
                 encoded
             }
             Err(error) => {
-                tracing::warn!(%error, "Windows 钥匙串不可用");
+                tracing::warn!(%error, "系统钥匙串不可用");
                 return None;
             }
         };
@@ -95,15 +96,15 @@ impl SecretStore for AesSecretStore {
     }
 }
 
-/// 选择加密后端：环境变量密钥优先，其次 Windows 钥匙串，最后退回明文。
+/// 选择加密后端：环境变量密钥优先，其次系统钥匙串，最后退回明文。
 pub fn default_store() -> Option<Box<dyn SecretStore>> {
     if let Some(store) = AesSecretStore::from_env() {
         tracing::info!("凭据使用环境变量密钥加密");
         return Some(Box::new(store));
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     if let Some(store) = AesSecretStore::from_keyring() {
-        tracing::info!("凭据使用 Windows 钥匙串加密");
+        tracing::info!("凭据使用系统钥匙串加密");
         return Some(Box::new(store));
     }
     tracing::warn!("没有可用的凭据加密后端，密码将以明文保存；可设置 HDU_SNIPER_SECRET_KEY");
