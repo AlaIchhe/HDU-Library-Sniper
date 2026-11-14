@@ -1791,7 +1791,7 @@ dependencies = [
 
 [[package]]
 name = "hdu-library-sniper"
-version = "2.1.6"
+version = "2.1.7"
 dependencies = [
  "axum",
  "hdu-sniper-auth",
@@ -1815,7 +1815,7 @@ dependencies = [
 
 [[package]]
 name = "hdu-sniper-auth"
-version = "2.1.6"
+version = "2.1.7"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -1839,7 +1839,7 @@ dependencies = [
 
 [[package]]
 name = "hdu-sniper-core"
-version = "2.1.6"
+version = "2.1.7"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -1851,7 +1851,7 @@ dependencies = [
 
 [[package]]
 name = "hdu-sniper-hdu"
-version = "2.1.6"
+version = "2.1.7"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -1872,7 +1872,7 @@ dependencies = [
 
 [[package]]
 name = "hdu-sniper-server"
-version = "2.1.6"
+version = "2.1.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -1896,7 +1896,7 @@ dependencies = [
 
 [[package]]
 name = "hdu-sniper-store"
-version = "2.1.6"
+version = "2.1.7"
 dependencies = [
  "chrono",
  "hdu-sniper-core",

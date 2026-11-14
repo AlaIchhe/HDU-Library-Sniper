@@ -48,13 +48,14 @@ jobs:
           releaseBody: |
             ## 本次更新
 
-            - **修复从 2.0.x MSI 版本升级时的残留**：安装器现在会按控制面板卸载项枚举并卸载旧 MSI，
-              不会再出现两个「HDU Library Sniper」条目（残留那条的卸载会误删新版文件）。
-              从 2.0.x 升级的用户直接安装新版即可，不需要手动卸载。
-            - **新增 macOS 版**（universal，Apple Silicon + Intel 通用）：未做公证，
-              首次打开需要在「系统设置 → 隐私与安全性」里点「仍要打开」，详见 docs/MACOS.md。
+            - **桌面端重构为 Tauri IPC 进程内直调**：桌面应用不再绑定 `127.0.0.1:8000` 端口或经由环回 HTTP 通信，
+              彻底解决端口冲突、代理软件劫持本地请求以及启动卡在健康检查等待的问题（容器/Web 端保持 HTTP 不变）。
+            - **修复登录态与扫码竞态**：密码登录改用独立 Cookie Jar 避免与后台刷新/扫码轮询互相覆盖，
+              离开扫码页及时取消轮询，会话彻底失效时自动清理僵尸状态。
+            - **增强自动签到与同步容错**：20:00 抢座后若遇馆方 `myBookingList` 高峰 404 会按退避间隔重试并保留抢座结果，
+              签到遇到「非待签到状态」时先对账远端预约状态后再决定重试或收尾。
 
-            Windows 安装包：`*-setup.exe`；macOS 安装包：`*_universal.dmg`。
+            Windows 安装包：`*-setup.exe`；macOS 安装包：`*_universal.dmg`（未公证，首次打开见 `docs/MACOS.md`）。
           args: "--bundles nsis"
           # 直接发布正式 Release：tauri-action 会上传 NSIS 安装包并生成 latest.json，
           # 客户端通过 releases/latest 自动更新即可拉取，无需再手动发布。
