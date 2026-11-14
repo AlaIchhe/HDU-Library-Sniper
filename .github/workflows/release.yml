@@ -45,6 +45,16 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "HDU Library Sniper ${{ github.ref_name }}"
+          releaseBody: |
+            ## 本次更新
+
+            - **修复从 2.0.x MSI 版本升级时的残留**：安装器现在会按控制面板卸载项枚举并卸载旧 MSI，
+              不会再出现两个「HDU Library Sniper」条目（残留那条的卸载会误删新版文件）。
+              从 2.0.x 升级的用户直接安装新版即可，不需要手动卸载。
+            - **新增 macOS 版**（universal，Apple Silicon + Intel 通用）：未做公证，
+              首次打开需要在「系统设置 → 隐私与安全性」里点「仍要打开」，详见 docs/MACOS.md。
+
+            Windows 安装包：`*-setup.exe`；macOS 安装包：`*_universal.dmg`。
           args: "--bundles nsis"
           # 直接发布正式 Release：tauri-action 会上传 NSIS 安装包并生成 latest.json，
           # 客户端通过 releases/latest 自动更新即可拉取，无需再手动发布。
@@ -69,10 +79,13 @@ jobs:
           $installer = $assets.assets | Where-Object { $_.name -like "*-setup.exe" } | Select-Object -First 1
           if (-not $installer) { throw "No NSIS setup.exe asset found on $tag" }
           $url = "${{ github.server_url }}/${{ github.repository }}/releases/download/$tag/$($installer.name)"
+          # 只改 windows-* 条目：darwin-* 由 macOS 任务写入，并且会指向 .app.tar.gz。
+          # 两个任务并发跑，这里如果遍历全部平台会把 macOS 的地址覆盖成 setup.exe。
           foreach ($platform in $manifest.platforms.PSObject.Properties) {
-            $platform.Value.url = $url
+            if ($platform.Name -like "windows-*") { $platform.Value.url = $url }
           }
-          $apiUrls = $manifest.platforms.PSObject.Properties | Where-Object { $_.Value.url -match '/releases/assets/' }
+          $apiUrls = $manifest.platforms.PSObject.Properties |
+            Where-Object { $_.Name -like "windows-*" -and $_.Value.url -match '/releases/assets/' }
           if ($apiUrls) { throw "latest.json still points at a GitHub API asset URL" }
           $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath -Encoding utf8
           gh release upload $tag $manifestPath --clobber
