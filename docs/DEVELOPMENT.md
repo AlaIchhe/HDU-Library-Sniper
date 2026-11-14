@@ -69,7 +69,7 @@ bun run tauri build --bundles nsis
 target/release/bundle/nsis/
 ```
 
-项目发布 NSIS 安装包（`*-setup.exe`），默认按 `perMachine` 安装到 Program Files。旧 MSI 用户首次安装新版时，NSIS hook 会先结束旧进程并卸载旧 MSI，保留用户数据；这次迁移会请求 UAC 管理员权限。
+项目发布 NSIS 安装包（`*-setup.exe`），默认按 `perMachine` 安装到 Program Files。旧 MSI 用户首次安装新版时，NSIS hook 会先结束旧进程，再按控制面板卸载项枚举出所有装过的 MSI 版本逐个 `msiexec /x`，保留用户数据。注意 2.0.x 每个版本的 ProductCode 都不一样，**不能在 hook 里写死 GUID**，否则迁移会静默失败。
 
 安装包的行为（Program Files 落盘、控制面板卸载项、`HKCU\...\Run` 自启动、覆盖安装保留用户数据、卸载残留）在 Linux 上测不到。
 需要真机验证时，用仓库里的 [`windows-test/`](../windows-test/README.md)：它在支持 KVM 的 Linux 主机上用

@@ -1,0 +1,7 @@
+﻿== time: 2026-11-14T06:15:38.7128875-08:00
+== app exe: True
+== 64bit (HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall)
+   {C7A09581-B410-403E-AB0F-03ADCB96C8E3} | 2.0.33 | installer=1
+== 32bit (HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall)
+== run key: "c:\Program Files\HDU Library Sniper\hdu-library-sniper.exe" --background
+== data marker: False

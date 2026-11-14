@@ -136,7 +136,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\OEM\upgrade-from-msi.ps1
 
 脚本会：装 2.0.33 MSI → 造一份 sqlite 用户数据 → 直接跑 2.1.5 `setup.exe /S` → 断言旧卸载项被清掉、
 只剩 2.1.5、用户数据哈希不变、自启动存在、应用能起来。结果写到
-`windows-test/shared/results/upgrade/`。**这条路径尚未在真机上跑过，属于下一步。**
+`windows-test/shared/results/upgrade/`。
+
+2026-11-14 已经用它查出并修掉一个真问题：hook 里写死的 ProductCode 和 `2.0.21 / 2.0.29 / 2.0.30 /
+2.0.31 / 2.0.32 / 2.0.33` 六个真实发布过的 MSI **一个都对不上**，`msiexec /x` 一直返回 1605，
+等于这条迁移从来没生效过。修法改成按卸载项枚举（`WindowsInstaller=1` 的键名就是 ProductCode），
+并在真机上用发布的 2.0.33 MSI 验证过：旧条目和旧文件都被清掉了。
+证据见 [`evidence/2026-11-14-legacy-msi-hook/`](evidence/2026-11-14-legacy-msi-hook)。
 
 ## 为什么没有 macOS
 

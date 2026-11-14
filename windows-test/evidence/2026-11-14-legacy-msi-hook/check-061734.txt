@@ -1,0 +1,6 @@
+﻿== time: 2026-11-14T06:17:34.1134971-08:00
+== app exe: False
+== 64bit (HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall)
+== 32bit (HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall)
+== run key: 
+== data marker: False

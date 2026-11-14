@@ -21,7 +21,6 @@ artifacts
 
 # Windows VM install-test scratch (dockur/windows)
 windows-test/storage/
-windows-test/shared/results/
-windows-test/shared/jobs/
+windows-test/shared/
 windows-test/*.iso
 windows-test/oem/setup.exe
