@@ -20,45 +20,8 @@ import type {
 
 export function resolveApiBase(): string {
   const configured = import.meta.env.VITE_API_BASE?.trim()
-  if (configured) return configured.replace(/\/+$/, "")
-  if (typeof window === "undefined") return ""
-  if ("__TAURI_INTERNALS__" in window) return "http://127.0.0.1:8000"
-  if (
-    window.location.protocol === "tauri:" ||
-    window.location.hostname === "tauri.localhost" ||
-    window.location.hostname === "asset.localhost"
-  )
-    return "http://127.0.0.1:8000"
-  return ""
+  return configured ? configured.replace(/\/+$/, "") : ""
 }
-
-export type BackendProbe = { ok: true } | { ok: false; detail: string }
-
-// 启动探针：只问 /api/health，不写日志、不触发 401 清理。
-// 必须带超时：端口被“只接受连接、不应答”的进程占住时，没有超时的 fetch
-// 会永远挂起，启动页就永远停在第一句，连“启动失败”都出不来。
-export async function pingBackend(timeoutMs = 1500): Promise<BackendProbe> {
-  const url = `${resolveApiBase()}/api/health`
-  try {
-    const fetcher = isTauri()
-      ? (await import("@tauri-apps/plugin-http")).fetch
-      : globalThis.fetch.bind(globalThis)
-    const response = await fetcher(url, {
-      headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-    if (response.ok) return { ok: true }
-    return { ok: false, detail: `本地服务返回 HTTP ${response.status}` }
-  } catch (cause) {
-    return {
-      ok: false,
-      detail: `无法连接本地服务：${cause instanceof Error ? cause.message : String(cause)}`,
-    }
-  }
-}
-
-// 本地后台不可达（还没启动 / 正在重启）：与馆方 5xx 区分开，允许查询自动重试。
-export class BackendUnavailableError extends Error {}
 
 const sessionSchema = z.object({
   authenticated: z.boolean(),
@@ -76,32 +39,58 @@ const checkinSchema = z.object({
   lastMessage: z.string().optional(),
 })
 
-async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>): Promise<T> {
-  const base = resolveApiBase()
-  const url = `${base}${path}`
-  let response: Response
-  try {
-    const fetcher = isTauri()
-      ? (await import("@tauri-apps/plugin-http")).fetch
-      : globalThis.fetch.bind(globalThis)
-    response = await fetcher(url, {
-      ...init,
-      headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+type RawResponse = {
+  status: number
+  ok: boolean
+  text: string
+}
+
+async function sendRequest(path: string, init?: RequestInit): Promise<RawResponse> {
+  if (isTauri()) {
+    const { invoke } = await import("@tauri-apps/api/core")
+    const response = await invoke<{ status: number; body: string }>("api_request", {
+      request: {
+        method: init?.method || "GET",
+        path,
+        body: typeof init?.body === "string" ? init.body : undefined,
+      },
     })
+    return {
+      status: response.status,
+      ok: response.status >= 200 && response.status < 300,
+      text: response.body,
+    }
+  }
+  const url = `${resolveApiBase()}${path}`
+  const response = await fetch(url, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+  })
+  return {
+    status: response.status,
+    ok: response.ok,
+    text: await response.text(),
+  }
+}
+
+async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>): Promise<T> {
+  let response: RawResponse
+  try {
+    response = await sendRequest(path, init)
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === "AbortError") throw cause
+    const detail = cause instanceof Error ? cause.message : String(cause)
     if (isTauri()) {
       const { error } = await import("@tauri-apps/plugin-log")
-      error(`API 请求失败: ${url} -> ${cause instanceof Error ? cause.message : String(cause)}`)
+      error(`API 请求失败: ${path} -> ${detail}`)
     }
-    throw new BackendUnavailableError("无法连接本地后台服务，请确认服务已启动")
+    throw new Error(isTauri() ? `本地服务不可用：${detail}` : "无法连接本地后台服务，请确认服务已启动")
   }
 
-  const text = await response.text()
   let body: { detail?: string; message?: string } = {}
-  if (text) {
+  if (response.text) {
     try {
-      body = JSON.parse(text) as typeof body
+      body = JSON.parse(response.text) as typeof body
     } catch {
       throw new Error(response.ok ? "后台服务返回格式错误" : `请求失败 (${response.status})`)
     }
@@ -112,7 +101,7 @@ async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>):
       // 后台的 detail 是唯一能说明失败原因的信息（登录态失效 / 上游超时 /
       // 网络错误）；不带上它，日志里就只剩一个孤零零的状态码。
       const detail = body.detail || body.message
-      const message = `API 返回错误: ${url} -> ${response.status}${detail ? ` (${detail})` : ""}`
+      const message = `API 返回错误: ${path} -> ${response.status}${detail ? ` (${detail})` : ""}`
       if (response.status >= 500) error(message)
       else warn(message)
     }

@@ -1,12 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import { error as logError } from "@tauri-apps/plugin-log";
-import { api, pingBackend, resolveApiBase } from "../src/web/data/api";
+import { api, resolveApiBase } from "../src/web/data/api";
 
-// The web API now uses @tauri-apps/plugin-http inside Tauri. In the test
-// environment there is no real Tauri runtime, so route the plugin fetch to the
-// stubbed global fetch and silence the plugin logger.
-vi.mock("@tauri-apps/plugin-http", () => ({
-  fetch: (input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init),
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
 }));
 vi.mock("@tauri-apps/plugin-log", () => ({
   attachConsole: () => Promise.resolve(),
@@ -21,15 +19,9 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("web API base", () => {
-  test("keeps relative requests for backend-served WebUI", () => {
+describe("web API transport", () => {
+  test("keeps relative HTTP requests for backend-served WebUI", async () => {
     expect(resolveApiBase()).toBe("");
-  });
-
-  test("uses the local backend directly inside Tauri", async () => {
-    vi.stubGlobal("__TAURI_INTERNALS__", {});
-    expect(resolveApiBase()).toBe("http://127.0.0.1:8000");
-
     const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify({ authenticated: false, refreshing: false }), {
@@ -40,69 +32,59 @@ describe("web API base", () => {
 
     await api.session();
 
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8000/api/session", expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith("/api/session", expect.anything());
+    expect(vi.mocked(invoke)).not.toHaveBeenCalled();
+  });
+
+  test("routes requests through Tauri IPC inside the desktop app", async () => {
+    vi.stubGlobal("__TAURI_INTERNALS__", {});
+    vi.mocked(invoke).mockResolvedValueOnce({
+      status: 200,
+      body: JSON.stringify({ authenticated: false, refreshing: false }),
+    });
+
+    const result = await api.session();
+
+    expect(result).toEqual({ authenticated: false, refreshing: false });
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("api_request", {
+      request: {
+        method: "GET",
+        path: "/api/session",
+        body: undefined,
+      },
+    });
   });
 
   test("does not expose an HTML SPA response as a JSON parse error", async () => {
     vi.stubGlobal("__TAURI_INTERNALS__", {});
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("<!doctype html><html></html>")),
-    );
+    vi.mocked(invoke).mockResolvedValueOnce({
+      status: 200,
+      body: "<!doctype html><html></html>",
+    });
     await expect(api.session()).rejects.toThrow("后台服务返回格式错误");
   });
 
   test("logs the backend detail next to the failing status", async () => {
     vi.stubGlobal("__TAURI_INTERNALS__", {});
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(JSON.stringify({ detail: "图书馆登录状态已失效" }), {
-            status: 502,
-            headers: { "Content-Type": "application/json" },
-          }),
-      ),
-    );
+    vi.mocked(invoke).mockResolvedValueOnce({
+      status: 502,
+      body: JSON.stringify({ detail: "图书馆登录状态已失效" }),
+    });
 
     await expect(api.nextTarget()).rejects.toThrow("图书馆登录状态已失效");
 
     expect(vi.mocked(logError)).toHaveBeenCalledWith(
-      "API 返回错误: http://127.0.0.1:8000/api/runtime/next-target -> 502 (图书馆登录状态已失效)",
+      "API 返回错误: /api/runtime/next-target -> 502 (图书馆登录状态已失效)",
     );
   });
-});
 
-describe("backend startup probe", () => {
-  test("returns ok when the backend answers", async () => {
+  test("surfaces IPC errors when local router failed to initialize", async () => {
     vi.stubGlobal("__TAURI_INTERNALS__", {});
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response('{"status":"ok"}', { status: 200 })),
-    );
-    await expect(pingBackend()).resolves.toEqual({ ok: true });
-  });
+    vi.mocked(invoke).mockRejectedValueOnce("startup API error: db locked");
 
-  test("reports the HTTP status instead of a bare false", async () => {
-    vi.stubGlobal("__TAURI_INTERNALS__", {});
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("{}", { status: 503 })),
+    await expect(api.session()).rejects.toThrow("本地服务不可用：startup API error: db locked");
+    expect(vi.mocked(logError)).toHaveBeenCalledWith(
+      "API 请求失败: /api/session -> startup API error: db locked",
     );
-    await expect(pingBackend()).resolves.toEqual({ ok: false, detail: "本地服务返回 HTTP 503" });
-  });
-
-  test("reports the transport error", async () => {
-    vi.stubGlobal("__TAURI_INTERNALS__", {});
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new Error("connect refused");
-      }),
-    );
-    await expect(pingBackend()).resolves.toEqual({
-      ok: false,
-      detail: "无法连接本地服务：connect refused",
-    });
   });
 });

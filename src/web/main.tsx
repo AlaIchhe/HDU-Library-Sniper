@@ -4,75 +4,49 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
 
 import { Spinner } from "@/ui/spinner"
-import { BackendUnavailableError, pingBackend } from "./data/api"
 import { router } from "./routes/router"
 import { initializeTheme } from "./data/store"
 import { isTauri } from "./platform/tauri"
 import "./index.css"
 
-// 首次启动时后端可能还在初始化：先把路由挂起，等 /api/health 真正可用后再渲染。
-// 探针带超时；失败时把实际原因（HTTP 状态 / 连接错误 / Rust 侧的 bind 失败）
-// 显示出来并写进日志，避免只有一句“请退出应用后重新打开”。
+// 桌面端在 Rust setup() 阶段已同步完成初始化，这里只做一次状态确认：
+// 正常情况零轮询立即渲染，若数据库等初始化失败则直接展示底层报错。
 function StartupGate({ children }: { children: ReactNode }) {
-  const [ready, setReady] = useState(false)
-  const [slow, setSlow] = useState(false)
-  const [failed, setFailed] = useState(false)
-  const [detail, setDetail] = useState("")
+  const [ready, setReady] = useState(!isTauri() || !import.meta.env.PROD)
+  const [detail, setDetail] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!isTauri() || !import.meta.env.PROD) {
-      setReady(true)
-      return
-    }
+    if (ready) return
     let cancelled = false
-    let reported = false
-    const started = Date.now()
-    const check = async () => {
-      const probe = await pingBackend()
-      if (probe.ok) {
-        if (!cancelled) setReady(true)
-        return
-      }
-      if (cancelled) return
-      const waited = Date.now() - started
-      if (waited > 30_000) {
-        setFailed(true)
-        if (!reported) {
-          reported = true
-          setDetail(probe.detail)
-          // 后端起不来时把 Rust 侧记录的原因带上（端口被占用、数据库打不开等）。
-          void backendStartupError().then((error) => {
-            if (!cancelled && error) setDetail(`${error}（探测：${probe.detail}）`)
-          })
-          void import("@tauri-apps/plugin-log")
-            .then(({ error }) => error(`本地服务启动失败: ${probe.detail}`))
-            .catch(() => undefined)
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core")
+        const status = await invoke<{ running: boolean; error?: string | null }>("local_api_status")
+        if (cancelled) return
+        if (status.running) {
+          setReady(true)
+        } else {
+          setDetail(status.error || "本地服务未能初始化")
         }
-      } else if (waited > 8_000) {
-        setSlow(true)
+      } catch (cause) {
+        if (!cancelled) {
+          setDetail(cause instanceof Error ? cause.message : String(cause))
+        }
       }
-      window.setTimeout(check, 400)
-    }
-    void check()
+    })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [ready])
 
   if (ready) return <>{children}</>
   return (
     <div className="grid min-h-svh place-items-center p-6">
       <div className="grid max-w-[36rem] justify-items-center gap-3 text-center text-sm text-muted-foreground">
-        <Spinner className="size-5" />
-        <p>
-          {failed
-            ? "本地服务启动失败，请查看日志后重新打开应用"
-            : slow
-              ? "本地服务启动较慢，正在重试…"
-              : "正在启动本地服务…"}
-        </p>
-        {failed ? <p className="text-xs break-all text-destructive">{detail}</p> : null}
-        {failed ? (
+        {detail === null ? <Spinner className="size-5" /> : null}
+        <p>{detail === null ? "正在初始化本地服务…" : "本地服务启动失败，请查看日志后重新打开应用"}</p>
+        {detail !== null ? <p className="text-xs break-all text-destructive">{detail}</p> : null}
+        {detail !== null ? (
           <p className="text-xs">日志：%LOCALAPPDATA%\io.github.alaichhe.hdu-library-sniper\logs</p>
         ) : null}
       </div>
@@ -80,23 +54,12 @@ function StartupGate({ children }: { children: ReactNode }) {
   )
 }
 
-async function backendStartupError(): Promise<string | undefined> {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core")
-    const status = await invoke<{ running: boolean; error?: string | null }>("local_api_status")
-    return status.error || undefined
-  } catch {
-    return undefined
-  }
-}
-
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5_000,
-      // 默认不重试馆方错误（避免放大 502），但本地后台正在启动/重启时可以自动重试。
-      retry: (failureCount, error) => error instanceof BackendUnavailableError && failureCount < 4,
-      retryDelay: 700,
+      // 默认不重试馆方错误，避免放大上游 502。
+      retry: false,
     },
   },
 })

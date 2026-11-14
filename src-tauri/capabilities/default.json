@@ -9,10 +9,6 @@
     "updater:default",
     "window-state:default",
     "log:default",
-    "opener:default",
-    {
-      "identifier": "http:default",
-      "allow": [{ "url": "http://127.0.0.1:8000/*" }]
-    }
+    "opener:default"
   ]
 }

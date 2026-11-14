@@ -174,17 +174,9 @@ fn host_name(host: &str) -> &str {
     host.split(':').next().unwrap_or(host)
 }
 
-/// Tauri 的 WebView 页面源。Windows 是 http://tauri.localhost，
-/// Linux/macOS 是 tauri://localhost；5173 是本地开发用的 Vite 源。
-/// 这些源只可能由本机应用产生，允许它们跨源访问本地 API。
+/// 本地开发用的 Vite 源。桌面端已走 Tauri IPC 内存直通，不再需要为 WebView 源放行跨源。
 fn trusted_origins() -> &'static [&'static str] {
-    &[
-        "http://tauri.localhost",
-        "https://tauri.localhost",
-        "tauri://localhost",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ]
+    &["http://localhost:5173", "http://127.0.0.1:5173"]
 }
 
 fn origin_is_trusted(origin: &str) -> bool {
@@ -580,7 +572,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn allows_tauri_webview_origin() {
+    async fn allows_vite_dev_origin() {
         let (status, body) = request_with(
             app(),
             "GET",
@@ -588,7 +580,7 @@ mod tests {
             None,
             &[
                 ("host", "127.0.0.1:8000"),
-                ("origin", "http://tauri.localhost"),
+                ("origin", "http://localhost:5173"),
                 ("sec-fetch-site", "cross-site"),
             ],
         )
@@ -597,14 +589,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn returns_cors_headers_for_tauri_origin() {
+    async fn returns_cors_headers_for_vite_dev_origin() {
         let response = app()
             .oneshot(
                 Request::builder()
                     .method("OPTIONS")
                     .uri("/api/session/login")
                     .header("host", "127.0.0.1:8000")
-                    .header("origin", "http://tauri.localhost")
+                    .header("origin", "http://localhost:5173")
                     .header("access-control-request-method", "POST")
                     .header("access-control-request-headers", "content-type")
                     .body(Body::empty())
@@ -617,7 +609,7 @@ mod tests {
                 .headers()
                 .get("access-control-allow-origin")
                 .and_then(|value| value.to_str().ok()),
-            Some("http://tauri.localhost")
+            Some("http://localhost:5173")
         );
     }
 

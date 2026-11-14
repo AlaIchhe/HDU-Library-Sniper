@@ -12,9 +12,9 @@ describe("tauri plugin configuration", () => {
     expect(main).toContain('windows_subsystem = "windows"');
   });
 
-  test("allows the desktop webview to connect to the local backend", () => {
+  test("does not allow loopback HTTP in CSP now that desktop uses IPC", () => {
     const html = readFileSync("index.html", "utf8");
-    expect(html).toContain("connect-src 'self' http://127.0.0.1:8000");
+    expect(html).not.toContain("127.0.0.1:8000");
   });
 
   test("no longer bundles a Bun sidecar resource", () => {
@@ -22,13 +22,15 @@ describe("tauri plugin configuration", () => {
     expect(config.bundle?.resources).toBeUndefined();
   });
 
-  test("starts the Rust API inside the Tauri process", () => {
+  test("dispatches desktop API calls in-memory via Tauri IPC", () => {
     const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
     expect(lib).toContain("build_router");
     expect(lib).toContain("Scheduler::new");
-    // bind 走常量并带重试；确保后端仍在 Tauri 进程内启动。
-    expect(lib).toContain("TcpListener::bind((LOCAL_API_HOST, LOCAL_API_PORT))");
-    expect(lib).toContain("ensure_loopback_bypass");
+    expect(lib).toContain("fn api_request");
+    expect(lib).toContain(".oneshot(");
+    expect(lib).not.toContain("TcpListener::bind");
+    expect(lib).not.toContain("NO_PROXY");
+    expect(lib).not.toContain("tauri_plugin_http");
     expect(lib).not.toContain("hdu-sniper-server.exe");
     expect(lib).not.toContain("Command::new");
   });
