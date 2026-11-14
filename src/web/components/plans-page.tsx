@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react"
 import { IconCalendarEvent, IconListCheck, IconPencil, IconPlus, IconTrash } from "@tabler/icons-react"
+import { motion } from "motion/react"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -25,18 +26,28 @@ import {
 } from "@/ui/drawer"
 import { InteractiveHoverButton } from "@/ui/interactive-hover-button"
 import { Switch } from "@/ui/switch"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/ui/table"
 import { toastManager } from "@/ui/toast"
 import type { BookingPlan, PlanListItem } from "../../shared/types"
 import { weekdayLabels } from "../../shared/types"
 import { usePlanMutations, usePlans } from "../data/queries"
-import { PageHeader, PageShell, Panel } from "./page-layout"
+import {
+  DataTable,
+  DataTableBody,
+  DataTableHeader,
+  DataTableHoverActions,
+  DataTableRevealCell,
+  DataTableRow,
+  PRESS,
+} from "./data-table"
+import { PageHeader, PageShell, PageState, rise } from "./page-layout"
 import { useRefreshSignal } from "../data/store"
 import { undoToast } from "../undo-toast"
-import { Busy, Failure, NoData } from "../shared"
+import { NoData } from "../shared"
 
 import { GroupEditor } from "./plans/group-editor"
 import { PlanEditor } from "./plans/plan-editor"
+
+const PLAN_COLUMNS = "sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,1.25fr)_auto]"
 export function PlansPage() {
   const plans = usePlans()
   const mutations = usePlanMutations()
@@ -121,217 +132,266 @@ export function PlansPage() {
     }
   }
 
-  if (plans.isLoading) return <Busy />
-  if (plans.error)
-    return (
-      <Failure
-        message={plans.error instanceof Error ? plans.error.message : "方案加载失败"}
-        retry={() => void plans.refetch()}
-      />
-    )
+  return (
+    <PageState
+      loading={plans.isLoading}
+      error={plans.error}
+      errorFallback="方案加载失败"
+      onRetry={() => void plans.refetch()}
+    >
+      <PageShell key="ready">
+        <PageHeader
+          eyebrow="PLANS"
+          title="预约方案"
+          actions={
+            // InteractiveHoverButton 自带圆点 + 悬停箭头作为 affordance；
+            // children 会被放进一个 inline-block 的 span，再塞图标会让「+」
+            // 和文字分成两行。这里只传纯文本，accessible name 保持「创建方案」。
+            <InteractiveHoverButton onClick={() => setDialog("type")}>创建方案</InteractiveHoverButton>
+          }
+        />
+
+        <motion.div variants={rise} className="min-w-0">
+          <DataTable
+            columns={PLAN_COLUMNS}
+            isEmpty={items.length === 0}
+            empty={
+              <NoData
+                icon={IconListCheck}
+                title="还没有预约方案"
+                action={
+                  <Button onClick={() => setDialog("type")}>
+                    <IconPlus className="size-4" />
+                    创建第一个方案
+                  </Button>
+                }
+              />
+            }
+          >
+            <DataTableHeader>
+              <span>方案</span>
+              <span>时间</span>
+              <span>重复日期</span>
+              <span className="text-right">操作</span>
+            </DataTableHeader>
+            <DataTableBody>
+              {items.map((item, index) => (
+                <PlanRow
+                  key={item.id}
+                  item={item}
+                  index={index}
+                  pending={mutations.toggle.isPending}
+                  onToggle={(checked) => void toggle(item, checked)}
+                  onEdit={() => {
+                    setSelected(item)
+                    setDialog(item.kind === "group" ? "edit-group" : "edit-single")
+                  }}
+                  onDelete={() => setDeleteTarget(item)}
+                />
+              ))}
+            </DataTableBody>
+          </DataTable>
+        </motion.div>
+
+        <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+          <AlertDialogPopup>
+            <AlertDialogHeader>
+              <AlertDialogTitle>删除方案？</AlertDialogTitle>
+              <AlertDialogDescription>此操作无法撤销，组合引用关系也会受到影响。</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogClose render={<Button variant="outline" />}>取消</AlertDialogClose>
+              <Button
+                variant="destructive"
+                loading={mutations.remove.isPending}
+                onClick={async () => {
+                  if (!deleteTarget) return
+                  const target = deleteTarget
+                  try {
+                    await mutations.remove.mutateAsync(target.id)
+                    setDeleteTarget(null)
+                    toastManager.add({ type: "success", title: "方案已删除" })
+                  } catch (cause) {
+                    toastManager.add({
+                      type: "error",
+                      title: cause instanceof Error ? cause.message : "删除失败",
+                    })
+                  }
+                }}
+              >
+                删除
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogPopup>
+        </AlertDialog>
+
+        <Dialog open={dialog === "type"} onOpenChange={(open) => !open && setDialog(null)}>
+          <DialogPopup>
+            <DialogHeader>
+              <DialogTitle>创建方案</DialogTitle>
+            </DialogHeader>
+            <DialogPanel>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button
+                  variant="outline"
+                  className="h-auto sm:h-auto flex-col items-start gap-1 p-5 text-left"
+                  onClick={() => setDialog("single")}
+                >
+                  <IconListCheck className="size-6" />
+                  单条方案
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-auto sm:h-auto flex-col items-start gap-1 p-5 text-left"
+                  disabled={available.length < 2}
+                  onClick={() => setDialog("group")}
+                >
+                  <IconCalendarEvent className="size-6" />
+                  组合方案
+                </Button>
+              </div>
+            </DialogPanel>
+          </DialogPopup>
+        </Dialog>
+
+        <Dialog
+          open={dialog === "single" || dialog === "edit-single"}
+          onOpenChange={(open) => !open && setDialog(null)}
+        >
+          <DialogPopup>
+            <DialogHeader>
+              <DialogTitle>{dialog === "edit-single" ? "编辑单条方案" : "创建单条方案"}</DialogTitle>
+            </DialogHeader>
+            <DialogPanel>
+              <PlanEditor
+                initial={selected?.kind === "single" ? selected : undefined}
+                onClose={() => setDialog(null)}
+              />
+            </DialogPanel>
+          </DialogPopup>
+        </Dialog>
+
+        <Drawer
+          open={dialog === "group" || dialog === "edit-group"}
+          onOpenChange={(open) => !open && setDialog(null)}
+        >
+          <DrawerPopup position="bottom">
+            <DrawerHeader>
+              <DrawerTitle>{dialog === "edit-group" ? "编辑组合方案" : "创建组合方案"}</DrawerTitle>
+            </DrawerHeader>
+            <DrawerPanel>
+              <GroupEditor
+                singles={selected?.kind === "group" ? allSingles : available}
+                initial={selected?.kind === "group" ? selected : undefined}
+                onClose={() => setDialog(null)}
+              />
+            </DrawerPanel>
+            <DrawerFooter>
+              <DrawerClose render={<Button variant="outline" />}>关闭</DrawerClose>
+            </DrawerFooter>
+          </DrawerPopup>
+        </Drawer>
+      </PageShell>
+    </PageState>
+  )
+}
+
+function PlanRow({
+  item,
+  index,
+  pending,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  item: PlanListItem
+  index: number
+  pending: boolean
+  onToggle: (checked: boolean) => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const title = item.kind === "group" ? item.name : item.roomType
+  const subtitle =
+    item.kind === "group"
+      ? `${item.memberPlanIds.length} 个成员方案`
+      : `${item.floorName || `楼层 ${item.floorId}`} · 座位 ${item.seatNum}`
+  const timePrimary =
+    item.kind === "group" ? "顺位组合" : `${String(item.startHour).padStart(2, "0")}:00 开始`
+  const timeSecondary =
+    item.kind === "group" ? `${item.memberPlanIds.length} 个子方案` : `时长 ${item.durationHours} 小时`
+  const weekdaysText = item.weekdays.map((day) => weekdayLabels[day]).join("、")
 
   return (
-    <PageShell>
-      <PageHeader
-        eyebrow="PLANS"
-        title="预约方案"
-        actions={
-          // InteractiveHoverButton 自带圆点 + 悬停箭头作为 affordance；
-          // children 会被放进一个 inline-block 的 span，再塞图标会让「+」
-          // 和文字分成两行。这里只传纯文本，accessible name 保持「创建方案」。
-          <InteractiveHoverButton onClick={() => setDialog("type")}>创建方案</InteractiveHoverButton>
+    <DataTableRow value={item.id} index={index} active={item.enabled}>
+      <DataTableRevealCell
+        primary={
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Badge size="sm" variant={item.kind === "group" ? "info" : "outline"}>
+              {item.kind === "group" ? (
+                <IconCalendarEvent className="size-3" />
+              ) : (
+                <IconListCheck className="size-3" />
+              )}
+              {item.kind === "group" ? "组合" : "单条"}
+            </Badge>
+            <p className="truncate text-sm font-medium text-foreground">{title}</p>
+          </div>
+        }
+        reveal={
+          <>
+            <p className="truncate">{subtitle}</p>
+            <p className="mt-1 sm:hidden">
+              {timePrimary} · {timeSecondary} · {weekdaysText}
+            </p>
+          </>
         }
       />
 
-      <Panel title="我的计划">
-        {items.length ? (
-          <Table variant="card">
-            <TableHeader className="max-sm:hidden">
-              <TableRow>
-                <TableHead>方案</TableHead>
-                <TableHead className="hidden lg:table-cell">时间</TableHead>
-                <TableHead className="hidden lg:table-cell">重复日期</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow
-                  key={item.id}
-                  className="max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:items-center"
-                >
-                  <TableCell className="min-w-0 max-sm:overflow-hidden">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <Badge variant={item.kind === "group" ? "info" : "outline"}>
-                        {item.kind === "group" ? (
-                          <IconCalendarEvent className="size-3" />
-                        ) : (
-                          <IconListCheck className="size-3" />
-                        )}
-                        {item.kind === "group" ? "组合" : "单条"}
-                      </Badge>
-                      <strong className="truncate">
-                        {item.kind === "group" ? item.name : `${item.roomType} · 座位 ${item.seatNum}`}
-                      </strong>
-                    </div>
-                  </TableCell>
-                  <TableCell className="hidden lg:table-cell">
-                    {item.kind === "group"
-                      ? `${item.memberPlanIds.length} 个方案`
-                      : `${item.floorName || `楼层 ${item.floorId}`} · ${String(item.startHour).padStart(
-                          2,
-                          "0",
-                        )}:00 · ${item.durationHours} 小时`}
-                  </TableCell>
-                  <TableCell className="hidden lg:table-cell">
-                    {item.weekdays.map((day) => weekdayLabels[day]).join("、")}
-                  </TableCell>
-                  <TableCell className="max-sm:ps-0">
-                    <div className="flex justify-end gap-2">
-                      <Switch
-                        checked={item.enabled}
-                        onCheckedChange={(checked) => void toggle(item, checked)}
-                        disabled={mutations.toggle.isPending}
-                        aria-label={item.enabled ? "停用方案" : "启用方案"}
-                      />
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setSelected(item)
-                          setDialog(item.kind === "group" ? "edit-group" : "edit-single")
-                        }}
-                        aria-label="编辑方案"
-                      >
-                        <IconPencil />
-                      </Button>
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        className="text-destructive"
-                        onClick={() => setDeleteTarget(item)}
-                        aria-label="删除方案"
-                      >
-                        <IconTrash />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : (
-          <NoData
-            icon={IconListCheck}
-            title="还没有预约方案"
-            action={
-              <Button onClick={() => setDialog("type")}>
-                <IconPlus className="size-4" />
-                创建第一个方案
-              </Button>
-            }
-          />
-        )}
-      </Panel>
+      <DataTableRevealCell
+        className="hidden sm:block"
+        primary={<p className="truncate text-sm font-medium tabular-nums text-foreground">{timePrimary}</p>}
+        reveal={<p className="truncate tabular-nums">{timeSecondary}</p>}
+      />
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogPopup>
-          <AlertDialogHeader>
-            <AlertDialogTitle>删除方案？</AlertDialogTitle>
-            <AlertDialogDescription>此操作无法撤销，组合引用关系也会受到影响。</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>取消</AlertDialogClose>
+      <div className="hidden min-w-0 sm:block">
+        <p className="text-sm leading-snug text-foreground/85">{weekdaysText}</p>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 sm:justify-end">
+        <span className="text-[13px] font-medium text-foreground/80 sm:hidden">
+          {item.enabled ? "已启用" : "未启用"}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <DataTableHoverActions>
             <Button
-              variant="destructive"
-              loading={mutations.remove.isPending}
-              onClick={async () => {
-                if (!deleteTarget) return
-                const target = deleteTarget
-                try {
-                  await mutations.remove.mutateAsync(target.id)
-                  setDeleteTarget(null)
-                  toastManager.add({ type: "success", title: "方案已删除" })
-                } catch (cause) {
-                  toastManager.add({
-                    type: "error",
-                    title: cause instanceof Error ? cause.message : "删除失败",
-                  })
-                }
-              }}
+              size="icon-sm"
+              variant="ghost"
+              onClick={onEdit}
+              aria-label="编辑方案"
+              render={<motion.button type="button" {...PRESS} />}
             >
-              删除
+              <IconPencil />
             </Button>
-          </AlertDialogFooter>
-        </AlertDialogPopup>
-      </AlertDialog>
-
-      <Dialog open={dialog === "type"} onOpenChange={(open) => !open && setDialog(null)}>
-        <DialogPopup>
-          <DialogHeader>
-            <DialogTitle>创建方案</DialogTitle>
-          </DialogHeader>
-          <DialogPanel>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Button
-                variant="outline"
-                className="h-auto sm:h-auto flex-col items-start gap-1 p-5 text-left"
-                onClick={() => setDialog("single")}
-              >
-                <IconListCheck className="size-6" />
-                单条方案
-              </Button>
-              <Button
-                variant="outline"
-                className="h-auto sm:h-auto flex-col items-start gap-1 p-5 text-left"
-                disabled={available.length < 2}
-                onClick={() => setDialog("group")}
-              >
-                <IconCalendarEvent className="size-6" />
-                组合方案
-              </Button>
-            </div>
-          </DialogPanel>
-        </DialogPopup>
-      </Dialog>
-
-      <Dialog
-        open={dialog === "single" || dialog === "edit-single"}
-        onOpenChange={(open) => !open && setDialog(null)}
-      >
-        <DialogPopup>
-          <DialogHeader>
-            <DialogTitle>{dialog === "edit-single" ? "编辑单条方案" : "创建单条方案"}</DialogTitle>
-          </DialogHeader>
-          <DialogPanel>
-            <PlanEditor
-              initial={selected?.kind === "single" ? selected : undefined}
-              onClose={() => setDialog(null)}
-            />
-          </DialogPanel>
-        </DialogPopup>
-      </Dialog>
-
-      <Drawer
-        open={dialog === "group" || dialog === "edit-group"}
-        onOpenChange={(open) => !open && setDialog(null)}
-      >
-        <DrawerPopup position="bottom">
-          <DrawerHeader>
-            <DrawerTitle>{dialog === "edit-group" ? "编辑组合方案" : "创建组合方案"}</DrawerTitle>
-          </DrawerHeader>
-          <DrawerPanel>
-            <GroupEditor
-              singles={selected?.kind === "group" ? allSingles : available}
-              initial={selected?.kind === "group" ? selected : undefined}
-              onClose={() => setDialog(null)}
-            />
-          </DrawerPanel>
-          <DrawerFooter>
-            <DrawerClose render={<Button variant="outline" />}>关闭</DrawerClose>
-          </DrawerFooter>
-        </DrawerPopup>
-      </Drawer>
-    </PageShell>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="text-destructive"
+              onClick={onDelete}
+              aria-label="删除方案"
+              render={<motion.button type="button" {...PRESS} />}
+            >
+              <IconTrash />
+            </Button>
+          </DataTableHoverActions>
+          <Switch
+            checked={item.enabled}
+            onCheckedChange={onToggle}
+            disabled={pending}
+            aria-label={item.enabled ? "停用方案" : "启用方案"}
+          />
+        </div>
+      </div>
+    </DataTableRow>
   )
 }

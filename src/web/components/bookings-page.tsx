@@ -1,32 +1,29 @@
 "use client"
 
-import { useState, type ReactNode, type Ref } from "react"
+import { useState } from "react"
 import { IconCalendarEvent, IconRefresh } from "@tabler/icons-react"
-import {
-  AnimatePresence,
-  LayoutGroup,
-  MotionConfig,
-  motion,
-  useReducedMotion,
-  type Transition,
-  type Variants,
-} from "motion/react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 
 import { Button } from "@/ui/button"
 import { toastManager } from "@/ui/toast"
-import { cn } from "@/lib/utils"
-import { PageHeader, PageShell, Panel } from "./page-layout"
+import {
+  DataTable,
+  DataTableBody,
+  DataTableHeader,
+  DataTableHoverActions,
+  DataTableRevealCell,
+  DataTableRow,
+  PRESS,
+  SETTLE,
+  SNAPPY,
+} from "./data-table"
+import { PageHeader, PageShell, PageState, rise } from "./page-layout"
 import type { Booking } from "../../shared/types"
 import { useBookingAction, useBookings } from "../data/queries"
 import { useRefreshSignal } from "../data/store"
-import { Busy, Failure, NoData } from "../shared"
+import { NoData } from "../shared"
 
-// 弹簧预设：交互反馈要跟手（轻微回弹），布局位移要稳。
-const SNAPPY = { type: "spring", stiffness: 500, damping: 30, mass: 0.6 } satisfies Transition
-const SMOOTH = { type: "spring", stiffness: 320, damping: 32, mass: 0.9 } satisfies Transition
-const SETTLE = { type: "spring", stiffness: 90, damping: 16 } satisfies Transition
-
-const COLUMNS = "sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(9rem,auto)]"
+const COLUMNS = "sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(9rem,auto)]"
 
 // 顺序即按钮渲染顺序；签到是唯一的主操作
 const ACTIONS = [
@@ -42,23 +39,6 @@ type PendingAction = { id: string; action: string }
 
 const toneOf = (booking: Booking): Tone =>
   booking.canCheckIn ? "attention" : booking.state === "in_use" ? "active" : "idle"
-
-const press = {
-  whileHover: { y: -1 },
-  whileFocus: { y: -1 },
-  whileTap: { scale: 0.96, y: 0 },
-  transition: SNAPPY,
-}
-
-const row: Variants = {
-  hidden: { opacity: 0, y: 8 },
-  show: (index: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: { ...SMOOTH, delay: Math.min(index, 6) * 0.035 },
-  }),
-  exit: { opacity: 0, scale: 0.98, transition: SNAPPY },
-}
 
 export function BookingsPage() {
   const bookings = useBookings()
@@ -76,35 +56,23 @@ export function BookingsPage() {
     }
   }
 
-  const phase = bookings.isLoading ? "loading" : bookings.error ? "error" : "ready"
-
   return (
-    <MotionConfig reducedMotion="user" transition={SMOOTH}>
-      <AnimatePresence mode="wait">
-        {phase === "loading" ? (
-          <Fade key="loading">
-            <Busy />
-          </Fade>
-        ) : phase === "error" ? (
-          <Fade key="error">
-            <Failure
-              message={bookings.error instanceof Error ? bookings.error.message : "预约加载失败"}
-              retry={() => void bookings.refetch()}
-            />
-          </Fade>
-        ) : (
-          <BookingsView
-            key="ready"
-            rows={bookings.data?.bookings ?? []}
-            fetching={bookings.isFetching}
-            busy={action.isPending}
-            pending={action.isPending ? action.variables : undefined}
-            onRefresh={() => void bookings.refetch()}
-            onAction={(booking, name) => void run(booking, name)}
-          />
-        )}
-      </AnimatePresence>
-    </MotionConfig>
+    <PageState
+      loading={bookings.isLoading}
+      error={bookings.error}
+      errorFallback="预约加载失败"
+      onRetry={() => void bookings.refetch()}
+    >
+      <BookingsView
+        key="ready"
+        rows={bookings.data?.bookings ?? []}
+        fetching={bookings.isFetching}
+        busy={action.isPending}
+        pending={action.isPending ? action.variables : undefined}
+        onRefresh={() => void bookings.refetch()}
+        onAction={(booking, name) => void run(booking, name)}
+      />
+    </PageState>
   )
 }
 
@@ -123,8 +91,6 @@ function BookingsView({
   onRefresh: () => void
   onAction: (booking: Booking, action: string) => void
 }) {
-  const [hoveredRow, setHoveredRow] = useState<string | null>(null)
-
   // 每次进入拉取状态就多转一圈，由弹簧自然停住，而不是匀速空转
   const [turns, setTurns] = useState(0)
   const [wasFetching, setWasFetching] = useState(fetching)
@@ -142,10 +108,10 @@ function BookingsView({
           <Button
             variant="ghost"
             size="sm"
-            className="text-muted-foreground hover:text-foreground"
+            className="font-medium text-foreground/80 hover:text-foreground"
             disabled={fetching}
             onClick={onRefresh}
-            render={<motion.button type="button" {...press} />}
+            render={<motion.button type="button" {...PRESS} />}
           >
             <motion.span
               className="inline-flex"
@@ -160,148 +126,108 @@ function BookingsView({
         }
       />
 
-      <Panel title="有效预约">
-        <AnimatePresence mode="popLayout" initial={false}>
-          {rows.length ? (
-            <motion.div
-              key="list"
-              layout="position"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="overflow-hidden rounded-xl border bg-card shadow-xs/5"
-            >
-              <motion.div
-                layout="position"
-                className={cn(
-                  "hidden gap-6 border-b px-4 py-2.5 text-xs text-muted-foreground sm:grid",
-                  COLUMNS,
-                )}
-              >
-                <span>预约</span>
-                <span>时间</span>
-                <span>状态</span>
-                <span className="text-right">操作</span>
-              </motion.div>
-              <LayoutGroup id="booking-rows">
-                <ul
-                  className="relative divide-y"
-                  onPointerLeave={() => setHoveredRow(null)}
-                  onBlur={(event) => {
-                    if (!event.currentTarget.contains(event.relatedTarget)) setHoveredRow(null)
-                  }}
-                >
-                  <AnimatePresence mode="popLayout">
-                    {rows.map((booking, index) => (
-                      <Row
-                        key={booking.bookingId}
-                        booking={booking}
-                        index={index}
-                        highlighted={hoveredRow === booking.bookingId}
-                        busy={busy}
-                        pending={pending}
-                        onHighlight={() => setHoveredRow(booking.bookingId)}
-                        onAction={onAction}
-                      />
-                    ))}
-                  </AnimatePresence>
-                </ul>
-              </LayoutGroup>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="empty"
-              layout="position"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-            >
-              <NoData icon={IconCalendarEvent} title="暂无当前预约" />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </Panel>
+      <motion.div variants={rise} className="min-w-0">
+        <DataTable
+          columns={COLUMNS}
+          isEmpty={rows.length === 0}
+          empty={<NoData icon={IconCalendarEvent} title="暂无当前预约" />}
+        >
+          <DataTableHeader>
+            <span>预约</span>
+            <span>时间</span>
+            <span>状态</span>
+            <span className="text-right">操作</span>
+          </DataTableHeader>
+          <DataTableBody>
+            {rows.map((booking, index) => (
+              <BookingRow
+                key={booking.bookingId}
+                booking={booking}
+                index={index}
+                busy={busy}
+                pending={pending}
+                onAction={onAction}
+              />
+            ))}
+          </DataTableBody>
+        </DataTable>
+      </motion.div>
     </PageShell>
   )
 }
 
-function Row({
-  ref,
+function BookingRow({
   booking,
   index,
-  highlighted,
   busy,
   pending,
-  onHighlight,
   onAction,
 }: {
-  ref?: Ref<HTMLLIElement>
   booking: Booking
   index: number
-  highlighted: boolean
   busy: boolean
   pending?: PendingAction
-  onHighlight: () => void
   onAction: (booking: Booking, action: string) => void
 }) {
   const actions = ACTIONS.filter((a) => a.available(booking))
+  const primaryActions = actions.filter((a) => "primary" in a)
+  const secondaryActions = actions.filter((a) => !("primary" in a))
+  const tone = toneOf(booking)
+
+  const renderAction = (a: (typeof ACTIONS)[number], primary: boolean) => (
+    <motion.div
+      key={a.key}
+      layout
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      transition={SNAPPY}
+    >
+      <Button
+        size="sm"
+        variant={primary ? "default" : "ghost"}
+        className={primary ? undefined : "font-medium text-foreground/85 hover:text-foreground"}
+        disabled={busy}
+        loading={pending?.id === booking.bookingId && pending.action === a.key}
+        onClick={() => onAction(booking, a.key)}
+        render={<motion.button type="button" {...PRESS} />}
+      >
+        {a.label}
+      </Button>
+    </motion.div>
+  )
 
   return (
-    <motion.li
-      ref={ref}
-      layout
-      custom={index}
-      variants={row}
-      initial="hidden"
-      animate="show"
-      exit="exit"
-      className={cn("relative isolate grid gap-3 px-4 py-3.5 sm:items-center sm:gap-6", COLUMNS)}
-      onPointerEnter={onHighlight}
-      onFocus={onHighlight}
-    >
-      <Highlight id="row-highlight" active={highlighted} />
+    <DataTableRow value={booking.bookingId} index={index} active={tone !== "idle"}>
+      <DataTableRevealCell
+        primary={<p className="truncate text-sm font-medium text-foreground">{booking.roomName}</p>}
+        reveal={
+          <p className="truncate">
+            座位 <span className="font-medium text-foreground">{booking.seatNum}</span>
+          </p>
+        }
+      />
 
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium">{booking.roomName}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          座位 <span className="font-sans text-foreground/80">{booking.seatNum}</span>
-        </p>
-      </div>
+      <DataTableRevealCell
+        primary={<p className="truncate text-sm tabular-nums text-foreground">{booking.startText}</p>}
+        reveal={<p className="truncate tabular-nums">时长 {booking.durationText}</p>}
+      />
 
-      <div className="min-w-0 text-sm">
-        <p className="truncate tabular-nums">{booking.startText}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{booking.durationText}</p>
-      </div>
+      <Status tone={tone} label={booking.statusLabel} />
 
-      <Status tone={toneOf(booking)} label={booking.statusLabel} />
-
-      <motion.div layout className="relative flex flex-wrap gap-1.5 sm:justify-end">
+      <motion.div layout className="relative flex flex-wrap items-center gap-1.5 sm:justify-end">
+        {secondaryActions.length > 0 && (
+          <DataTableHoverActions>
+            <AnimatePresence mode="popLayout" initial={false}>
+              {secondaryActions.map((a) => renderAction(a, false))}
+            </AnimatePresence>
+          </DataTableHoverActions>
+        )}
         <AnimatePresence mode="popLayout" initial={false}>
-          {actions.map((a) => (
-            <motion.div
-              key={a.key}
-              layout
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={SNAPPY}
-            >
-              <Button
-                size="sm"
-                variant={"primary" in a ? "default" : "ghost"}
-                className={"primary" in a ? undefined : "text-muted-foreground hover:text-foreground"}
-                disabled={busy}
-                loading={pending?.id === booking.bookingId && pending.action === a.key}
-                onClick={() => onAction(booking, a.key)}
-                render={<motion.button type="button" {...press} />}
-              >
-                {a.label}
-              </Button>
-            </motion.div>
-          ))}
+          {primaryActions.map((a) => renderAction(a, true))}
         </AnimatePresence>
       </motion.div>
-    </motion.li>
+    </DataTableRow>
   )
 }
 
@@ -310,9 +236,9 @@ function Status({ tone, label }: { tone: Tone; label: string }) {
 
   return (
     <motion.span
-      className="inline-flex items-center gap-2 text-sm text-foreground"
+      className="inline-flex min-w-0 items-center gap-2 text-sm text-foreground"
       initial={false}
-      animate={{ opacity: tone === "idle" ? 0.6 : 1 }}
+      animate={{ opacity: tone === "idle" ? 0.8 : 1 }}
     >
       <span className="relative size-1.5 shrink-0">
         <AnimatePresence>
@@ -356,36 +282,5 @@ function Status({ tone, label }: { tone: Tone; label: string }) {
         </AnimatePresence>
       </span>
     </motion.span>
-  )
-}
-
-// 共享 layoutId 的悬停底色：在同组单元之间滑动，离开时淡出
-function Highlight({ id, active }: { id: string; active: boolean }) {
-  return (
-    <AnimatePresence>
-      {active && (
-        <motion.span
-          layoutId={id}
-          aria-hidden
-          className="absolute inset-0 -z-10 bg-muted/60"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={SNAPPY}
-        />
-      )}
-    </AnimatePresence>
-  )
-}
-
-function Fade({ children }: { children: ReactNode }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4, transition: SNAPPY }}
-    >
-      {children}
-    </motion.div>
   )
 }
