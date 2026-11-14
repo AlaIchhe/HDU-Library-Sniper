@@ -96,6 +96,13 @@ src-tauri/target/universal-apple-darwin/release/bundle/macos/HDU Library Sniper.
 
 可行的验证方式：
 
-- **CI**：`macos-latest` runner 上跑完整构建，`codesign -dv` 检查签名状态；
+- **类型检查（本机可做）**：`rustup target add aarch64-apple-darwin` 之后
+  `cargo check -p hdu-library-sniper --target aarch64-apple-darwin`。没有 macOS SDK 时，
+  `ring`、`mac-notification-sys` 这些 crate 的 build script 会因为缺 Cocoa/SDK 头文件失败；
+  用一个 cc 壳子（丢掉 `-arch` / `--target=*apple*` / `-Fo`，编不过就产一个空目标文件）就能让检查跑完。
+  它只验证 Rust 代码，不验证 C/ObjC。2026-11-14 用这个办法确认过 `keyring` 的 `apple-native`
+  和 `tauri-plugin-autostart` 的调用都能过。
+- **CI**：`macos-latest` runner 上跑完整构建，产物会作为 workflow artifact 上传（手动触发也能拿到 dmg），
+  `codesign -dv` 检查签名状态；
 - **真机**：任意一台 Mac（甚至朋友的）上装一遍，确认放行流程、钥匙串弹窗、通知、LaunchAgent 都在位；
 - 交叉类型检查在本机也做不了（`ring` 需要 `-arch arm64` 的 clang 交叉编译），所以 macOS 分支的编译由 CI 把关。

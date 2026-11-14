@@ -52,7 +52,18 @@ jobs:
           codesign -dv --verbose=4 "src-tauri/target/universal-apple-darwin/release/bundle/macos/HDU Library Sniper.app" 2>&1 | head -20
           ls -la src-tauri/target/universal-apple-darwin/release/bundle/dmg/
 
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+          if-no-files-found: error
+
       - name: Wait for the release created by the Windows job
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -67,6 +78,7 @@ jobs:
           exit 1
 
       - name: Upload dmg and updater bundle
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -78,6 +90,7 @@ jobs:
       # latest.json 由 Windows 任务生成；这里补上两个 darwin 平台条目，
       # universal 包同时服务 Apple Silicon 和 Intel。
       - name: Add darwin entries to latest.json
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
