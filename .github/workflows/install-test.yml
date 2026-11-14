@@ -35,7 +35,9 @@ jobs:
       - run: bun install --frozen-lockfile
 
       - name: Build the NSIS installer
-        run: bun run tauri build --bundles nsis
+        # 这个任务只验证安装器行为，不需要更新包签名；关掉 createUpdaterArtifacts
+        # 就不用把 TAURI_SIGNING_PRIVATE_KEY 暴露给它。
+        run: bun run tauri build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Locate the installer
         id: locate
