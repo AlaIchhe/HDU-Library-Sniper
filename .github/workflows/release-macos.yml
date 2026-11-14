@@ -4,7 +4,7 @@ name: Release macOS app
 #   - bundle.macOS.signingIdentity = "-"  → codesign -s -（Apple Silicon 上必须有签名才跑得起来）
 #   - 不做 notarization                   → 用户首次打开要在「隐私与安全性」里放行（见 docs/MACOS.md）
 # 拿到会员之后只需要：把 sign 步骤换成导入 Developer ID 证书、去掉 signingIdentity，
-# 再加上 tauri-action 的 notarize 环境变量（APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID）。
+# 再加上 APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID 三个环境变量，tauri-action 会自动公证。
 on:
   push:
     tags: ["v*"]
@@ -47,19 +47,43 @@ jobs:
         run: |
           bun run tauri build --target universal-apple-darwin --bundles app,dmg
 
+      # cargo 的 target 目录在 workspace 根，但不同 tauri 版本下也可能落在 src-tauri 里，两边都找
+      - name: Locate the bundles
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          for base in \
+            "target/universal-apple-darwin/release/bundle" \
+            "src-tauri/target/universal-apple-darwin/release/bundle"; do
+            if [ -d "$base/dmg" ] && [ -d "$base/macos" ]; then
+              echo "base=$base" >> "$GITHUB_OUTPUT"
+              ls -lh "$base/dmg" "$base/macos"
+              exit 0
+            fi
+          done
+          echo "no bundle directory found" >&2
+          find . -maxdepth 5 \( -name "*.dmg" -o -name "*.app.tar.gz" \) -print >&2
+          exit 1
+
       - name: Show signature state
         run: |
-          codesign -dv --verbose=4 "src-tauri/target/universal-apple-darwin/release/bundle/macos/HDU Library Sniper.app" 2>&1 | head -20
-          ls -la src-tauri/target/universal-apple-darwin/release/bundle/dmg/
+          app="${{ steps.bundle.outputs.base }}/macos/HDU Library Sniper.app"
+          echo "--- codesign ---"
+          codesign -dv --verbose=4 "$app" 2>&1 | head -20 || true
+          echo "--- architectures ---"
+          lipo -archs "$app/Contents/MacOS/hdu-library-sniper" || true
+          echo "--- gatekeeper ---"
+          spctl --assess --type execute --verbose "$app" 2>&1 | head -5 || true
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-universal
           path: |
-            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
-            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+            ${{ steps.bundle.outputs.base }}/dmg/*.dmg
+            ${{ steps.bundle.outputs.base }}/macos/*.app.tar.gz
+            ${{ steps.bundle.outputs.base }}/macos/*.app.tar.gz.sig
           if-no-files-found: error
 
       - name: Wait for the release created by the Windows job
@@ -83,7 +107,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          base="src-tauri/target/universal-apple-darwin/release/bundle"
+          base="${{ steps.bundle.outputs.base }}"
           gh release upload "$GITHUB_REF_NAME" "$base"/dmg/*.dmg --clobber
           gh release upload "$GITHUB_REF_NAME" "$base"/macos/*.app.tar.gz "$base"/macos/*.app.tar.gz.sig --clobber
 
@@ -106,8 +130,9 @@ jobs:
           done
           test -f "$dir/latest.json"
 
+          tarball=$(ls "${{ steps.bundle.outputs.base }}"/macos/*.app.tar.gz | head -1)
           python3 scripts/patch-latest-json.py "$dir/latest.json" \
-            --tarball "src-tauri/target/universal-apple-darwin/release/bundle/macos/HDU Library Sniper.app.tar.gz" \
+            --tarball "$tarball" \
             --url-prefix "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag"
 
           gh release upload "$tag" "$dir/latest.json" --clobber
