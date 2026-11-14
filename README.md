@@ -12,6 +12,9 @@
   <a href="https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest">
     <img src="https://img.shields.io/badge/下载-Windows%20x64-2ea44f?style=for-the-badge&logo=windows&logoColor=white" alt="下载 Windows x64">
   </a>
+  <a href="https://github.com/AlaIchhe/HDU-Library-Sniper/releases/latest">
+    <img src="https://img.shields.io/badge/下载-macOS%20universal-000000?style=for-the-badge&logo=apple&logoColor=white" alt="下载 macOS universal">
+  </a>
 </p>
 
 <p align="center">
@@ -22,7 +25,9 @@
 </p>
 
 <p align="center">
-  <sub>支持 Windows x64，下载 NSIS 安装包（<code>*-setup.exe</code>）双击安装即可。</sub>
+  <sub>支持 Windows x64 与 macOS（Apple Silicon / Intel 通用）。Windows 下载 <code>*-setup.exe</code>，
+  macOS 下载 <code>*_universal.dmg</code>；macOS 版未做公证，首次打开需要按
+  <a href="docs/MACOS.md">macOS 说明</a>放行一次。</sub>
 </p>
 
 ---

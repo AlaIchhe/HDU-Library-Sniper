@@ -47,6 +47,12 @@ xattr -dr com.apple.quarantine "/Applications/HDU Library Sniper.app"
 - **自动启动**：macOS 没有安装器可以写启动项，应用首次运行时会自己注册 LaunchAgent
   （`~/Library/LaunchAgents/`，登录时以 `--background` 启动），对应 Windows 上 NSIS 钩子写的 `HKCU\...\Run`。
 
+## 首次发行（v2.1.6，2026-11-14）
+
+`v2.1.6` 已经带上 macOS 产物发布：`HDU.Library.Sniper_2.1.6_universal.dmg`（10.55 MB）、
+更新包 `HDU.Library.Sniper.app.tar.gz` 与 `.sig`，`latest.json` 里补了 `darwin-aarch64` /
+`darwin-x86_64` 两个平台条目（Windows 那条仍然指向 `*-setup.exe`）。
+
 ## 首次 CI 结果（2026-11-14）
 
 `workflow_dispatch` 手动跑通了一次，13 分 38 秒（runner: `macos-latest`，Apple Silicon）：
