@@ -18,6 +18,8 @@ use hdu_sniper_store::Store;
 use tauri::{Emitter, Manager, WindowEvent};
 use tower::ServiceExt;
 
+mod updater;
+
 const MAX_IPC_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 /// 桌面端托管的内存路由器状态。启动阶段同步初始化完成后即直接可用，
@@ -172,6 +174,7 @@ fn init_api(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             *slot = None;
         }
     }
+    updater::spawn_auto_updater(app.clone(), scheduler.clone());
     tauri::async_runtime::spawn(scheduler.run());
     let version = env!("CARGO_PKG_VERSION");
     let message = format!(
@@ -261,7 +264,9 @@ pub fn run() {
             }
 
             let handle = app.handle().clone();
-            let background = std::env::args().any(|arg| arg == "--background");
+            let silent_restart =
+                updater::consume_silent_restart_marker(&app_home_dir().join("data"));
+            let background = std::env::args().any(|arg| arg == "--background") || silent_restart;
             if background {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();

@@ -22,6 +22,12 @@ describe("tauri plugin configuration", () => {
     expect(config.bundle?.resources).toBeUndefined();
   });
 
+  test("configures unattended per-user Windows updates without UAC prompts", () => {
+    const config = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
+    expect(config.bundle?.windows?.nsis?.installMode).toBe("currentUser");
+    expect(config.plugins?.updater?.windows?.installMode).toBe("quiet");
+  });
+
   test("dispatches desktop API calls in-memory via Tauri IPC", () => {
     const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
     expect(lib).toContain("build_router");

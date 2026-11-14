@@ -1,4 +1,4 @@
-<#
+﻿<#
   旧 MSI（2.0.x）→ 新 NSIS 安装包的迁移验证。
 
   Windows 虚拟机和 GitHub Actions 的 windows-latest 都用这一份：
@@ -36,18 +36,21 @@ function Pass([string]$message) {
   Say "PASS  $message"
 }
 
-$installDir = Join-Path $env:ProgramFiles 'HDU Library Sniper'
+$legacyDir = Join-Path $env:ProgramFiles 'HDU Library Sniper'
+$installDir = Join-Path $env:LOCALAPPDATA 'HDU Library Sniper'
 $appExe = Join-Path $installDir 'hdu-library-sniper.exe'
 
 function Get-Entries {
   foreach ($root in @(
       'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
-      'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')) {
+      'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
+      'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall')) {
     Get-ChildItem $root -ErrorAction SilentlyContinue | ForEach-Object {
       $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
       if ($props.DisplayName -like '*HDU Library Sniper*') {
         [pscustomobject]@{
           Key     = $_.PSChildName
+          Scope   = if ($root -like 'HKCU:*') { 'HKCU' } else { 'HKLM' }
           Version = $props.DisplayVersion
           Msi     = $props.WindowsInstaller
         }
@@ -58,18 +61,20 @@ function Get-Entries {
 
 function Format-Entries($entries) {
   if (-not $entries) { return '(none)' }
-  ($entries | ForEach-Object { "$($_.Version)[msi=$($_.Msi)]" }) -join ', '
+  ($entries | ForEach-Object { "$($_.Scope):$($_.Version)[msi=$($_.Msi)]" }) -join ', '
 }
 
 Say "== start $(Get-Date -Format o)"
 
 # 1. 清掉当前安装，保证从「只有旧 MSI」的状态开始
-if (Test-Path (Join-Path $installDir 'uninstall.exe')) {
-  Get-Process hdu-library-sniper -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Start-Sleep -Seconds 2
-  Start-Process (Join-Path $installDir 'uninstall.exe') '/S' -Wait | Out-Null
-  Start-Sleep -Seconds 3
-  Say 'cleaned the previous NSIS install'
+foreach ($dir in @($legacyDir, $installDir)) {
+  if (Test-Path (Join-Path $dir 'uninstall.exe')) {
+    Get-Process hdu-library-sniper -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Start-Process (Join-Path $dir 'uninstall.exe') '/S' -Wait | Out-Null
+    Start-Sleep -Seconds 3
+    Say "cleaned the previous NSIS install under $dir"
+  }
 }
 
 # 2. 安装旧 MSI
@@ -107,8 +112,12 @@ $msiLeft = @($after | Where-Object { $_.Msi -eq 1 })
 if ($msiLeft.Count -eq 0) { Pass 'legacy MSI uninstall entry removed' }
 else { Fail ("legacy MSI entries left: " + (Format-Entries $msiLeft)) }
 
-if ($after.Count -eq 1) { Pass 'exactly one uninstall entry' }
-else { Fail "expected one uninstall entry, found $($after.Count)" }
+$hklmLeft = @($after | Where-Object { $_.Scope -eq 'HKLM' })
+if ($hklmLeft.Count -eq 0) { Pass 'no HKLM legacy entry left' }
+else { Fail ("HKLM entries left: " + (Format-Entries $hklmLeft)) }
+
+if ($after.Count -eq 1 -and $after[0].Scope -eq 'HKCU') { Pass 'exactly one HKCU uninstall entry' }
+else { Fail "expected one HKCU uninstall entry, found $(Format-Entries $after)" }
 
 if (Test-Path $appExe) {
   $version = (Get-Item $appExe).VersionInfo.ProductVersion

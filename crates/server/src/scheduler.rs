@@ -13,9 +13,16 @@ use hdu_sniper_core::{
 use hdu_sniper_hdu::Action;
 use hdu_sniper_store::Store;
 use serde_json::Value;
+use tokio::sync::broadcast;
 use tokio::time::sleep;
 
 use crate::booking::BookingExecutor;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdleTaskKind {
+    Booking,
+    CheckIn,
+}
 
 const CHECKIN_OFFSET_MS: i64 = 60_000;
 /// 签到是写入类接口，按实测的写入节拍固定轮询（见 docs/HUITU-LIMITS.md）。
@@ -68,10 +75,12 @@ pub struct Scheduler {
     status: Mutex<StatusState>,
     pending: Mutex<HashMap<String, PendingCheckIn>>,
     running: AtomicBool,
+    idle_tx: broadcast::Sender<IdleTaskKind>,
 }
 
 impl Scheduler {
     pub fn new(store: Arc<Store>, auth: Arc<AuthService>, booking: Arc<BookingExecutor>) -> Self {
+        let (idle_tx, _) = broadcast::channel(16);
         Self {
             store,
             auth,
@@ -79,7 +88,42 @@ impl Scheduler {
             status: Mutex::new(StatusState::default()),
             pending: Mutex::new(HashMap::new()),
             running: AtomicBool::new(false),
+            idle_tx,
         }
+    }
+
+    pub fn subscribe_idle(&self) -> broadcast::Receiver<IdleTaskKind> {
+        self.idle_tx.subscribe()
+    }
+
+    pub fn is_safe_update_window_now(&self, min_idle: Duration) -> bool {
+        self.is_safe_update_window(Utc::now(), min_idle)
+    }
+
+    /// 判断当前是否处于适合重启安装更新的安全空闲窗：
+    /// 无正在执行的抢座任务，且未来 `min_idle` 内无预锁/抢座锚点与待签到任务。
+    pub fn is_safe_update_window(&self, now: DateTime<Utc>, min_idle: Duration) -> bool {
+        if self.running.load(Ordering::SeqCst) {
+            return false;
+        }
+        let min_secs = i64::try_from(min_idle.as_secs()).unwrap_or(i64::MAX);
+        if self.has_enabled_plan() {
+            let seconds = shanghai_seconds_of_day(now);
+            let prelock = booking_prelock_delay_seconds(seconds, BOOKING_PRELOCK_LEAD_SECONDS);
+            let anchor = booking_anchor_delay_seconds(seconds);
+            if prelock < min_secs || anchor < min_secs {
+                return false;
+            }
+        }
+        if self.auto_check_in_enabled() {
+            if let Some((_, next_at_ms)) = self.next_check_in() {
+                let delay_ms = (next_at_ms - now.timestamp_millis()).max(0) as u128;
+                if delay_ms < min_idle.as_millis() {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     pub fn auto_check_in_enabled(&self) -> bool {
@@ -317,7 +361,10 @@ impl Scheduler {
             let scheduler = self.clone();
             tokio::spawn(async move {
                 scheduler.sync_check_ins_retries(SYNC_RETRY_DELAYS_MS).await;
+                let _ = scheduler.idle_tx.send(IdleTaskKind::Booking);
             });
+        } else {
+            let _ = self.idle_tx.send(IdleTaskKind::Booking);
         }
     }
 
@@ -453,6 +500,7 @@ impl Scheduler {
             }
             return;
         }
+        let mut any_succeeded = false;
         for item in due {
             if now > item.deadline_ms {
                 self.finish_missed(&item, "已过签到窗口");
@@ -474,6 +522,7 @@ impl Scheduler {
                         "checkin_succeeded",
                         &serde_json::json!({"bookingId": item.booking_id}),
                     );
+                    any_succeeded = true;
                 }
                 Err(error) => {
                     let message = error.to_string();
@@ -487,9 +536,14 @@ impl Scheduler {
                             "checkin_succeeded",
                             &serde_json::json!({"bookingId": item.booking_id, "message": message}),
                         );
+                        any_succeeded = true;
                     } else if is_non_pending_checkin_error(&message) {
-                        self.reconcile_non_pending_checkin(&item.booking_id, &message, now)
-                            .await;
+                        if self
+                            .reconcile_non_pending_checkin(&item.booking_id, &message, now)
+                            .await
+                        {
+                            any_succeeded = true;
+                        }
                     } else if message.contains("请求过于频繁") {
                         // 实测：封禁期内继续提交无效，等满服务端声明的 10 分钟。
                         self.update_next_at(&item.booking_id, now + CHECKIN_BAN_MS);
@@ -522,19 +576,27 @@ impl Scheduler {
                 }
             }
         }
+        if any_succeeded {
+            let _ = self.idle_tx.send(IdleTaskKind::CheckIn);
+        }
     }
 
     /// 馆方报“状态非待签到状态”时（例如已提前手动签到或已取消），
     /// 回查预约列表核对真实状态：已入座则按成功收尾，已取消/结束则停止轮询，
     /// 避免在窗口内每 10 秒空打一次无效写入。
-    async fn reconcile_non_pending_checkin(&self, booking_id: &str, message: &str, now: i64) {
+    async fn reconcile_non_pending_checkin(
+        &self,
+        booking_id: &str,
+        message: &str,
+        now: i64,
+    ) -> bool {
         let Ok(bookings) = self.auth.client.bookings().await else {
             self.update_next_at(booking_id, now + CHECKIN_WRITE_POLL_MS);
             let _ = self.store.write_audit(
                 "checkin_failed",
                 &serde_json::json!({"bookingId": booking_id, "error": message}),
             );
-            return;
+            return false;
         };
         self.observe_bookings(&bookings);
         let current = bookings
@@ -553,7 +615,7 @@ impl Scheduler {
                     "message": message,
                 }),
             );
-            return;
+            return true;
         }
         let still_pending = self
             .pending
@@ -566,7 +628,7 @@ impl Scheduler {
                 "checkin_failed",
                 &serde_json::json!({"bookingId": booking_id, "error": message}),
             );
-            return;
+            return false;
         }
         self.forget(booking_id);
         self.set_message(format!("签到已停止（{booking_id}）：{message}"));
@@ -578,6 +640,7 @@ impl Scheduler {
                 "terminal": true,
             }),
         );
+        false
     }
 
     fn update_next_at(&self, booking_id: &str, next_at: i64) {
@@ -1017,5 +1080,54 @@ mod tests {
         let audits = store.list_audit(10).unwrap();
         assert_eq!(audits.len(), 1);
         assert_eq!(audits[0].event, "checkin_succeeded");
+    }
+
+    #[tokio::test]
+    async fn checkin_success_emits_idle_signal_and_checks_safe_window() {
+        let begin = Utc::now().timestamp() - 120;
+        let router = Router::new().route(
+            "/Seat/Index/checkIn",
+            post(|| async { Json(json!({"CODE": "ok", "DATA": {"result": "success"}})) }),
+        );
+        let (_store, scheduler) = mock_scheduler(router).await;
+        let mut rx = scheduler.subscribe_idle();
+        scheduler.observe_bookings_at(
+            &[json!({"id": "23163917", "time": begin, "status": "0", "limitSignBack": 1800})],
+            Utc::now() - chrono::Duration::seconds(3),
+        );
+
+        // 待签到马上到期时不允许重启安装更新
+        assert!(!scheduler.is_safe_update_window(Utc::now(), Duration::from_secs(20 * 60)));
+
+        scheduler.checkin_tick().await;
+        assert_eq!(rx.try_recv().unwrap(), IdleTaskKind::CheckIn);
+        assert!(scheduler.is_safe_update_window(Utc::now(), Duration::from_secs(20 * 60)));
+    }
+
+    #[test]
+    fn safe_update_window_blocks_near_booking_prelock_and_running_task() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        store
+            .save_plan(&hdu_sniper_core::BookingPlan {
+                id: "p1".into(),
+                enabled: true,
+                ..Default::default()
+            })
+            .unwrap();
+        let auth = Arc::new(AuthService::new(store.clone()).unwrap());
+        let booking = Arc::new(BookingExecutor::new(store.clone()));
+        let scheduler = Scheduler::new(store, auth, booking);
+
+        let near_prelock = DateTime::parse_from_rfc3339("2026-11-14T19:45:00+08:00")
+            .unwrap()
+            .with_timezone(&Utc);
+        let far_from_booking = DateTime::parse_from_rfc3339("2026-11-14T20:05:00+08:00")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert!(!scheduler.is_safe_update_window(near_prelock, Duration::from_secs(20 * 60)));
+        assert!(scheduler.is_safe_update_window(far_from_booking, Duration::from_secs(20 * 60)));
+
+        scheduler.running.store(true, Ordering::SeqCst);
+        assert!(!scheduler.is_safe_update_window(far_from_booking, Duration::from_secs(20 * 60)));
     }
 }

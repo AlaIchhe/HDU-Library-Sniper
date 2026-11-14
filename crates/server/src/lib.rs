@@ -23,7 +23,7 @@ mod booking;
 mod bookings_api;
 mod catalog;
 pub use booking::BookingExecutor;
-pub use scheduler::Scheduler;
+pub use scheduler::{IdleTaskKind, Scheduler};
 
 mod plans;
 mod ratelimit;
