@@ -1,4 +1,3 @@
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
@@ -139,7 +138,6 @@ export const AnimatedThemeToggler = ({
   const isControlled = theme !== undefined;
   const [internalIsDark, setInternalIsDark] = useState(false);
   const isDark = isControlled ? theme === "dark" : internalIsDark;
-  const reduced = useReducedMotion();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const isTransitioningRef = useRef(false);
   const activeAnimRef = useRef<Animation | null>(null);
@@ -270,18 +268,26 @@ export const AnimatedThemeToggler = ({
   return (
     <AnimateIcon animateOnHover asChild>
       <button type="button" ref={buttonRef} onClick={toggleTheme} className={cn(className)} {...props}>
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.span
-            key={isDark ? "sun" : "moon"}
-            className="inline-flex items-center justify-center"
-            initial={reduced ? false : { opacity: 0, rotate: -30, scale: 0.75 }}
-            animate={{ opacity: 1, rotate: 0, scale: 1 }}
-            exit={reduced ? { opacity: 0 } : { opacity: 0, rotate: 30, scale: 0.75 }}
-            transition={{ type: "spring", stiffness: 420, damping: 26, mass: 0.6 }}
+        <span className="relative grid size-4 place-items-center">
+          <span
+            aria-hidden={!isDark}
+            className={cn(
+              "col-start-1 row-start-1 inline-flex transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+              isDark ? "scale-100 rotate-0 opacity-100" : "pointer-events-none scale-75 -rotate-45 opacity-0",
+            )}
           >
-            {isDark ? <Sun /> : <Moon />}
-          </motion.span>
-        </AnimatePresence>
+            <Sun />
+          </span>
+          <span
+            aria-hidden={isDark}
+            className={cn(
+              "col-start-1 row-start-1 inline-flex transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+              !isDark ? "scale-100 rotate-0 opacity-100" : "pointer-events-none scale-75 rotate-45 opacity-0",
+            )}
+          >
+            <Moon />
+          </span>
+        </span>
         <span className="sr-only">Toggle theme</span>
       </button>
     </AnimateIcon>

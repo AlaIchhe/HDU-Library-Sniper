@@ -1,7 +1,6 @@
 "use client"
 
 import { Outlet } from "@tanstack/react-router"
-import { motion, useReducedMotion } from "motion/react"
 
 import { AnimatedThemeToggler } from "@/ui/animated-theme-toggler"
 import { Avatar, AvatarFallback } from "@/ui/avatar"
@@ -106,8 +105,6 @@ export function AppHeader({
 }
 
 export function AppContent({ pathname, compact }: { pathname: string; compact: boolean }) {
-  const reduced = useReducedMotion()
-
   return (
     <main
       className={cn(
@@ -115,14 +112,9 @@ export function AppContent({ pathname, compact }: { pathname: string; compact: b
         compact && "pb-28 sm:pb-28",
       )}
     >
-      <motion.div
-        key={pathname}
-        initial={reduced ? false : { opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2 }}
-      >
+      <div key={pathname} className="animate-enter-rise [--enter-duration:200ms] [--enter-y:6px]">
         <Outlet />
-      </motion.div>
+      </div>
     </main>
   )
 }

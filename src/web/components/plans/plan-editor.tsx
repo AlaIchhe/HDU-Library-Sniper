@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useForm } from "react-hook-form"
+import { useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { z } from "zod"
 
@@ -37,10 +37,11 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
       weekdays: initial?.weekdays.map(String) || ["1", "2", "3", "4", "5", "6", "7"],
     },
   })
-  const room = form.watch("roomType")
-  const hour = form.watch("startHour")
-  const duration = form.watch("duration")
-  const weekdays = form.watch("weekdays")
+  const room = useWatch({ control: form.control, name: "roomType" })
+  const floorId = useWatch({ control: form.control, name: "floorId" })
+  const hour = useWatch({ control: form.control, name: "startHour" })
+  const duration = useWatch({ control: form.control, name: "duration" })
+  const weekdays = useWatch({ control: form.control, name: "weekdays" })
   const [roomQuery, setRoomQuery] = useState(initial?.roomQuery || "")
   const effectiveRoomType = room || initial?.roomType || undefined
   const floors = useFloors(roomQuery, effectiveRoomType)
@@ -112,7 +113,7 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
         <div className="grid gap-1">
           <SelectField
             label="楼层"
-            value={String(form.watch("floorId") || "")}
+            value={String(floorId || "")}
             onChange={(value) => {
               const floor = floors.data?.options.find((item) => String(item.id) === value)
               form.setValue("floorId", Number(value), { shouldValidate: true })
@@ -139,7 +140,7 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
       <div className="grid gap-4 sm:grid-cols-2">
         <Field>
           <FieldLabel>座位号</FieldLabel>
-          <Input {...form.register("seatNum")} disabled={!form.watch("floorId")} />
+          <Input {...form.register("seatNum")} disabled={!floorId} />
           {form.formState.errors.seatNum?.message && (
             <FormError>{form.formState.errors.seatNum.message}</FormError>
           )}

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useLayoutEffect, useRef } from "react"
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import type { SessionStatus } from "../../shared/types"
@@ -63,7 +63,10 @@ export function useRefreshSignal(handler: () => void) {
   const count = useAppStore((state) => state.refreshRequest)
   const seen = useRef(count)
   const handlerRef = useRef(handler)
-  handlerRef.current = handler
+
+  useLayoutEffect(() => {
+    handlerRef.current = handler
+  })
 
   useEffect(() => {
     if (count === seen.current) return

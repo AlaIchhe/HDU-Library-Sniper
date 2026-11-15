@@ -1,7 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
-import { motion } from "motion/react"
+import { useRef, useState } from "react"
 
 import { AnimateIcon, CalendarDays, ListChecks, Pencil, Plus, Trash2 } from "@/ui/icons"
 import {
@@ -38,9 +37,10 @@ import {
   DataTableHoverActions,
   DataTableRevealCell,
   DataTableRow,
-  PRESS,
+  PRESS_CLASS,
 } from "./data-table"
-import { PageHeader, PageShell, PageState, rise } from "./page-layout"
+import { PageHeader, PageShell, PageState, RISE_CLASS } from "./page-layout"
+import { cn } from "@/lib/utils"
 import { useRefreshSignal } from "../data/store"
 import { undoToast } from "../undo-toast"
 import { NoData } from "../shared"
@@ -62,16 +62,11 @@ export function PlansPage() {
   // ⌘K 面板 / `r` 快捷键请求刷新时，重拉方案与「下一次执行」
   useRefreshSignal(() => void plans.refetch())
 
-  const allSingles = useMemo(
-    () => items.filter((item): item is BookingPlan => item.kind === "single"),
-    [items],
+  const allSingles = items.filter((item): item is BookingPlan => item.kind === "single")
+  const referenced = new Set(
+    items.filter((item) => item.kind === "group").flatMap((item) => item.memberPlanIds),
   )
-  const available = useMemo(() => {
-    const referenced = new Set(
-      items.filter((item) => item.kind === "group").flatMap((item) => item.memberPlanIds),
-    )
-    return allSingles.filter((item) => !referenced.has(item.id))
-  }, [allSingles, items])
+  const available = allSingles.filter((item) => !referenced.has(item.id))
 
   // 同一方案的切换在请求返回前只接受一次点击：开关是受控的，
   // 列表刷新前 item.enabled 还是旧值，连点两次会发出两个相同方向的请求。
@@ -152,7 +147,7 @@ export function PlansPage() {
           }
         />
 
-        <motion.div variants={rise} className="min-w-0">
+        <div className={cn("min-w-0", RISE_CLASS)}>
           <DataTable
             columns={PLAN_COLUMNS}
             isEmpty={items.length === 0}
@@ -194,7 +189,7 @@ export function PlansPage() {
               ))}
             </DataTableBody>
           </DataTable>
-        </motion.div>
+        </div>
 
         <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
           <AlertDialogPopup>
@@ -375,9 +370,9 @@ function PlanRow({
               <Button
                 size="icon-sm"
                 variant="ghost"
+                className={PRESS_CLASS}
                 onClick={onEdit}
                 aria-label="编辑方案"
-                render={<motion.button type="button" {...PRESS} />}
               >
                 <Pencil />
               </Button>
@@ -386,10 +381,9 @@ function PlanRow({
               <Button
                 size="icon-sm"
                 variant="ghost"
-                className="text-destructive"
+                className={cn("text-destructive", PRESS_CLASS)}
                 onClick={onDelete}
                 aria-label="删除方案"
-                render={<motion.button type="button" {...PRESS} />}
               >
                 <Trash2 />
               </Button>

@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 
 import { Clock } from "@/ui/icons"
 
@@ -19,7 +18,7 @@ import { toastManager } from "@/ui/toast"
 import { useCheckin, useCheckinMutation, useNextTarget } from "../../data/queries"
 import { useCountdown } from "../../hooks/use-countdown"
 
-/** 统一的语义色状态点：颜色由 tone 决定，切换时用 spring 过渡而非硬切。 */
+/** 统一的语义色状态点：颜色由 tone 决定，脉冲使用 CSS 关键帧。 */
 
 export function StatusDot({
   tone,
@@ -28,7 +27,6 @@ export function StatusDot({
   tone: "ok" | "warn" | "bad" | "idle"
   pulse?: boolean
 }) {
-  const reduced = useReducedMotion()
   const color = {
     ok: "bg-success",
     warn: "bg-warning",
@@ -38,27 +36,10 @@ export function StatusDot({
 
   return (
     <span className="relative grid size-2 shrink-0 place-items-center">
-      {pulse && tone !== "idle" && !reduced && (
-        <motion.span
-          aria-hidden
-          className={`absolute inset-0 rounded-full ${color}`}
-          initial={{ scale: 1, opacity: 0 }}
-          animate={{ scale: [1, 2.6], opacity: [0.5, 0] }}
-          transition={{
-            type: "spring",
-            visualDuration: 1.4,
-            bounce: 0,
-            repeat: Infinity,
-            repeatDelay: 0.6,
-          }}
-        />
+      {pulse && tone !== "idle" && (
+        <span aria-hidden className={`animate-status-halo absolute inset-0 rounded-full ${color}`} />
       )}
-      <motion.span
-        className={`absolute inset-0 rounded-full ${color}`}
-        initial={false}
-        animate={{ scale: 1 }}
-        transition={{ type: "spring", stiffness: 400, damping: 30 }}
-      />
+      <span className={`absolute inset-0 rounded-full transition-colors duration-200 ${color}`} />
     </span>
   )
 }
@@ -71,7 +52,6 @@ export function StatusDot({
 export function StatusBar({ runtimeState }: { runtimeState: string | undefined }) {
   const target = useNextTarget()
   const countdown = useCountdown(target.data?.at)
-  const reduced = useReducedMotion()
 
   const tone: "ok" | "warn" | "bad" | "idle" =
     runtimeState === "error"
@@ -100,21 +80,15 @@ export function StatusBar({ runtimeState }: { runtimeState: string | undefined }
         </span>
       </div>
 
-      <AnimatePresence mode="popLayout" initial={false}>
-        {target.data?.at ? (
-          <motion.span
-            key={countdown?.text ?? "loading"}
-            initial={reduced ? false : { opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.14 }}
-            className="flex shrink-0 items-center gap-1 tabular-nums text-muted-foreground"
-          >
-            <Clock className="size-3" animateOnHover />
-            {countdown?.text ?? "…"}
-          </motion.span>
-        ) : null}
-      </AnimatePresence>
+      {target.data?.at ? (
+        <span
+          key={countdown?.text ?? "loading"}
+          className="animate-tick-in flex shrink-0 items-center gap-1 tabular-nums text-muted-foreground"
+        >
+          <Clock className="size-3" animateOnHover />
+          {countdown?.text ?? "…"}
+        </span>
+      ) : null}
     </div>
   )
 }

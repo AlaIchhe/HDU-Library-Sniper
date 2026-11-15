@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from "react"
-import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 
 import { Button } from "@/ui/button"
 import { AnimateIcon, CircleArrowUp, LoaderCircle } from "@/ui/icons"
@@ -42,7 +41,6 @@ function describePill(progress: UpdateProgress): Copy {
  */
 export function UpdatePill() {
   const progress = useSyncExternalStore(subscribeUpdateProgress, getUpdateProgress)
-  const reduced = useReducedMotion()
   if (progress.phase === "idle") return null
 
   const busy = progress.phase !== "available"
@@ -87,31 +85,9 @@ export function UpdatePill() {
           />
         )}
         <span className="relative flex items-center gap-1.5">
-          <AnimatePresence mode="wait" initial={false}>
-            {busy ? (
-              <motion.span
-                key="busy"
-                className="inline-flex"
-                initial={reduced ? false : { opacity: 0, scale: 0.75 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.75 }}
-                transition={{ duration: 0.15 }}
-              >
-                <LoaderCircle animate className="size-3.5" />
-              </motion.span>
-            ) : (
-              <motion.span
-                key="available"
-                className="inline-flex"
-                initial={reduced ? false : { opacity: 0, scale: 0.75 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.75 }}
-                transition={{ duration: 0.15 }}
-              >
-                <CircleArrowUp className="size-3.5" />
-              </motion.span>
-            )}
-          </AnimatePresence>
+          <span key={busy ? "busy" : "available"} className="animate-pop-in inline-flex">
+            {busy ? <LoaderCircle animate className="size-3.5" /> : <CircleArrowUp className="size-3.5" />}
+          </span>
           <span className="max-md:hidden">{long}</span>
           <span className="md:hidden">{short}</span>
         </span>

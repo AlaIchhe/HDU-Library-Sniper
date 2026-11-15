@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { AnimatePresence, motion, useReducedMotion } from "motion/react"
+import { AnimatePresence, motion } from "motion/react"
 
 import { AnimateIcon, CalendarDays, RefreshCw } from "@/ui/icons"
 import { Button } from "@/ui/button"
@@ -13,11 +13,11 @@ import {
   DataTableHoverActions,
   DataTableRevealCell,
   DataTableRow,
-  PRESS,
-  SETTLE,
+  PRESS_CLASS,
   SNAPPY,
 } from "./data-table"
-import { PageHeader, PageShell, PageState, rise } from "./page-layout"
+import { PageHeader, PageShell, PageState, RISE_CLASS } from "./page-layout"
+import { cn } from "@/lib/utils"
 import type { Booking } from "../../shared/types"
 import { useBookingAction, useBookings } from "../data/queries"
 import { useRefreshSignal } from "../data/store"
@@ -109,26 +109,23 @@ function BookingsView({
             <Button
               variant="ghost"
               size="sm"
-              className="font-medium text-foreground/80 hover:text-foreground"
+              className={cn("font-medium text-foreground/80 hover:text-foreground", PRESS_CLASS)}
               disabled={fetching}
               onClick={onRefresh}
-              render={<motion.button type="button" {...PRESS} />}
             >
-              <motion.span
-                className="inline-flex"
-                initial={false}
-                animate={{ rotate: turns * 360 }}
-                transition={SETTLE}
+              <span
+                className="inline-flex transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                style={{ transform: `rotate(${turns * 360}deg)` }}
               >
                 <RefreshCw className="size-3.5" />
-              </motion.span>
+              </span>
               刷新
             </Button>
           </AnimateIcon>
         }
       />
 
-      <motion.div variants={rise} className="min-w-0">
+      <div className={cn("min-w-0", RISE_CLASS)}>
         <DataTable
           columns={COLUMNS}
           isEmpty={rows.length === 0}
@@ -153,7 +150,7 @@ function BookingsView({
             ))}
           </DataTableBody>
         </DataTable>
-      </motion.div>
+      </div>
     </PageShell>
   )
 }
@@ -188,11 +185,13 @@ function BookingRow({
       <Button
         size="sm"
         variant={primary ? "default" : "ghost"}
-        className={primary ? undefined : "font-medium text-foreground/85 hover:text-foreground"}
+        className={cn(
+          primary ? undefined : "font-medium text-foreground/85 hover:text-foreground",
+          PRESS_CLASS,
+        )}
         disabled={busy}
         loading={pending?.id === booking.bookingId && pending.action === a.key}
         onClick={() => onAction(booking, a.key)}
-        render={<motion.button type="button" {...PRESS} />}
       >
         {a.label}
       </Button>
@@ -234,55 +233,28 @@ function BookingRow({
 }
 
 function Status({ tone, label }: { tone: Tone; label: string }) {
-  const reduced = useReducedMotion()
-
   return (
-    <motion.span
-      className="inline-flex min-w-0 items-center gap-2 text-sm text-foreground"
-      initial={false}
-      animate={{ opacity: tone === "idle" ? 0.8 : 1 }}
+    <span
+      className={cn(
+        "inline-flex min-w-0 items-center gap-2 text-sm text-foreground transition-opacity duration-150",
+        tone === "idle" ? "opacity-80" : "opacity-100",
+      )}
     >
       <span className="relative size-1.5 shrink-0">
-        <AnimatePresence>
-          {tone === "attention" && !reduced && (
-            <motion.span
-              key="halo"
-              aria-hidden
-              className="absolute inset-0 rounded-full bg-foreground"
-              initial={{ scale: 1, opacity: 0 }}
-              animate={{ scale: [1, 3], opacity: [0.45, 0] }}
-              exit={{ opacity: 0, transition: SNAPPY }}
-              transition={{
-                type: "spring",
-                visualDuration: 1.2,
-                bounce: 0,
-                repeat: Infinity,
-                repeatDelay: 0.5,
-              }}
-            />
-          )}
-        </AnimatePresence>
+        {tone === "attention" && (
+          <span aria-hidden className="animate-status-halo absolute inset-0 rounded-full bg-foreground" />
+        )}
         <span className="absolute inset-0 rounded-full ring-1 ring-inset ring-muted-foreground/60" />
-        <motion.span
-          className="absolute inset-0 rounded-full bg-foreground"
-          initial={false}
-          animate={{ scale: tone === "idle" ? 0 : 1 }}
-          transition={SNAPPY}
+        <span
+          className={cn(
+            "absolute inset-0 rounded-full bg-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
+            tone === "idle" ? "scale-0" : "scale-100",
+          )}
         />
       </span>
-      <span className="relative inline-grid">
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.span
-            key={label}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={SNAPPY}
-          >
-            {label}
-          </motion.span>
-        </AnimatePresence>
+      <span key={label} className="animate-tick-in inline-grid">
+        {label}
       </span>
-    </motion.span>
+    </span>
   )
 }

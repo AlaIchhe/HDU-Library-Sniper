@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import { motion, useReducedMotion } from "motion/react"
 
 import { Dialog, DialogPanel, DialogPopup } from "@/ui/dialog"
@@ -16,16 +22,6 @@ type CommandPaletteProps = {
   commands: Command[]
 }
 
-const listVariants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.018 } },
-}
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 6 },
-  show: { opacity: 1, y: 0 },
-}
-
 /**
  * 命令面板：⌘K / Ctrl+K 打开，输入过滤，↑↓ 选择，Enter 执行。
  *
@@ -37,9 +33,8 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
   const [query, setQuery] = useState("")
   const [activeIndex, setActiveIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const reduced = useReducedMotion()
 
-  const results = useMemo(() => filterCommands(commands, query), [commands, query])
+  const results = filterCommands(commands, query)
 
   // 打开时重置，避免上次的查询/选中残留
   useEffect(() => {
@@ -74,7 +69,7 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
     window.setTimeout(() => command.run(), 0)
   }
 
-  function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+  function onKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault()
       setActiveIndex((index) => (results.length ? (index + 1) % results.length : 0))
@@ -134,24 +129,18 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
             会让内容把面板撑高，ScrollArea 就不会滚动。 */}
         <DialogPanel className="min-h-0 flex-1 p-2">
           {results.length ? (
-            <motion.ul
-              variants={listVariants}
-              initial={reduced ? false : "hidden"}
-              animate="show"
-              className="grid gap-0.5"
-              role="listbox"
-              aria-label="命令"
-            >
+            <div className="grid gap-0.5" role="listbox" aria-label="命令">
               {results.map((command, index) => (
                 <CommandRow
                   key={command.id}
                   command={command}
+                  index={index}
                   active={index === activeIndex}
                   onHover={() => setActiveIndex(index)}
                   onSelect={() => runCommand(command)}
                 />
               ))}
-            </motion.ul>
+            </div>
           ) : (
             <p className="px-3 py-8 text-center text-sm text-muted-foreground">没有匹配的命令</p>
           )}
@@ -163,11 +152,13 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
 
 function CommandRow({
   command,
+  index,
   active,
   onHover,
   onSelect,
 }: {
   command: Command
+  index: number
   active: boolean
   onHover: () => void
   onSelect: () => void
@@ -176,10 +167,15 @@ function CommandRow({
   const reduced = useReducedMotion()
 
   return (
-    <motion.li variants={itemVariants} role="option" aria-selected={active}>
+    <div
+      className="animate-enter-rise [--enter-duration:180ms] [--enter-y:6px]"
+      style={{ "--enter-delay": `${Math.min(index, 8) * 18}ms` } as CSSProperties}
+    >
       <AnimateIcon animateOnHover asChild>
         <button
           type="button"
+          role="option"
+          aria-selected={active}
           onClick={onSelect}
           onPointerEnter={onHover}
           className={cn(
@@ -207,6 +203,6 @@ function CommandRow({
           ) : null}
         </button>
       </AnimateIcon>
-    </motion.li>
+    </div>
   )
 }

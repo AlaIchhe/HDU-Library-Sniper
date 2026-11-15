@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useLayoutEffect, useRef } from "react"
 
 /** 单个按键序列：`g p` 用 ["g", "p"] 表示。 */
 export type HotkeySequence = readonly string[]
@@ -40,7 +40,10 @@ function normalizeKey(event: KeyboardEvent): string | null {
 export function useHotkeys(map: HotkeyMap, options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true
   const mapRef = useRef(map)
-  mapRef.current = map
+
+  useLayoutEffect(() => {
+    mapRef.current = map
+  })
 
   useEffect(() => {
     if (!enabled) return

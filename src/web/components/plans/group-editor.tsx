@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState } from "react"
 import { Reorder, useDragControls, useReducedMotion, type DragControls } from "motion/react"
-import { useForm } from "react-hook-form"
+import { useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { z } from "zod"
 
@@ -128,7 +128,7 @@ export function GroupEditor({
     resolver: zodResolver(groupSchema),
     defaultValues: { name: initial?.name || "", ids: initial?.memberPlanIds || [] },
   })
-  const ids = form.watch("ids")
+  const ids = useWatch({ control: form.control, name: "ids" }) ?? []
   const ordered = ids.map((id) => singles.find((plan) => plan.id === id)).filter(Boolean) as BookingPlan[]
 
   async function submit(values: z.infer<typeof groupSchema>) {

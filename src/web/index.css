@@ -383,6 +383,122 @@
   }
 }
 
+/* CSS-first 动效原语（替代常规入场、倒计时刷新与环境背景的 JS 循环） */
+@keyframes enter-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, var(--enter-y, 8px), 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.75);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes tick-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes status-halo {
+  0% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(2.8);
+  }
+}
+
+@keyframes light-ray-sway {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) rotate(calc(var(--ray-rotate, 0deg) - var(--ray-swing, 1deg)));
+  }
+  50% {
+    opacity: var(--ray-intensity, 0.7);
+    transform: translateX(-50%) rotate(calc(var(--ray-rotate, 0deg) + var(--ray-swing, 1deg)));
+  }
+}
+
+@keyframes grid-square-pulse {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  45%,
+  55% {
+    opacity: var(--grid-max-opacity, 0.5);
+  }
+}
+
+@utility animate-enter-rise {
+  animation: enter-rise var(--enter-duration, 240ms) cubic-bezier(0.22, 1, 0.36, 1) var(--enter-delay, 0ms)
+    both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility animate-pop-in {
+  animation: pop-in var(--enter-duration, 160ms) cubic-bezier(0.22, 1, 0.36, 1) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility animate-tick-in {
+  animation: tick-in 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility animate-status-halo {
+  animation: status-halo 2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+@utility animate-light-ray {
+  animation: light-ray-sway var(--ray-duration, 14s) ease-in-out var(--ray-delay, 0s) infinite both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: calc(var(--ray-intensity, 0.7) * 0.35);
+    transform: translateX(-50%) rotate(var(--ray-rotate, 0deg));
+  }
+}
+
+@utility animate-grid-square {
+  animation: grid-square-pulse var(--grid-duration, 8.5s) ease-in-out var(--grid-delay, 0s) 1 both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 /* Animated Theme Toggler (magicui) — view-transition clip-path */
 ::view-transition-old(root),
 ::view-transition-new(root) {

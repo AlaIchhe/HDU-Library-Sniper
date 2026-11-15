@@ -20,18 +20,8 @@ export const SMOOTH = {
   mass: 0.9,
 } satisfies Transition
 
-export const SETTLE = {
-  type: "spring",
-  stiffness: 90,
-  damping: 16,
-} satisfies Transition
-
-export const PRESS = {
-  whileHover: { y: -1 },
-  whileFocus: { y: -1 },
-  whileTap: { scale: 0.96, y: 0 },
-  transition: SNAPPY,
-} as const
+export const PRESS_CLASS =
+  "transition-[box-shadow,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-px focus-visible:-translate-y-px active:translate-y-0 active:scale-[0.96] motion-reduce:transition-none motion-reduce:transform-none"
 
 const rowVariants: Variants = {
   hidden: { opacity: 0, y: 8 },
@@ -120,8 +110,7 @@ export function DataTableHeader({ className, children }: { className?: string; c
   const { columns } = useDataTableContext()
 
   return (
-    <motion.div
-      layout="position"
+    <div
       className={cn(
         "hidden border-b bg-muted/35 px-4 py-3 text-[13px] font-medium text-foreground/75 sm:grid sm:items-center sm:gap-5 sm:px-5",
         columns,
@@ -129,7 +118,7 @@ export function DataTableHeader({ className, children }: { className?: string; c
       )}
     >
       {children}
-    </motion.div>
+    </div>
   )
 }
 

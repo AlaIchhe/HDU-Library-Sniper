@@ -1,7 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type ComponentPropsWithoutRef } from "react";
-import { motion } from "motion/react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ComponentPropsWithoutRef,
+  type CSSProperties,
+} from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -130,18 +137,17 @@ export function AnimatedGridPattern({
       <rect width="100%" height="100%" fill={`url(#${id})`} />
       <svg x={x} y={y} className="overflow-visible" aria-hidden="true">
         {squares.map(({ pos: [squareX, squareY], id, iteration }, index) => (
-          <motion.rect
-            initial={{ opacity: 0 }}
-            animate={{ opacity: maxOpacity }}
-            transition={{
-              duration,
-              repeat: 1,
-              delay: index * 0.1,
-              repeatType: "reverse",
-              repeatDelay,
-            }}
-            onAnimationComplete={() => updateSquarePosition(id)}
+          <rect
             key={`${id}-${iteration}`}
+            className="animate-grid-square"
+            style={
+              {
+                "--grid-max-opacity": maxOpacity,
+                "--grid-duration": `${duration * 2 + repeatDelay}s`,
+                "--grid-delay": `${(iteration === 0 ? index * 0.1 : repeatDelay).toFixed(2)}s`,
+              } as CSSProperties
+            }
+            onAnimationEnd={() => updateSquarePosition(id)}
             width={width - 1}
             height={height - 1}
             x={squareX * width + 1}
