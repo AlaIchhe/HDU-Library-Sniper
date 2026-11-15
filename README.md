@@ -31,9 +31,11 @@
 
 ---
 
-## 操作演示
+## 介绍视频
 
-https://github.com/user-attachments/assets/f8abc8a4-c9f6-4fd9-881b-3f6ec2d45c0d
+<a href="docs/media/hdu-sniper-demo.mp4"><img src="docs/media/hdu-sniper-demo.gif" alt="HDU Library Sniper 介绍视频（点击查看 1080p60 MP4）"></a>
+
+<sub>整段画面由代码逐帧渲染，源文件在 <a href="scripts/promo">scripts/promo</a>。</sub>
 
 ## 能做什么
 

@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>HDU Library Sniper — Promo</title>
+<!--
+  代码驱动的宣传片：整段画面由 seek(t) 纯函数决定，同一个 t 永远渲染同一帧。
+  浏览器直接打开可预览（自动播放），scripts/promo/render.mjs 逐帧截图后交给 ffmpeg 编码。
+-->
+<style>
+  :root {
+    --bg: #09090b;
+    --fg: #fafafa;
+    --mute: #a1a1aa;
+    --dim: #52525b;
+    --line: rgba(255,255,255,.08);
+    --amber: #f59e0b;
+    --amber-soft: rgba(245,158,11,.16);
+    --green: #22c55e;
+    --sans: "Noto Sans CJK SC", "Noto Sans", sans-serif;
+    --mono: "Noto Sans Mono", "DejaVu Sans Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+  body { font-family: var(--sans); color: var(--fg); -webkit-font-smoothing: antialiased; }
+
+  #stage { position: absolute; inset: 0; overflow: hidden; background: var(--bg); }
+  .layer { position: absolute; inset: 0; }
+  .center { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .el { will-change: transform, opacity, filter; }
+
+  /* 背景：缓慢漂移的网格 + 琥珀色辉光 + 胶片颗粒 + 暗角 */
+  #grid {
+    position: absolute; inset: -120px;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 80px 80px;
+    mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, #000 0%, transparent 75%);
+  }
+  #glow {
+    position: absolute; width: 1400px; height: 1400px; left: 260px; top: -160px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(245,158,11,.20) 0%, rgba(245,158,11,.05) 35%, transparent 65%);
+    filter: blur(40px);
+  }
+  #grain { position: absolute; inset: 0; opacity: .07; mix-blend-mode: overlay; pointer-events: none; }
+  #vignette { position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 75% 70% at 50% 50%, transparent 55%, rgba(0,0,0,.75) 100%); }
+  #flash { position: absolute; inset: 0; background: var(--amber); opacity: 0; mix-blend-mode: screen; pointer-events: none; }
+
+  /* 通用排版 */
+  .kicker { font-family: var(--mono); font-size: 22px; letter-spacing: .32em; color: var(--amber); text-transform: uppercase; }
+  .h1 { font-size: 128px; font-weight: 900; letter-spacing: -.02em; line-height: 1.05; }
+  .h2 { font-size: 76px; font-weight: 700; letter-spacing: -.01em; line-height: 1.15; }
+  .sub { font-size: 34px; font-weight: 300; color: var(--mute); letter-spacing: .02em; }
+  .amber { color: var(--amber); }
+  .chapter { position: absolute; left: 140px; top: 120px; }
+  .chapter .kicker { margin-bottom: 18px; }
+  .chapter .h2 { font-size: 64px; }
+  .chapter .sub { margin-top: 16px; font-size: 28px; }
+
+  /* S1 倒计时 */
+  #clock { font-family: var(--mono); font-size: 210px; font-weight: 300; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  #clock .ms { color: var(--dim); font-size: 120px; }
+  #clock .c { color: var(--amber); }
+  #s1cap { margin-top: 36px; }
+
+  /* S2 文字 */
+  .strike-row { position: relative; font-size: 104px; font-weight: 700; color: var(--fg); line-height: 1.25; }
+  .strike-row .bar { position: absolute; left: -12px; right: -12px; top: 55%; height: 10px; background: var(--amber); transform-origin: left center; border-radius: 5px; }
+  #s2big { position: absolute; left: 0; right: 0; top: 50%; text-align: center; }
+
+  /* S3 座位网格 */
+  #seatWrap { position: absolute; left: 760px; top: 250px; width: 1040px; height: 640px; perspective: 1800px; }
+  #seats { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; transform-origin: 50% 50%; }
+  .seat { position: relative; border-radius: 14px; background: #18181b; border: 1px solid #27272a; display: flex; align-items: center; justify-content: center;
+          font-family: var(--mono); font-size: 20px; color: #71717a; }
+  .seat.taken { background: #111113; color: transparent; border-color: #1c1c1f; }
+  .seat.taken::after { content: ""; position: absolute; inset: 30%; border-radius: 50%; background: #27272a; }
+  .seat.mine { background: var(--amber); color: #09090b; border-color: var(--amber); font-weight: 700;
+               box-shadow: 0 0 0 6px rgba(245,158,11,.18), 0 0 60px rgba(245,158,11,.55); }
+  #reticle { position: absolute; width: 180px; height: 180px; margin: -90px 0 0 -90px; pointer-events: none; }
+  #reticle svg { width: 100%; height: 100%; overflow: visible; }
+  #lockTag { position: absolute; font-family: var(--mono); font-size: 22px; color: var(--amber); white-space: nowrap; background: rgba(9,9,11,.85);
+             border: 1px solid rgba(245,158,11,.5); padding: 8px 14px; border-radius: 10px; }
+  #log { position: absolute; left: 140px; top: 520px; width: 560px; font-family: var(--mono); font-size: 21px; line-height: 1.9; color: var(--mute); }
+  #log .row { white-space: nowrap; }
+  #log .t { color: var(--dim); margin-right: 18px; }
+  #log .ok { color: var(--green); }
+  #log .hl { color: var(--amber); }
+
+  /* S4 方案卡片 */
+  #card { position: absolute; left: 860px; top: 190px; width: 880px; border-radius: 32px; padding: 44px 52px 40px;
+          background: linear-gradient(180deg, rgba(39,39,42,.78), rgba(24,24,27,.86)); border: 1px solid rgba(255,255,255,.09);
+          box-shadow: 0 40px 120px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06); }
+  #card .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; }
+  #card .title { font-size: 34px; font-weight: 700; }
+  #card .title small { display: block; font-size: 20px; font-weight: 300; color: var(--mute); margin-top: 6px; }
+  .switch { width: 92px; height: 52px; border-radius: 26px; background: #3f3f46; position: relative; }
+  .switch .knob { position: absolute; top: 6px; left: 6px; width: 40px; height: 40px; border-radius: 50%; background: #fafafa; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  .field { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; border-top: 1px solid rgba(255,255,255,.06); }
+  .field .k { font-size: 24px; color: var(--mute); }
+  .field .v { font-size: 30px; font-weight: 500; font-family: var(--sans); }
+  .field .v .m { font-family: var(--mono); }
+  .field .v .note { font-size: 22px; color: var(--mute); font-weight: 300; margin-left: 14px; }
+  .days { display: flex; gap: 10px; }
+  .day { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 22px;
+         background: #27272a; color: #71717a; }
+  .day.on { background: var(--amber); color: #09090b; font-weight: 700; }
+  #s4line { position: absolute; left: 140px; top: 720px; }
+
+  /* S5 签到时间轴 */
+  #tl { position: absolute; left: 140px; right: 140px; top: 560px; height: 220px; }
+  #tl .axis { position: absolute; left: 0; right: 0; top: 150px; height: 2px; background: #27272a; }
+  #tl .tick { position: absolute; top: 140px; width: 2px; height: 22px; background: #3f3f46; }
+  #tl .lbl { position: absolute; top: 178px; transform: translateX(-50%); font-family: var(--mono); font-size: 22px; color: var(--dim); }
+  #tl .block { position: absolute; top: 40px; height: 84px; border-radius: 18px; background: var(--amber-soft); border: 1px solid rgba(245,158,11,.45);
+               display: flex; align-items: center; padding: 0 26px; font-size: 26px; color: #fde68a; white-space: nowrap; overflow: hidden; }
+  #tl .head { position: absolute; top: 10px; width: 2px; height: 160px; background: var(--fg); }
+  #tl .head::before { content: ""; position: absolute; left: -9px; top: -10px; width: 20px; height: 20px; border-radius: 50%; background: var(--fg); }
+  #tl .headTime { position: absolute; top: -40px; transform: translateX(-50%); font-family: var(--mono); font-size: 24px; color: var(--fg); white-space: nowrap; }
+  #pulse { position: absolute; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; border: 3px solid var(--amber); }
+  #checked { position: absolute; font-size: 26px; font-weight: 700; color: #09090b; background: var(--amber); padding: 10px 22px; border-radius: 999px; white-space: nowrap; }
+  #toast { position: absolute; right: 120px; top: 110px; width: 560px; border-radius: 24px; padding: 26px 30px; display: flex; gap: 22px; align-items: center;
+           background: rgba(39,39,42,.9); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 30px 80px rgba(0,0,0,.55); }
+  #toast img { width: 64px; height: 64px; border-radius: 14px; }
+  #toast .a { font-size: 22px; color: var(--mute); }
+  #toast .b { font-size: 28px; font-weight: 700; margin-top: 4px; }
+  #toast .c { font-size: 22px; color: var(--mute); margin-top: 2px; }
+
+  /* S6 平台 */
+  .plat { position: absolute; font-size: 150px; font-weight: 900; letter-spacing: -.03em; white-space: nowrap; }
+  #secure { position: absolute; left: 0; right: 0; top: 780px; text-align: center; font-family: var(--mono); font-size: 28px; color: var(--mute); }
+  #secure b { color: var(--amber); font-weight: 400; }
+
+  /* S7 收尾 */
+  #logo { width: 220px; height: 220px; }
+  #endTitle { font-size: 104px; font-weight: 900; letter-spacing: -.02em; margin-top: 46px; }
+  #endTag { margin-top: 22px; font-size: 38px; font-weight: 300; color: var(--mute); }
+  #endMeta { margin-top: 56px; font-family: var(--mono); font-size: 22px; color: var(--dim); letter-spacing: .08em; }
+  #endMeta b { color: var(--amber); font-weight: 400; }
+
+  #fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="bgLayer" class="layer">
+    <div id="glow" class="el"></div>
+    <div id="grid" class="el"></div>
+  </div>
+
+  <!-- S1 -->
+  <div id="s1" class="layer center">
+    <div id="clock" class="el"></div>
+    <div id="s1cap" class="sub el">每晚 <span class="amber">20:00</span>，次日座位开放预约</div>
+  </div>
+
+  <!-- S2 -->
+  <div id="s2" class="layer">
+    <div style="position:absolute;left:0;right:0;top:250px;display:flex;flex-direction:column;align-items:center;">
+      <div class="strike-row el" id="w1">拼手速<div class="bar"></div></div>
+      <div class="strike-row el" id="w2">拼网速<div class="bar"></div></div>
+      <div class="strike-row el" id="w3">拼运气<div class="bar"></div></div>
+    </div>
+    <div id="s2big" class="el"><div class="h1">不如，交给<span class="amber">后台</span>。</div></div>
+  </div>
+
+  <!-- S3 -->
+  <div id="s3" class="layer">
+    <div class="chapter">
+      <div class="kicker el" id="s3k">01 — Auto booking</div>
+      <div class="h2 el" id="s3h">20:00 准点出手</div>
+      <div class="sub el" id="s3s">主座位失手，自动切换备选座位。</div>
+    </div>
+    <div id="log"></div>
+    <div id="seatWrap"><div id="seats"></div></div>
+    <div id="reticle" class="el">
+      <svg viewBox="-90 -90 180 180" fill="none" stroke="#f59e0b" stroke-width="3" stroke-linecap="round">
+        <circle id="retRing" r="60"/>
+        <circle r="84" stroke-opacity=".35" stroke-dasharray="6 10"/>
+        <path d="M0 -90V-38M0 38V90M-90 0H-38M38 0H90"/>
+        <circle r="4" fill="#f59e0b" stroke="none"/>
+      </svg>
+    </div>
+    <div id="lockTag" class="el">LOCKED · 自习室 六楼 130</div>
+  </div>
+
+  <!-- S4 -->
+  <div id="s4" class="layer">
+    <div class="chapter">
+      <div class="kicker el" id="s4k">02 — Plans</div>
+      <div class="h2 el" id="s4h">配置一次，<br>每天生效</div>
+      <div class="sub el" id="s4s">房间、楼层、座位、时间与重复日期。</div>
+    </div>
+    <div id="s4line" class="el"><div class="h2" style="font-size:52px;font-weight:300;color:var(--mute)">保存，启用，<span style="color:var(--fg);font-weight:700">然后忘了它。</span></div></div>
+    <div id="card" class="el">
+      <div class="head">
+        <div class="title">自习室 · 座位 130<small>单条方案</small></div>
+        <div class="switch" id="sw"><div class="knob" id="knob"></div></div>
+      </div>
+      <div class="field el" id="f1"><span class="k">房间类型</span><span class="v">自习室</span></div>
+      <div class="field el" id="f2"><span class="k">楼层</span><span class="v">六楼</span></div>
+      <div class="field el" id="f3"><span class="k">座位</span><span class="v"><span class="m">130</span><span class="note">备选 131, 132</span></span></div>
+      <div class="field el" id="f4"><span class="k">时间</span><span class="v"><span class="m">08:00</span><span class="note">4 小时</span></span></div>
+      <div class="field el" id="f5"><span class="k">重复</span>
+        <span class="days" id="days"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- S5 -->
+  <div id="s5" class="layer">
+    <div class="chapter">
+      <div class="kicker el" id="s5k">03 — Check-in</div>
+      <div class="h2 el" id="s5h">预约一开始，<br>就替你签到</div>
+      <div class="sub el" id="s5s">没有待签到预约时，后台不发任何请求。</div>
+    </div>
+    <div id="tl" class="el">
+      <div class="axis"></div>
+      <div class="block" id="blk">自习室 · 六楼 130 · 08:00 – 12:00</div>
+      <div class="head" id="ph"><div class="headTime" id="phT"></div></div>
+      <div id="pulse"></div>
+      <div id="checked">✓ 已签到</div>
+    </div>
+    <div id="toast" class="el">
+      <img src="../../resources/icon.png" alt="">
+      <div><div class="a">HDU Library Sniper · 现在</div><div class="b">签到成功</div><div class="c">自习室 · 六楼 130 · 08:00 – 12:00</div></div>
+    </div>
+  </div>
+
+  <!-- S6 -->
+  <div id="s6" class="layer">
+    <div class="plat el" id="p1">Windows</div>
+    <div class="plat el" id="p2">macOS</div>
+    <div class="plat el" id="p3">Linux</div>
+    <div class="plat el" id="p4">容器部署</div>
+    <div id="secure" class="el">凭据 <b>AES-256-GCM</b> 加密，只存在你的设备上</div>
+  </div>
+
+  <!-- S7 -->
+  <div id="s7" class="layer center">
+    <svg id="logo" class="el" viewBox="0 0 1024 1024">
+      <defs><linearGradient id="lbg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#27272A"/><stop offset="1" stop-color="#09090B"/></linearGradient></defs>
+      <rect width="1024" height="1024" rx="228" fill="url(#lbg)"/>
+      <rect x="4" y="4" width="1016" height="1016" rx="224" fill="none" stroke="#fff" stroke-opacity=".12" stroke-width="8"/>
+      <g transform="translate(104 104) scale(34)" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path id="lg1" d="M4 4v16" stroke="#FAFAFA" pathLength="1"/>
+        <path id="lg2" d="M8 8v12" stroke="#FAFAFA" pathLength="1"/>
+        <path id="lg3" d="M12 6v14" stroke="#FAFAFA" pathLength="1"/>
+        <path id="lg4" d="m16 6 4 14" stroke="#F59E0B" pathLength="1"/>
+      </g>
+    </svg>
+    <div id="endTitle" class="el">HDU Library Sniper</div>
+    <div id="endTag" class="el">选好座位，剩下的交给后台。</div>
+    <div id="endMeta" class="el"><b>v3.0.0</b> · github.com/AlaIchhe/HDU-Library-Sniper</div>
+  </div>
+
+  <canvas id="grain" width="1920" height="1080"></canvas>
+  <div id="vignette"></div>
+  <div id="flash"></div>
+  <div id="fade"></div>
+</div>
+
+<script>
+const DURATION = 31;
+const $ = (id) => document.getElementById(id);
+
+// ---------- 数学工具 ----------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const easeOut = (k) => 1 - Math.pow(1 - k, 4);
+const easeInOut = (k) => (k < .5 ? 8 * k ** 4 : 1 - Math.pow(-2 * k + 2, 4) / 2);
+const easeIn = (k) => k ** 3;
+const backOut = (k) => { const c = 1.6; return 1 + (c + 1) * (k - 1) ** 3 + c * (k - 1) ** 2; };
+function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+
+// 元素“模糊入场 / 模糊退场”，Opus 风味的核心动作
+function reveal(el, t, inAt, outAt, o = {}) {
+  const dIn = o.dIn ?? .7, dOut = o.dOut ?? .45, dy = o.dy ?? 36, blur = o.blur ?? 16, sc = o.scale ?? .96;
+  const a = easeOut(prog(t, inAt, inAt + dIn));
+  const b = outAt == null ? 0 : easeIn(prog(t, outAt, outAt + dOut));
+  const op = a * (1 - b);
+  el.style.opacity = op.toFixed(4);
+  el.style.filter = (a < 1 || b > 0) ? `blur(${(blur * (1 - a) + blur * b).toFixed(2)}px)` : "none";
+  const y = dy * (1 - a) - (o.dyOut ?? dy * .6) * b;
+  const s = lerp(sc, 1, a) * lerp(1, o.scaleOut ?? 1.03, b);
+  el.style.transform = `${o.base ?? ""} translateY(${y.toFixed(2)}px) scale(${s.toFixed(4)})`;
+  return op;
+}
+const show = (el, on) => { el.style.display = on ? "" : "none"; };
+
+// ---------- 场景时间表 ----------
+const S = {
+  s1: [0, 3.4], s2: [3.2, 6.9], s3: [6.7, 13.0], s4: [12.8, 18.4], s5: [18.2, 23.8], s6: [23.6, 26.9], s7: [26.7, 31],
+};
+
+// ---------- 构建 DOM ----------
+const COLS = 12, ROWS = 6, FIRST = 101, TARGET = 130;
+const seatEls = [];
+for (let i = 0; i < COLS * ROWS; i++) {
+  const d = document.createElement("div");
+  d.className = "seat"; d.textContent = FIRST + i;
+  $("seats").appendChild(d); seatEls.push(d);
+}
+const targetIdx = TARGET - FIRST;
+// 被别人抢走的顺序（确定性随机），目标座位与备选座位不在其中
+const r = rng(20261115);
+const takeOrder = seatEls.map((_, i) => i).filter((i) => i !== targetIdx).map((i) => [i, r()]).sort((a, b) => a[1] - b[1]).map((x) => x[0]);
+const takeAt = new Map(takeOrder.map((idx, k) => [idx, 8.15 + Math.pow(k / takeOrder.length, 1.6) * 3.2]));
+
+const LOG = [
+  [7.55, '<span class="t">20:00:00.000</span>提交预约 <span class="hl">seat=130</span>'],
+  [8.05, '<span class="t">20:00:00.038</span><span class="ok">200 OK</span>  预约成功'],
+  [8.45, '<span class="t">20:00:00.039</span>备选 131, 132 · 无需使用'],
+  [8.85, '<span class="t">20:00:00.040</span>明早 <span class="hl">08:00</span> 自动签到'],
+];
+LOG.forEach(([, html]) => { const d = document.createElement("div"); d.className = "row el"; d.innerHTML = html; $("log").appendChild(d); });
+
+const DAYS = ["一", "二", "三", "四", "五", "六", "日"];
+DAYS.forEach((d) => { const e = document.createElement("div"); e.className = "day"; e.textContent = d; $("days").appendChild(e); });
+
+// 时间轴：06:00 – 13:00
+const TL_W = 1920 - 280, H0 = 6, H1 = 13;
+const xOf = (h) => ((h - H0) / (H1 - H0)) * TL_W;
+for (let h = H0; h <= H1; h++) {
+  const tk = document.createElement("div"); tk.className = "tick"; tk.style.left = xOf(h) + "px"; $("tl").appendChild(tk);
+  const lb = document.createElement("div"); lb.className = "lbl"; lb.style.left = xOf(h) + "px"; lb.textContent = String(h).padStart(2, "0") + ":00"; $("tl").appendChild(lb);
+}
+$("blk").style.left = xOf(8) + "px"; $("blk").style.width = (xOf(12) - xOf(8)) + "px";
+
+// 颗粒：预生成 4 张噪声，逐帧轮换
+const grainCtx = $("grain").getContext("2d");
+const grainFrames = [];
+{
+  const gr = rng(7);
+  for (let f = 0; f < 4; f++) {
+    const img = grainCtx.createImageData(1920, 1080);
+    for (let i = 0; i < img.data.length; i += 4) { const v = gr() * 255; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; }
+    grainFrames.push(img);
+  }
+}
+
+// ---------- 渲染一帧 ----------
+function seek(t) {
+  // 背景
+  $("grid").style.transform = `translate(${(-t * 6) % 80}px, ${(-t * 3) % 80}px)`;
+  const gx = 260 + Math.sin(t * .35) * 220, gy = -160 + Math.cos(t * .27) * 140;
+  $("glow").style.transform = `translate(${gx - 260}px, ${gy + 160}px)`;
+  $("glow").style.opacity = (.75 + .25 * Math.sin(t * 1.3)).toFixed(3);
+  grainCtx.putImageData(grainFrames[Math.floor(t * 24) % 4], 0, 0);
+
+  for (const [id, [a, b]] of Object.entries(S)) show($(id), t >= a && t <= b);
+
+  // ===== S1：倒计时到 20:00:00 =====
+  if (t <= S.s1[1]) {
+    const hit = 2.5;
+    const secs = 19 * 3600 + 59 * 60 + 57.5 + Math.min(t, hit);
+    const tot = t >= hit ? 20 * 3600 : secs;
+    const hh = Math.floor(tot / 3600), mm = Math.floor((tot % 3600) / 60), ss = Math.floor(tot % 60), ms = Math.floor((tot % 1) * 1000);
+    const p2 = (n) => String(n).padStart(2, "0");
+    const col = Math.floor(t * 2) % 2 === 0 || t >= hit ? '<span class="c">:</span>' : '<span class="c" style="opacity:.25">:</span>';
+    $("clock").innerHTML = `${p2(hh)}${col}${p2(mm)}${col}${p2(ss)}<span class="ms">.${String(ms).padStart(3, "0")}</span>`;
+    $("clock").style.color = t >= hit ? "#f59e0b" : "#fafafa";
+    const punch = t >= hit ? 1 + .06 * Math.exp(-(t - hit) * 7) : 1;
+    reveal($("clock"), t, 0, 3.0, { dIn: .6, base: `scale(${punch.toFixed(4)})`, scaleOut: 1.12, blur: 22 });
+    reveal($("s1cap"), t, .45, 2.95, { dy: 20 });
+    $("flash").style.opacity = t >= hit ? (.16 * Math.exp(-(t - hit) * 6)).toFixed(3) : 0;
+  } else $("flash").style.opacity = 0;
+
+  // ===== S2：拼手速 / 网速 / 运气 → 不如交给后台 =====
+  if (t >= S.s2[0] && t <= S.s2[1]) {
+    ["w1", "w2", "w3"].forEach((id, i) => {
+      const el = $(id);
+      const op = reveal(el, t, 3.35 + i * .32, 5.05, { dy: 50, dIn: .55 });
+      const k = easeInOut(prog(t, 4.3 + i * .14, 4.62 + i * .14));
+      el.querySelector(".bar").style.transform = `scaleX(${k})`;
+      el.style.color = k > 0 ? `rgba(250,250,250,${(1 - .7 * k).toFixed(3)})` : "#fafafa";
+      return op;
+    });
+    reveal($("s2big"), t, 5.3, 6.45, { dy: 0, base: "translateY(-50%)", blur: 24, scale: 1.08, dIn: .8 });
+  }
+
+  // ===== S3：座位网格 + 瞄准锁定 =====
+  if (t >= S.s3[0] && t <= S.s3[1]) {
+    const out = 12.45;
+    reveal($("s3k"), t, 6.85, out, { dy: 20 });
+    reveal($("s3h"), t, 7.0, out);
+    reveal($("s3s"), t, 7.2, out, { dy: 20 });
+    [...$("log").children].forEach((row, i) => reveal(row, t, LOG[i][0], out, { dy: 14, blur: 8, dIn: .4 }));
+
+    // 网格从斜视角落下并缓慢推近
+    const gIn = easeOut(prog(t, 6.75, 7.9));
+    const gOut = easeIn(prog(t, out, out + .5));
+    const rx = lerp(42, 16, gIn) + 4 * prog(t, 7.9, out);
+    const rz = lerp(-8, -3, gIn);
+    const scale = lerp(.86, 1, gIn) + .04 * prog(t, 7.9, out);
+    $("seats").style.transform = `rotateX(${rx}deg) rotateZ(${rz}deg) scale(${scale})`;
+    $("seatWrap").style.opacity = (gIn * (1 - gOut)).toFixed(3);
+    $("seatWrap").style.filter = gIn < 1 || gOut > 0 ? `blur(${(14 * (1 - gIn) + 14 * gOut).toFixed(2)}px)` : "none";
+
+    // 座位依次入场（波纹）
+    seatEls.forEach((el, i) => {
+      const c = i % COLS, rr = Math.floor(i / COLS);
+      const d = Math.hypot(c - 5.5, rr - 2.5);
+      const k = easeOut(prog(t, 6.8 + d * .06, 7.3 + d * .06));
+      const taken = (takeAt.get(i) ?? Infinity) <= t;
+      const mine = i === targetIdx && t >= 7.95;
+      el.className = "seat" + (taken ? " taken" : "") + (mine ? " mine" : "");
+      const pop = taken ? 1 - .12 * Math.exp(-(t - takeAt.get(i)) * 14) : 1;
+      const minePop = mine ? 1 + .14 * Math.exp(-(t - 7.95) * 6) : 1;
+      el.style.opacity = k.toFixed(3);
+      el.style.transform = `translateZ(${((1 - k) * 120).toFixed(1)}px) scale(${(pop * minePop).toFixed(4)})`;
+    });
+
+    // 准星：屏幕坐标跟随目标座位
+    const tr = seatEls[targetIdx].getBoundingClientRect();
+    const tx = tr.left + tr.width / 2, ty = tr.top + tr.height / 2;
+    const m = easeInOut(prog(t, 7.15, 7.9));
+    const sx = lerp(1500, tx, m), sy = lerp(830, ty, m);
+    const ret = $("reticle");
+    ret.style.left = sx + "px"; ret.style.top = sy + "px";
+    const lockK = easeOut(prog(t, 7.85, 8.15));
+    const retOp = reveal(ret, t, 7.05, out - .2, { dy: 0, dIn: .35, blur: 10, base: `rotate(${lerp(-90, 0, m) + 45 * lockK}deg) scale(${lerp(1.5, .62, lockK).toFixed(4)})` });
+    $("retRing").setAttribute("r", (60 - 18 * lockK).toFixed(2));
+
+    const tag = $("lockTag");
+    tag.style.left = (tx + 74) + "px"; tag.style.top = (ty - 92) + "px";
+    reveal(tag, t, 8.1, out - .2, { dy: 14, blur: 8, dIn: .45 });
+    void retOp;
+  }
+
+  // ===== S4：方案卡片 =====
+  if (t >= S.s4[0] && t <= S.s4[1]) {
+    const out = 17.85;
+    reveal($("s4k"), t, 12.95, out, { dy: 20 });
+    reveal($("s4h"), t, 13.1, out);
+    reveal($("s4s"), t, 13.3, out, { dy: 20 });
+    const tilt = lerp(-14, -4, easeOut(prog(t, 12.9, 14.2))) + 2 * prog(t, 14.2, out);
+    reveal($("card"), t, 12.95, out, { dy: 80, dIn: .9, base: `perspective(2000px) rotateY(${tilt.toFixed(2)}deg) rotateX(4deg)` });
+    ["f1", "f2", "f3", "f4", "f5"].forEach((id, i) => reveal($(id), t, 13.5 + i * .22, null, { dy: 22, blur: 10, dIn: .5 }));
+    [...$("days").children].forEach((d, i) => {
+      const on = t >= 14.75 + i * .09;
+      d.className = "day" + (on ? " on" : "");
+      const p = on ? 1 + .18 * Math.exp(-(t - (14.75 + i * .09)) * 10) : 1;
+      d.style.transform = `scale(${p.toFixed(4)})`;
+    });
+    const sw = easeInOut(prog(t, 15.65, 15.95));
+    $("knob").style.transform = `translateX(${(40 * sw).toFixed(2)}px)`;
+    $("sw").style.background = sw > .5 ? "#f59e0b" : "#3f3f46";
+    $("sw").style.boxShadow = sw > .5 ? `0 0 ${(40 * Math.exp(-(t - 15.95) * 3)).toFixed(1)}px rgba(245,158,11,.8)` : "none";
+    reveal($("s4line"), t, 16.15, out, { dy: 24 });
+  }
+
+  // ===== S5：签到时间轴 =====
+  if (t >= S.s5[0] && t <= S.s5[1]) {
+    const out = 23.3;
+    reveal($("s5k"), t, 18.35, out, { dy: 20 });
+    reveal($("s5h"), t, 18.5, out);
+    reveal($("s5s"), t, 18.7, out, { dy: 20 });
+    reveal($("tl"), t, 18.5, out, { dy: 40, dIn: .8 });
+    // 播放头 06:30 → 08:00，到点停住
+    const hk = easeInOut(prog(t, 19.0, 20.6));
+    const hour = lerp(6.5, 8, hk);
+    const x = xOf(hour);
+    $("ph").style.left = x + "px";
+    const hh = Math.floor(hour), mm = Math.floor((hour - hh) * 60);
+    $("phT").textContent = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    $("phT").style.color = hk >= 1 ? "#f59e0b" : "#fafafa";
+    const hit = 20.6;
+    const pk = prog(t, hit, hit + .9);
+    const pu = $("pulse");
+    pu.style.left = xOf(8) + "px"; pu.style.top = "82px";
+    pu.style.opacity = t >= hit ? (1 - pk).toFixed(3) : 0;
+    pu.style.transform = `scale(${(1 + pk * 5).toFixed(3)})`;
+    const blk = $("blk");
+    blk.style.background = t >= hit ? `rgba(245,158,11,${(.16 + .5 * Math.exp(-(t - hit) * 3)).toFixed(3)})` : "rgba(245,158,11,.10)";
+    const ck = $("checked");
+    ck.style.left = (xOf(12) - 210) + "px"; ck.style.top = "57px";
+    reveal(ck, t, hit + .05, null, { dy: 18, blur: 6, dIn: .4, scale: .8 });
+    const toastK = reveal($("toast"), t, hit + .35, out, { dy: 0, dIn: .6, blur: 12 });
+    $("toast").style.transform += ` translateX(${((1 - easeOut(prog(t, hit + .35, hit + 1.0))) * 120).toFixed(1)}px)`;
+    void toastK;
+  }
+
+  // ===== S6：平台 =====
+  if (t >= S.s6[0] && t <= S.s6[1]) {
+    const out = 26.45;
+    const words = ["p1", "p2", "p3", "p4"];
+    // 四个词依次从右侧滑入并压缩成一列
+    words.forEach((id, i) => {
+      const el = $(id);
+      const at = 23.7 + i * .38;
+      const k = easeOut(prog(t, at, at + .7));
+      el.style.left = "0"; el.style.right = "0"; el.style.textAlign = "center";
+      const row = i - 1.5;
+      const yy = 330 + row * 150;
+      const fade = 1 - .55 * prog(t, at + .45, at + .9) * (i < words.length - 1 ? 1 : 0);
+      const opIn = k, opOut = easeIn(prog(t, out, out + .4));
+      el.style.top = (yy - 90) + "px";
+      el.style.opacity = (opIn * (1 - opOut) * fade).toFixed(3);
+      el.style.color = i === words.length - 1 ? "#f59e0b" : "#fafafa";
+      el.style.fontSize = "132px";
+      el.style.filter = `blur(${(16 * (1 - k) + 16 * opOut).toFixed(2)}px)`;
+      el.style.transform = `translateX(${((1 - k) * 260).toFixed(1)}px) scale(${lerp(1.15, 1, k).toFixed(4)})`;
+    });
+    reveal($("secure"), t, 25.3, out, { dy: 20 });
+  }
+
+  // ===== S7：Logo 收尾 =====
+  if (t >= S.s7[0]) {
+    reveal($("logo"), t, 26.8, null, { dy: 0, scale: .7, dIn: 1.0, blur: 20 });
+    ["lg1", "lg2", "lg3", "lg4"].forEach((id, i) => {
+      const k = easeOut(prog(t, 27.0 + i * .16, 27.55 + i * .16));
+      $(id).style.strokeDasharray = "1 1";
+      $(id).style.strokeDashoffset = (1 - k).toFixed(4);
+    });
+    reveal($("endTitle"), t, 27.6, null, { dy: 30, blur: 20 });
+    reveal($("endTag"), t, 28.0, null, { dy: 20 });
+    reveal($("endMeta"), t, 28.4, null, { dy: 14, blur: 8 });
+    const lift = easeOut(prog(t, 26.8, 31));
+    $("s7").style.transform = `translateY(${(14 - 14 * lift).toFixed(2)}px)`;
+  }
+
+  $("fade").style.opacity = easeIn(prog(t, 30.3, 31)).toFixed(3);
+}
+
+window.__promo = { seek, DURATION };
+
+// 直接打开 HTML 时自动循环播放预览
+if (!location.search.includes("render")) {
+  const t0 = performance.now();
+  const loop = () => { seek(((performance.now() - t0) / 1000) % DURATION); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+} else seek(0);
+</script>
+</body>
+</html>
