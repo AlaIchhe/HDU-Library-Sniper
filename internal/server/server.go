@@ -21,7 +21,7 @@ type Server struct {
 	Scheduler *scheduler.Scheduler
 	Frontend  fs.FS
 	limiter   *RateLimiter
-	catalog   *catalogCache
+	catalog   *catalogFlights
 }
 
 func New(st *store.Store, authSvc *auth.Service, exec *booking.Executor, sched *scheduler.Scheduler, frontend fs.FS) *Server {
@@ -32,7 +32,7 @@ func New(st *store.Store, authSvc *auth.Service, exec *booking.Executor, sched *
 		Scheduler: sched,
 		Frontend:  frontend,
 		limiter:   NewRateLimiter(),
-		catalog:   newCatalogCache(),
+		catalog:   newCatalogFlights(),
 	}
 }
 

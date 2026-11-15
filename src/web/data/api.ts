@@ -176,14 +176,15 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ name, memberPlanIds }),
     }),
-  roomTypes: () => call<{ options: RoomTypeOption[] }>("/api/catalog/room-types"),
-  floors: (roomQuery: string, roomType?: string) =>
+  roomTypes: (refresh = false) =>
+    call<{ options: RoomTypeOption[] }>(`/api/catalog/room-types${refresh ? "?refresh=1" : ""}`),
+  floors: (roomQuery: string, roomType?: string, refresh = false) =>
     call<{ options: FloorOption[]; range?: BookingRange }>(
-      `/api/catalog/floors?roomQuery=${encodeURIComponent(roomQuery)}&roomType=${encodeURIComponent(roomType || "")}`,
+      `/api/catalog/floors?roomQuery=${encodeURIComponent(roomQuery)}&roomType=${encodeURIComponent(roomType || "")}${refresh ? "&refresh=1" : ""}`,
     ),
-  durations: (roomQuery: string, startHour: number, roomType?: string) =>
+  durations: (roomQuery: string, startHour: number, roomType?: string, refresh = false) =>
     call<DurationOptions>(
-      `/api/catalog/durations?roomQuery=${encodeURIComponent(roomQuery)}&roomType=${encodeURIComponent(roomType || "")}&startHour=${startHour}`,
+      `/api/catalog/durations?roomQuery=${encodeURIComponent(roomQuery)}&roomType=${encodeURIComponent(roomType || "")}&startHour=${startHour}${refresh ? "&refresh=1" : ""}`,
     ),
   audit: (limit = 20) => call<{ events: AuditEvent[] }>(`/api/audit?limit=${limit}`),
   checkinStatus: () => call<CheckInStatus>("/api/checkin", undefined, validateCheckin),

@@ -11,12 +11,6 @@ import (
 
 	"hdu-library-sniper/internal/core"
 	"hdu-library-sniper/internal/hdu"
-	"hdu-library-sniper/internal/store"
-)
-
-const (
-	catalogRoomTypesTTL = 24 * time.Hour
-	catalogDetailsTTL   = 12 * time.Hour
 )
 
 var errNoFloorsAvailable = errors.New("该房间类型当前没有可预约楼层（可能尚未开放预约，请尝试其他房间类型）")
@@ -26,114 +20,88 @@ type floorsPayload struct {
 	Range   core.BookingRange  `json:"range"`
 }
 
-type catalogMemoryEntry struct {
-	expiresAt int64
-	value     any
+// catalogFlights coalesces concurrent cold loads or lazy refreshes per SQLite key.
+type catalogFlights struct {
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex
 }
 
-type catalogPersistedEnvelope struct {
-	ExpiresAt int64           `json:"expiresAt"`
-	Data      json.RawMessage `json:"data"`
+func newCatalogFlights() *catalogFlights {
+	return &catalogFlights{locks: make(map[string]*sync.Mutex)}
 }
 
-type catalogCache struct {
-	mu       sync.Mutex
-	entries  map[string]catalogMemoryEntry
-	inflight map[string]*sync.Mutex
-}
-
-func newCatalogCache() *catalogCache {
-	return &catalogCache{
-		entries:  make(map[string]catalogMemoryEntry),
-		inflight: make(map[string]*sync.Mutex),
-	}
-}
-
-func (c *catalogCache) clear() {
-	c.mu.Lock()
-	c.entries = make(map[string]catalogMemoryEntry)
-	c.mu.Unlock()
-}
-
-func (c *catalogCache) flightLock(key string) *sync.Mutex {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	m, ok := c.inflight[key]
+func (f *catalogFlights) lock(key string) *sync.Mutex {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	m, ok := f.locks[key]
 	if !ok {
 		m = &sync.Mutex{}
-		c.inflight[key] = m
+		f.locks[key] = m
 	}
 	return m
 }
 
-func (c *catalogCache) put(st *store.Store, key string, val any, ttl time.Duration) {
-	exp := time.Now().Add(ttl).Unix()
-	c.mu.Lock()
-	c.entries[key] = catalogMemoryEntry{expiresAt: exp, value: val}
-	c.mu.Unlock()
+func decodePersistedCatalog[T any](raw string) (T, bool) {
+	var zero T
+	if raw == "" {
+		return zero, false
+	}
+	// Tolerate legacy TTL envelopes so existing SQLite rows don't decode into zero structs.
+	var wrapped struct {
+		ExpiresAt *int64          `json:"expiresAt"`
+		Data      json.RawMessage `json:"data"`
+	}
+	payload := []byte(raw)
+	if json.Unmarshal(payload, &wrapped) == nil && wrapped.ExpiresAt != nil && len(wrapped.Data) > 0 {
+		payload = wrapped.Data
+	}
+	var val T
+	if json.Unmarshal(payload, &val) != nil {
+		return zero, false
+	}
+	return val, true
+}
 
-	if st == nil {
+func savePersistedCatalog(s *Server, key string, val any) {
+	if s.Store == nil {
 		return
 	}
-	if dataRaw, err := json.Marshal(val); err == nil {
-		if envRaw, err := json.Marshal(catalogPersistedEnvelope{ExpiresAt: exp, Data: dataRaw}); err == nil {
-			_ = st.SetMeta(key, string(envRaw))
-		}
+	if raw, err := json.Marshal(val); err == nil {
+		_ = s.Store.SetMeta(key, string(raw))
 	}
 }
 
-func fetchCachedCatalog[T any](
+func loadOrFetchCatalog[T any](
 	s *Server,
 	key string,
-	ttl time.Duration,
 	forceRefresh bool,
 	fetch func() (T, error),
 ) (T, error) {
 	var zero T
-	if s.catalog == nil {
-		return fetch()
+	readStore := func() (T, bool) {
+		if s.Store == nil {
+			return zero, false
+		}
+		raw, err := s.Store.GetMeta(key)
+		if err != nil {
+			return zero, false
+		}
+		return decodePersistedCatalog[T](raw)
 	}
-	now := time.Now().Unix()
 
 	if !forceRefresh {
-		s.catalog.mu.Lock()
-		entry, ok := s.catalog.entries[key]
-		s.catalog.mu.Unlock()
-		if ok && now < entry.expiresAt {
-			if typed, match := entry.value.(T); match {
-				return typed, nil
-			}
+		if stored, ok := readStore(); ok {
+			return stored, nil
 		}
 	}
 
-	// Coalesce concurrent cold-cache fetches per key to avoid bursting Huitu upstream.
-	lk := s.catalog.flightLock(key)
-	lk.Lock()
-	defer lk.Unlock()
-
-	now = time.Now().Unix()
-	if !forceRefresh {
-		s.catalog.mu.Lock()
-		entry, ok := s.catalog.entries[key]
-		s.catalog.mu.Unlock()
-		if ok && now < entry.expiresAt {
-			if typed, match := entry.value.(T); match {
-				return typed, nil
-			}
-		}
-
-		if s.Store != nil {
-			if raw, err := s.Store.GetMeta(key); err == nil && raw != "" {
-				var env catalogPersistedEnvelope
-				if json.Unmarshal([]byte(raw), &env) == nil && now < env.ExpiresAt {
-					var decoded T
-					if json.Unmarshal(env.Data, &decoded) == nil {
-						s.catalog.mu.Lock()
-						s.catalog.entries[key] = catalogMemoryEntry{expiresAt: env.ExpiresAt, value: decoded}
-						s.catalog.mu.Unlock()
-						return decoded, nil
-					}
-				}
+	if s.catalog != nil {
+		lk := s.catalog.lock(key)
+		lk.Lock()
+		defer lk.Unlock()
+		if !forceRefresh {
+			if stored, ok := readStore(); ok {
+				return stored, nil
 			}
 		}
 	}
@@ -142,7 +110,7 @@ func fetchCachedCatalog[T any](
 	if err != nil {
 		return zero, err
 	}
-	s.catalog.put(s.Store, key, fresh, ttl)
+	savePersistedCatalog(s, key, fresh)
 	return fresh, nil
 }
 
@@ -152,10 +120,9 @@ func wantsRefresh(r *http.Request) bool {
 }
 
 func (s *Server) handleRoomTypes(w http.ResponseWriter, r *http.Request) {
-	opts, err := fetchCachedCatalog(
+	opts, err := loadOrFetchCatalog(
 		s,
 		"catalog:room_types",
-		catalogRoomTypesTTL,
 		wantsRefresh(r),
 		func() ([]core.RoomTypeOption, error) {
 			return s.Auth.Client.RoomTypes(r.Context())
@@ -176,21 +143,22 @@ func (s *Server) handleFloors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	roomType := q.Get("roomType")
-	offset := core.BookingDayOffsetFor(roomType)
-	key := "catalog:floors:" + roomQuery + ":" + strconv.Itoa(offset)
+	refresh := wantsRefresh(r)
 
-	payload, err := fetchCachedCatalog(
+	payload, err := loadOrFetchCatalog(
 		s,
-		key,
-		catalogDetailsTTL,
-		wantsRefresh(r),
+		"catalog:floors:"+roomQuery,
+		refresh,
 		func() (floorsPayload, error) {
+			if refresh {
+				s.Auth.Client.ClearRoomMeta()
+			}
 			br, err := s.Auth.Client.BookingRange(r.Context(), roomQuery)
 			if err != nil {
 				return floorsPayload{}, err
 			}
 			nowLocal := time.Now().In(core.Shanghai)
-			targetDate := nowLocal.AddDate(0, 0, offset)
+			targetDate := nowLocal.AddDate(0, 0, core.BookingDayOffsetFor(roomType))
 			lookup := time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), 10, 0, 0, 0, core.Shanghai).UTC()
 
 			rawFloors, err := s.Auth.Client.Floors(r.Context(), roomQuery, lookup, 1)
@@ -206,9 +174,7 @@ func (s *Server) handleFloors(w http.ResponseWriter, r *http.Request) {
 			if len(opts) == 0 {
 				return floorsPayload{}, errNoFloorsAvailable
 			}
-			if s.catalog != nil {
-				s.catalog.put(s.Store, "catalog:range:"+roomQuery, br, catalogDetailsTTL)
-			}
+			savePersistedCatalog(s, "catalog:range:"+roomQuery, br)
 			return floorsPayload{Options: opts, Range: br}, nil
 		},
 	)
@@ -235,12 +201,15 @@ func (s *Server) handleDurations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "开始时间无效")
 		return
 	}
-	br, err := fetchCachedCatalog(
+	refresh := wantsRefresh(r)
+	br, err := loadOrFetchCatalog(
 		s,
 		"catalog:range:"+roomQuery,
-		catalogDetailsTTL,
-		wantsRefresh(r),
+		refresh,
 		func() (core.BookingRange, error) {
+			if refresh {
+				s.Auth.Client.ClearRoomMeta()
+			}
 			return s.Auth.Client.BookingRange(r.Context(), roomQuery)
 		},
 	)

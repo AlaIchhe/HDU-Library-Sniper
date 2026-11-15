@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -149,7 +150,7 @@ func TestPlanAndGroupLifecycle(t *testing.T) {
 	}
 }
 
-func TestCatalogCacheMemorySQLiteRefreshAndLogout(t *testing.T) {
+func TestCatalogPersistenceAndLazyRefresh(t *testing.T) {
 	srv, _ := testRouter(t)
 	var roomListHits, searchGetHits, searchPostHits atomic.Int32
 
@@ -246,7 +247,7 @@ func TestCatalogCacheMemorySQLiteRefreshAndLogout(t *testing.T) {
 	}
 
 	if roomListHits.Load() != 1 || searchGetHits.Load() != 1 || searchPostHits.Load() != 1 {
-		t.Fatalf("expected 1/1/1 upstream hits on warm memory cache, got %d/%d/%d",
+		t.Fatalf("expected 1/1/1 upstream hits, got %d/%d/%d",
 			roomListHits.Load(), searchGetHits.Load(), searchPostHits.Load())
 	}
 
@@ -262,23 +263,35 @@ func TestCatalogCacheMemorySQLiteRefreshAndLogout(t *testing.T) {
 		t.Fatalf("restarted durations = %d", r.Code)
 	}
 	if roomListHits.Load() != 1 || searchGetHits.Load() != 1 || searchPostHits.Load() != 1 {
-		t.Fatalf("expected 0 extra hits on restarted server via SQLite cache, got %d/%d/%d",
+		t.Fatalf("expected 0 extra hits on restarted server via SQLite persistence, got %d/%d/%d",
 			roomListHits.Load(), searchGetHits.Load(), searchPostHits.Load())
 	}
 
-	// Explicit refresh bypasses cache.
-	if r := req(h2, http.MethodGet, floorsPath+"&refresh=1"); r.Code != 200 {
-		t.Fatalf("refresh floors = %d", r.Code)
+	// Legacy expired {expiresAt, data} rows still resolve cleanly without re-polling upstream.
+	_ = srv.Store.SetMeta("catalog:range:"+roomQuery, `{"expiresAt":1,"data":{"minBeginTime":7,"maxEndTime":22,"minDuration":1,"maxDuration":15}}`)
+	r := req(h2, http.MethodGet, dur8Path)
+	if r.Code != 200 {
+		t.Fatalf("legacy envelope durations = %d %s", r.Code, r.Body.String())
 	}
-	if searchPostHits.Load() != 2 {
-		t.Fatalf("expected POST searchSeats hit=2 after ?refresh=1, got %d", searchPostHits.Load())
+	if !strings.Contains(r.Body.String(), `"options":[1,2,`) || searchGetHits.Load() != 1 {
+		t.Fatalf("expected legacy range unwrapped without upstream hit, body=%s getHits=%d", r.Body.String(), searchGetHits.Load())
 	}
 
-	// Logout clears persisted catalog cache in SQLite and memory.
+	// Logout preserves persisted institutional catalog data in SQLite.
 	if r := req(h2, http.MethodPost, "/api/session/logout"); r.Code != 200 {
 		t.Fatalf("logout = %d", r.Code)
 	}
-	if v, err := srv.Store.GetMeta("catalog:room_types"); err != nil || v != "" {
-		t.Fatalf("expected catalog:room_types cleared on logout, got %q, err=%v", v, err)
+	if v, err := srv.Store.GetMeta("catalog:room_types"); err != nil || v == "" {
+		t.Fatalf("expected catalog:room_types preserved on logout, got %q, err=%v", v, err)
+	}
+
+	// Explicit lazy refresh bypasses persistence and refreshes both roomMeta and floors.
+	h3 := makeHandler()
+	if r := req(h3, http.MethodGet, floorsPath+"&refresh=1"); r.Code != 200 {
+		t.Fatalf("refresh floors = %d %s", r.Code, r.Body.String())
+	}
+	if searchGetHits.Load() != 2 || searchPostHits.Load() != 2 {
+		t.Fatalf("expected GET/POST searchSeats hits=2/2 after ?refresh=1, got %d/%d",
+			searchGetHits.Load(), searchPostHits.Load())
 	}
 }
