@@ -64,7 +64,7 @@ func TestClientAuthRefreshBookingsCatalogAndActions(t *testing.T) {
 								map[string]any{
 									"id":   "93",
 									"name": "自习室",
-									"link": map[string]any{"url": "/Seat/Index/searchSeats?space_category[category_id]=3&space_category[content_id]=93"},
+									"link": map[string]any{"url": "/Seat/Index/searchSeats?space_category%5Bcategory_id%5D=3&space_category%5Bcontent_id%5D=93"},
 								},
 							}},
 						}},
@@ -72,6 +72,9 @@ func TestClientAuthRefreshBookingsCatalogAndActions(t *testing.T) {
 				},
 			})
 		case "/Seat/Index/searchSeats":
+			if r.Header.Get("User-Agent") != MobileUserAgent {
+				t.Errorf("expected MobileUserAgent, got %q", r.Header.Get("User-Agent"))
+			}
 			if r.Method == http.MethodGet {
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"data": map[string]any{
@@ -88,10 +91,17 @@ func TestClientAuthRefreshBookingsCatalogAndActions(t *testing.T) {
 						map[string]any{
 							"children": map[string]any{
 								"children": []any{
-									map[string]any{"seatMap": map[string]any{
-										"info": map[string]any{"id": 3, "name": "三楼"},
-										"POIs": []any{map[string]any{"id": "42", "title": "101", "state": "0"}},
-									}},
+									map[string]any{
+										"roomName": "杭韵数阁（六楼）",
+										"seatMap": map[string]any{
+											"info": map[string]any{"id": 1559, "title": "杭韵数阁（六楼）"},
+											"POIs": []any{
+												map[string]any{"id": "43", "title": "102", "state": "0"},
+												map[string]any{"id": "42", "title": "101", "state": "0"},
+												map[string]any{"id": "42", "title": "101", "state": "0"},
+											},
+										},
+									},
 								},
 							},
 						},
@@ -125,7 +135,7 @@ func TestClientAuthRefreshBookingsCatalogAndActions(t *testing.T) {
 		t.Fatalf("Bookings after refresh = %v, %v, refreshed=%d", items, err, refreshed.Load())
 	}
 	rts, err := client.RoomTypes(ctx)
-	if err != nil || len(rts) != 1 || rts[0].Name != "自习室" {
+	if err != nil || len(rts) != 1 || rts[0].Name != "自习室" || rts[0].Query != "space_category[category_id]=3&space_category[content_id]=93" {
 		t.Fatalf("RoomTypes = %+v, %v", rts, err)
 	}
 	rg, err := client.BookingRange(ctx, rts[0].Query)
@@ -136,10 +146,36 @@ func TestClientAuthRefreshBookingsCatalogAndActions(t *testing.T) {
 	if err != nil || len(floors) != 1 {
 		t.Fatalf("Floors = %+v, %v", floors, err)
 	}
+	opt := FloorOptionFromRaw(floors[0])
+	if opt == nil || opt.ID != 1559 || opt.Name != "杭韵数阁（六楼）" || opt.SeatCount != 2 || len(opt.SeatTitles) != 2 || opt.SeatTitles[0] != "101" {
+		t.Fatalf("FloorOptionFromRaw = %+v", opt)
+	}
 	if _, err := client.Action(ctx, ActionCancel, "b1"); err != nil {
 		t.Fatalf("Cancel tolerates empty DATA.result: %v", err)
 	}
 	if _, err := client.Action(ctx, ActionLeave, "b1"); err != nil {
 		t.Fatalf("Leave failed: %v", err)
+	}
+}
+
+func TestFloorsSurfacesLibraryErrorMessage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{"space_category": map[string]any{"category_id": "591", "content_id": "3"}},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"CODE":    1,
+			"MESSAGE": "当前校外网络请求过于频繁，请10分钟后再试",
+		})
+	}))
+	defer srv.Close()
+
+	client := NewClientWithBaseURL(srv.URL)
+	_, err := client.Floors(context.Background(), "space_category[category_id]=591&space_category[content_id]=3", time.Now(), 1)
+	if err == nil || err.Error() != "当前校外网络请求过于频繁，请10分钟后再试" {
+		t.Fatalf("expected HDU rate-limit error message, got: %v", err)
 	}
 }

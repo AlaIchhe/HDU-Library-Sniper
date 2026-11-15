@@ -17,6 +17,7 @@ const (
 	SSOBase         = "https://sso.hdu.edu.cn"
 	LoginEntry      = "/User/Index/hduCASLogin"
 	UserAgent       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+	MobileUserAgent = "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36"
 	OpenIDUserAgent = "Mozilla/5.0 (Linux; Android 11; SM-G9910 wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/86.0.4240.99 XWEB/4375 MMWEBSDK/20221012 Mobile Safari/537.36 MicroMessenger/8.0.30.2260(0x28001E55) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64 miniProgram/wx5e72fc4ec15ca4e8"
 )
 
@@ -191,7 +192,7 @@ func (c *LibraryClient) requestJSONOnce(
 	if err != nil {
 		return nil, NetworkError(err)
 	}
-	req.Header.Set("User-Agent", UserAgent)
+	req.Header.Set("User-Agent", MobileUserAgent)
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Origin", c.baseURL)
 	req.Header.Set("Referer", c.baseURL+"/")

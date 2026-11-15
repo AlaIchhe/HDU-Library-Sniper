@@ -146,14 +146,18 @@ func AssertActionSuccess(body map[string]any) error {
 	if strings.EqualFold(code, "ok") && (result == "" || strings.EqualFold(result, "success")) {
 		return nil
 	}
-	msg := core.GetString(body, "DATA", "msg")
+	return LibraryError(responseErrorMessage(body, "馆方操作失败"))
+}
+
+func responseErrorMessage(body map[string]any, fallback string) string {
+	msg := strings.TrimSpace(core.GetString(body, "DATA", "msg"))
 	if msg == "" {
-		msg = core.ToString(body["MESSAGE"])
+		msg = strings.TrimSpace(core.ToString(body["MESSAGE"]))
 	}
-	if msg == "" {
-		msg = "馆方操作失败"
+	if msg == "" || strings.EqualFold(msg, "ok") || strings.EqualFold(msg, "success") {
+		return fallback
 	}
-	return LibraryError(msg)
+	return msg
 }
 
 // BookingFromRaw maps a raw myBookingList entry into the frontend DTO, returning nil for historical states.

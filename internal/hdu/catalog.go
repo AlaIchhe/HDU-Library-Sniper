@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -126,13 +127,16 @@ func (c *LibraryClient) Floors(ctx context.Context, roomQuery string, lookupTime
 	if err != nil {
 		return nil, err
 	}
+	if code := strings.TrimSpace(core.ToString(body["CODE"])); code != "" && !strings.EqualFold(code, "ok") {
+		return nil, LibraryError(responseErrorMessage(body, "座位图解析失败"))
+	}
 	topChildren := core.AsSlice(core.Get(body, "allContent", "children"))
 	if len(topChildren) <= 2 {
-		return nil, LibraryError("座位图解析失败")
+		return nil, LibraryError(responseErrorMessage(body, "座位图解析失败"))
 	}
 	rawFloors := core.AsSlice(core.Get(topChildren[2], "children", "children"))
 	if rawFloors == nil {
-		return nil, LibraryError("座位图解析失败")
+		return nil, LibraryError(responseErrorMessage(body, "座位图解析失败"))
 	}
 	floors := make([]map[string]any, 0, len(rawFloors))
 	for _, f := range rawFloors {
@@ -153,7 +157,11 @@ func FloorOptionFromRaw(raw map[string]any) *core.FloorOption {
 	if id <= 0 {
 		return nil
 	}
-	name := strings.TrimSpace(core.ToString(info["name"]))
+	name := firstNonEmpty(
+		core.ToString(raw["roomName"]),
+		core.ToString(info["title"]),
+		core.ToString(info["name"]),
+	)
 	if name == "" {
 		name = "楼层 " + strconv.FormatInt(id, 10)
 	}
@@ -166,12 +174,23 @@ func FloorOptionFromRaw(raw map[string]any) *core.FloorOption {
 			}
 		}
 	}
+	slices.Sort(titles)
+	titles = slices.Compact(titles)
 	return &core.FloorOption{
 		ID:         id,
 		Name:       name,
 		SeatCount:  int64(len(titles)),
 		SeatTitles: titles,
 	}
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if t := strings.TrimSpace(v); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 func findNonEmptyDefaultItems(v any) []any {
@@ -201,6 +220,9 @@ func extractRoomQuery(linkURL string) string {
 		return ""
 	}
 	q := linkURL[idx+1:]
+	if unescaped, err := url.PathUnescape(q); err == nil {
+		q = unescaped
+	}
 	parts := strings.Split(q, "&")
 	kept := make([]string, 0, len(parts))
 	for _, p := range parts {
