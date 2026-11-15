@@ -17,19 +17,19 @@ import (
 const (
 	ConsentVersion = "2026-08-02.1"
 
-	checkInOffset    = 60 * time.Second
-	checkInWritePoll = 10 * time.Second
-	checkInAuthRetry = 10 * time.Minute
-	checkInBan       = 10 * time.Minute
+	checkInOffset         = 60 * time.Second
+	checkInWritePoll      = 10 * time.Second
+	checkInAuthRetry      = 10 * time.Minute
+	checkInBan            = 10 * time.Minute
+	checkInSyncPeakWindow = 60 * time.Second
 )
 
 var syncRetryDelays = []time.Duration{
 	5 * time.Second,
-	10 * time.Second,
-	20 * time.Second,
+	15 * time.Second,
 	30 * time.Second,
-	30 * time.Second,
-	30 * time.Second,
+	60 * time.Second,
+	60 * time.Second,
 }
 
 type pendingCheckIn struct {
@@ -47,7 +47,11 @@ type Scheduler struct {
 	booking *booking.Executor
 	running atomic.Bool
 
+	nowFn   func() time.Time
+	sleepFn func(context.Context, time.Duration) bool
+
 	mu          sync.Mutex
+	baseCtx     context.Context
 	scheduler   string
 	state       string
 	lastRunAt   string
@@ -60,6 +64,8 @@ func New(st *store.Store, authSvc *auth.Service, exec *booking.Executor) *Schedu
 		store:     st,
 		auth:      authSvc,
 		booking:   exec,
+		nowFn:     time.Now,
+		sleepFn:   sleepWithContext,
 		scheduler: "running",
 		state:     "idle",
 		pending:   make(map[string]*pendingCheckIn),
@@ -67,6 +73,9 @@ func New(st *store.Store, authSvc *auth.Service, exec *booking.Executor) *Schedu
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
+	s.mu.Lock()
+	s.baseCtx = ctx
+	s.mu.Unlock()
 	go s.SyncCheckIns(ctx)
 	go s.bookingLoop(ctx)
 	go s.checkinLoop(ctx)
@@ -268,31 +277,88 @@ func (s *Scheduler) Forget(bookingID string) {
 	s.mu.Unlock()
 }
 
-func (s *Scheduler) SyncCheckIns(ctx context.Context) {
-	if s.syncCheckInsOnce(ctx, true, true) {
-		return
-	}
-	s.syncCheckInsRetries(ctx)
+// SyncAsync triggers check-in synchronization in the background under the scheduler's
+// lifecycle context so HTTP response completion does not cancel waits or retries.
+func (s *Scheduler) SyncAsync() {
+	go s.SyncCheckIns(s.lifecycleCtx())
 }
 
-func (s *Scheduler) syncCheckInsRetries(ctx context.Context) {
-	for i, delay := range syncRetryDelays {
-		if !sleepWithContext(ctx, delay) {
-			return
-		}
-		isLast := i+1 == len(syncRetryDelays)
-		if s.syncCheckInsOnce(ctx, isLast, !isLast) {
+func (s *Scheduler) SyncCheckIns(ctx context.Context) {
+	if !s.AutoCheckInEnabled() {
+		s.clearPending()
+		return
+	}
+	if delay := syncPeakDelay(s.now(), checkInSyncPeakWindow); delay > 0 {
+		if !s.sleep(ctx, delay) {
 			return
 		}
 	}
+	for i := 0; i <= len(syncRetryDelays); i++ {
+		if i > 0 && !s.sleep(ctx, syncRetryDelays[i-1]) {
+			return
+		}
+		if s.syncCheckInsOnce(ctx, i < len(syncRetryDelays)) {
+			return
+		}
+	}
+}
+
+func (s *Scheduler) clearPending() {
+	s.mu.Lock()
+	s.pending = make(map[string]*pendingCheckIn)
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) auditSyncFailure(msg string) {
+	_ = s.store.WriteAudit("checkin_sync_failed", map[string]any{
+		"error":     msg,
+		"willRetry": false,
+	})
+}
+
+func (s *Scheduler) now() time.Time {
+	if s.nowFn != nil {
+		return s.nowFn()
+	}
+	return time.Now()
+}
+
+func (s *Scheduler) sleep(ctx context.Context, d time.Duration) bool {
+	if s.sleepFn != nil {
+		return s.sleepFn(ctx, d)
+	}
+	return sleepWithContext(ctx, d)
+}
+
+func (s *Scheduler) lifecycleCtx() context.Context {
+	s.mu.Lock()
+	ctx := s.baseCtx
+	s.mu.Unlock()
+	if ctx != nil {
+		return ctx
+	}
+	return context.Background()
+}
+
+// syncPeakDelay waits out the 20:00:00–20:01:00 Asia/Shanghai opening surge so
+// post-booking sync does not collide with campus-wide snatch traffic.
+func syncPeakDelay(now time.Time, window time.Duration) time.Duration {
+	if window <= 0 {
+		return 0
+	}
+	t := now.In(core.Shanghai)
+	anchor := time.Date(t.Year(), t.Month(), t.Day(), core.BookingAnchorHour, 0, 0, 0, core.Shanghai)
+	end := anchor.Add(window)
+	if !t.Before(anchor) && t.Before(end) {
+		return end.Sub(t)
+	}
+	return 0
 }
 
 // syncCheckInsOnce returns true if syncing is done (either succeeded or permanently stopped).
-func (s *Scheduler) syncCheckInsOnce(ctx context.Context, logFailure, allowRetry bool) bool {
+func (s *Scheduler) syncCheckInsOnce(ctx context.Context, allowRetry bool) bool {
 	if !s.AutoCheckInEnabled() {
-		s.mu.Lock()
-		s.pending = make(map[string]*pendingCheckIn)
-		s.mu.Unlock()
+		s.clearPending()
 		return true
 	}
 	if !s.auth.Authenticated() && !s.auth.Restore(ctx) {
@@ -306,31 +372,23 @@ func (s *Scheduler) syncCheckInsOnce(ctx context.Context, logFailure, allowRetry
 		s.touchLastRunAt()
 		return true
 	}
+	if ctx.Err() != nil {
+		return true
+	}
 	if hdu.IsAuthExpired(err) {
 		if s.auth.Restore(ctx) {
-			if logFailure {
-				_ = s.store.WriteAudit("checkin_sync_failed", map[string]any{
-					"error":     "登录状态已刷新，等待重试",
-					"willRetry": allowRetry,
-				})
+			if !allowRetry {
+				s.auditSyncFailure("登录状态已刷新，同步重试已耗尽")
 			}
 			return !allowRetry
 		}
 		s.setState("auth_required")
-		if logFailure {
-			_ = s.store.WriteAudit("checkin_sync_failed", map[string]any{
-				"error":     "登录状态已失效",
-				"willRetry": false,
-			})
-		}
+		s.auditSyncFailure("登录状态已失效")
 		return true
 	}
 	willRetry := allowRetry && hdu.IsRetryableSyncError(err)
-	if logFailure {
-		_ = s.store.WriteAudit("checkin_sync_failed", map[string]any{
-			"error":     err.Error(),
-			"willRetry": willRetry,
-		})
+	if !willRetry {
+		s.auditSyncFailure(err.Error())
 	}
 	return !willRetry
 }
@@ -350,9 +408,7 @@ func (s *Scheduler) RunNow(ctx context.Context) (bool, string) {
 	s.setMessage(res.Message)
 	s.setState("idle")
 	if res.Success {
-		if !s.syncCheckInsOnce(ctx, true, true) {
-			go s.syncCheckInsRetries(context.Background())
-		}
+		s.SyncAsync()
 	}
 	return res.Success, res.Message
 }
@@ -388,9 +444,7 @@ func (s *Scheduler) bookingLoop(ctx context.Context) {
 		s.setMessage(res.Message)
 		s.setState("idle")
 		if res.Success {
-			if !s.syncCheckInsOnce(ctx, true, true) {
-				go s.syncCheckInsRetries(context.Background())
-			}
+			go s.SyncCheckIns(ctx)
 		}
 	}
 }

@@ -17,7 +17,7 @@ func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	res := s.Auth.LoginPassword(r.Context(), body.StudentID, body.Password)
 	if res.Success {
-		go s.Scheduler.SyncCheckIns(r.Context())
+		s.Scheduler.SyncAsync()
 	}
 	writeJSON(w, http.StatusOK, res)
 }
@@ -29,7 +29,7 @@ func (s *Server) handleSessionOpenID(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	res := s.Auth.LoginOpenID(r.Context(), body.OpenID)
 	if res.Success {
-		go s.Scheduler.SyncCheckIns(r.Context())
+		s.Scheduler.SyncAsync()
 	}
 	writeJSON(w, http.StatusOK, res)
 }
@@ -51,7 +51,7 @@ func (s *Server) handleSessionQRStatus(w http.ResponseWriter, r *http.Request) {
 	uuid := r.PathValue("uuid")
 	st := s.Auth.PollQrLogin(uuid)
 	if st.Status == "success" {
-		go s.Scheduler.SyncCheckIns(r.Context())
+		s.Scheduler.SyncAsync()
 	}
 	writeJSON(w, http.StatusOK, st)
 }

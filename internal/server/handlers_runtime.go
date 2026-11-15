@@ -75,7 +75,7 @@ func (s *Server) handleEnableCheckIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Scheduler.SetAutoCheckIn(true, true)
-	go s.Scheduler.SyncCheckIns(r.Context())
+	s.Scheduler.SyncAsync()
 	writeJSON(w, http.StatusOK, s.Scheduler.CheckInStatus())
 }
 
