@@ -1,5 +1,4 @@
 import type { ReactNode } from "react"
-import { z } from "zod"
 
 import { Alert, AlertDescription, AlertTitle } from "@/ui/alert"
 import { Button } from "@/ui/button"
@@ -7,27 +6,14 @@ import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from "@/ui/e
 import { type AnimatedIconComponent, CircleAlert } from "@/ui/icons"
 import { Spinner } from "@/ui/spinner"
 
-export const loginSchema = z.object({
-  studentId: z.string().trim().min(1, "请输入学号"),
-  password: z.string().min(1, "请输入密码"),
-})
-
-export const planSchema = z.object({
-  roomType: z.string().min(1, "请选择房间类型"),
-  roomQuery: z.string().min(1),
-  floorId: z.coerce.number().int().positive("请选择楼层"),
-  floorName: z.string().optional(),
-  seatNum: z.string().trim().min(1, "请输入座位号"),
-  fallback: z.string().optional(),
-  startHour: z.string().min(1, "请选择开始时间"),
-  duration: z.string().min(1, "请选择时长"),
-  weekdays: z.array(z.string()).min(1, "至少选择一个星期"),
-})
-
-export const groupSchema = z.object({
-  name: z.string().trim().min(1, "请输入组合名称"),
-  ids: z.array(z.string()).min(2, "至少选择两个方案"),
-})
+export {
+  type GroupFormValues,
+  groupResolver,
+  type LoginFormValues,
+  loginResolver,
+  type PlanFormValues,
+  planResolver,
+} from "./form-resolvers"
 
 export function Busy({ label = "正在加载..." }: { label?: string }) {
   return (

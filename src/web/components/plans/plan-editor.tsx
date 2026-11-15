@@ -2,8 +2,6 @@
 
 import { useState } from "react"
 import { useForm, useWatch } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import type { z } from "zod"
 
 import { AnimateIcon, Check } from "@/ui/icons"
 import { MultipleSelect } from "@/ui/multiple-select"
@@ -16,15 +14,15 @@ import { toastManager } from "@/ui/toast"
 import type { BookingPlan, Weekday } from "../../../shared/types"
 import { weekdayLabels } from "../../../shared/types"
 import { useDurations, useFloors, usePlanMutations, useRoomTypes } from "../../data/queries"
-import { planSchema } from "../../shared"
+import { type PlanFormValues, planResolver } from "../../shared"
 
 import { SearchableField, SelectField } from "./fields"
 
 export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClose: () => void }) {
   const mutations = usePlanMutations()
   const roomTypes = useRoomTypes()
-  const form = useForm<z.input<typeof planSchema>, undefined, z.output<typeof planSchema>>({
-    resolver: zodResolver(planSchema),
+  const form = useForm<PlanFormValues>({
+    resolver: planResolver,
     defaultValues: {
       roomType: initial?.roomType || "",
       roomQuery: initial?.roomQuery || "",
@@ -58,7 +56,7 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
     label: weekdayLabels[day],
   }))
 
-  async function submit(values: z.infer<typeof planSchema>) {
+  async function submit(values: PlanFormValues) {
     const payload = {
       kind: "single" as const,
       roomType: values.roomType,

@@ -1,4 +1,3 @@
-import { z } from "zod"
 import { isTauri } from "../platform/tauri"
 import { useAppStore } from "./store"
 import type {
@@ -23,21 +22,37 @@ export function resolveApiBase(): string {
   return configured ? configured.replace(/\/+$/, "") : ""
 }
 
-const sessionSchema = z.object({
-  authenticated: z.boolean(),
-  uid: z.string().optional(),
-  name: z.string().optional(),
-  refreshing: z.boolean(),
-  lastError: z.string().optional(),
-})
-const checkinSchema = z.object({
-  enabled: z.boolean(),
-  consentVersion: z.string(),
-  consentedAt: z.string().optional(),
-  lastAttemptAt: z.string().optional(),
-  lastSuccessAt: z.string().optional(),
-  lastMessage: z.string().optional(),
-})
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string"
+
+function assertShape<T>(value: unknown, check: (record: Record<string, unknown>) => boolean): T {
+  if (!isRecord(value) || !check(value)) throw new Error("后台服务返回格式错误")
+  return value as T
+}
+
+const validateSession = (body: unknown) =>
+  assertShape<SessionStatus>(
+    body,
+    (v) =>
+      typeof v.authenticated === "boolean" &&
+      typeof v.refreshing === "boolean" &&
+      isOptionalString(v.uid) &&
+      isOptionalString(v.name) &&
+      isOptionalString(v.lastError),
+  )
+
+const validateCheckin = (body: unknown) =>
+  assertShape<CheckInStatus>(
+    body,
+    (v) =>
+      typeof v.enabled === "boolean" &&
+      typeof v.consentVersion === "string" &&
+      isOptionalString(v.consentedAt) &&
+      isOptionalString(v.lastAttemptAt) &&
+      isOptionalString(v.lastSuccessAt) &&
+      isOptionalString(v.lastMessage),
+  )
 
 type RawResponse = {
   status: number
@@ -73,7 +88,7 @@ async function sendRequest(path: string, init?: RequestInit): Promise<RawRespons
   }
 }
 
-async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>): Promise<T> {
+async function call<T>(path: string, init?: RequestInit, validate?: (body: unknown) => T): Promise<T> {
   let response: RawResponse
   try {
     response = await sendRequest(path, init)
@@ -112,11 +127,11 @@ async function call<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>):
     }
     throw new Error(body.detail || body.message || `请求失败 (${response.status})`)
   }
-  return schema ? schema.parse(body) : (body as T)
+  return validate ? validate(body) : (body as T)
 }
 
 export const api = {
-  session: () => call<SessionStatus>("/api/session", undefined, sessionSchema),
+  session: () => call<SessionStatus>("/api/session", undefined, validateSession),
   login: (studentId: string, password: string) =>
     call<{ success: boolean; message: string }>("/api/session/login", {
       method: "POST",
@@ -175,12 +190,12 @@ export const api = {
       `/api/catalog/durations?roomQuery=${encodeURIComponent(roomQuery)}&roomType=${encodeURIComponent(roomType || "")}&startHour=${startHour}`,
     ),
   audit: (limit = 20) => call<{ events: AuditEvent[] }>(`/api/audit?limit=${limit}`),
-  checkinStatus: () => call<CheckInStatus>("/api/checkin", undefined, checkinSchema),
+  checkinStatus: () => call<CheckInStatus>("/api/checkin", undefined, validateCheckin),
   setCheckin: (enabled: boolean, agreed = false) =>
     call<CheckInStatus>(
       `/api/checkin/${enabled ? "enable" : "disable"}`,
       { method: "POST", body: JSON.stringify({ agreed }) },
-      checkinSchema,
+      validateCheckin,
     ),
 }
 

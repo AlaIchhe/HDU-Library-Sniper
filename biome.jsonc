@@ -17,6 +17,7 @@
       "!playwright-report",
       "!test-results",
       "!src/web/index.css",
+      "!src/shared/generated",
       "!**/*.md",
       "!windows-test/evidence"
     ]

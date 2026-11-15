@@ -3,8 +3,6 @@
 import { createContext, useContext, useState } from "react"
 import { Reorder, useDragControls, useReducedMotion, type DragControls } from "motion/react"
 import { useForm, useWatch } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import type { z } from "zod"
 
 import { AnimateIcon, Check, ChevronDown, ChevronUp, GripVertical } from "@/ui/icons"
 import { Badge } from "@/ui/badge"
@@ -19,7 +17,7 @@ import { toastManager } from "@/ui/toast"
 import { cn } from "@/lib/utils"
 import type { BookingPlan, BookingGroup } from "../../../shared/types"
 import { usePlanMutations } from "../../data/queries"
-import { groupSchema } from "../../shared"
+import { type GroupFormValues, groupResolver } from "../../shared"
 
 function SortableRow({
   value,
@@ -124,14 +122,14 @@ export function GroupEditor({
   onClose: () => void
 }) {
   const mutations = usePlanMutations()
-  const form = useForm<z.infer<typeof groupSchema>>({
-    resolver: zodResolver(groupSchema),
+  const form = useForm<GroupFormValues>({
+    resolver: groupResolver,
     defaultValues: { name: initial?.name || "", ids: initial?.memberPlanIds || [] },
   })
   const ids = useWatch({ control: form.control, name: "ids" }) ?? []
   const ordered = ids.map((id) => singles.find((plan) => plan.id === id)).filter(Boolean) as BookingPlan[]
 
-  async function submit(values: z.infer<typeof groupSchema>) {
+  async function submit(values: GroupFormValues) {
     try {
       if (initial)
         await mutations.updateGroup.mutateAsync({ id: initial.id, name: values.name, ids: values.ids })

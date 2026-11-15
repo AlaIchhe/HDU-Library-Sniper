@@ -6,8 +6,6 @@ import { QRCodeSVG } from "qrcode.react"
 
 import { AnimateIcon, Info, LibraryBig, LogIn, QrCode, RefreshCw, TriangleAlert } from "@/ui/icons"
 import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import type { z } from "zod"
 
 import { Alert, AlertDescription } from "@/ui/alert"
 import { Button } from "@/ui/button"
@@ -31,7 +29,7 @@ import { useSession } from "../data/queries"
 import { useAppStore } from "../data/store"
 import { consumeReturnTo } from "../return-to"
 import { openExternalUrl } from "../platform/tauri"
-import { Busy, loginSchema } from "../shared"
+import { Busy, type LoginFormValues, loginResolver } from "../shared"
 import type { QrLoginStart } from "../../shared/types"
 
 const LIBRARY_URL = "https://hdu.huitu.zhishulib.com/"
@@ -95,8 +93,8 @@ function OpenidGuide({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
 function LoginPage() {
   const navigate = useNavigate()
   const setSession = useAppStore((state) => state.setSession)
-  const form = useForm<z.infer<typeof loginSchema>>({
-    resolver: zodResolver(loginSchema),
+  const form = useForm<LoginFormValues>({
+    resolver: loginResolver,
     defaultValues: { studentId: "", password: "" },
   })
   const [tab, setTab] = useState<LoginTab>("password")
@@ -204,7 +202,7 @@ function LoginPage() {
     else setPasswordError("")
   }
 
-  async function submit(values: z.infer<typeof loginSchema>) {
+  async function submit(values: LoginFormValues) {
     setPasswordError("")
     try {
       const result = await api.login(values.studentId, values.password)
