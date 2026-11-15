@@ -1,8 +1,9 @@
 "use client"
 
 import { useMemo, useRef, useState } from "react"
-import { IconCalendarEvent, IconListCheck, IconPencil, IconPlus, IconTrash } from "@tabler/icons-react"
 import { motion } from "motion/react"
+
+import { AnimateIcon, CalendarDays, ListChecks, Pencil, Plus, Trash2 } from "@/ui/icons"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -157,13 +158,15 @@ export function PlansPage() {
             isEmpty={items.length === 0}
             empty={
               <NoData
-                icon={IconListCheck}
+                icon={ListChecks}
                 title="还没有预约方案"
                 action={
-                  <Button onClick={() => setDialog("type")}>
-                    <IconPlus className="size-4" />
-                    创建第一个方案
-                  </Button>
+                  <AnimateIcon animateOnHover asChild>
+                    <Button onClick={() => setDialog("type")}>
+                      <Plus className="size-4" />
+                      创建第一个方案
+                    </Button>
+                  </AnimateIcon>
                 }
               />
             }
@@ -232,23 +235,27 @@ export function PlansPage() {
             </DialogHeader>
             <DialogPanel>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Button
-                  variant="outline"
-                  className="h-auto sm:h-auto flex-col items-start gap-1 p-5 text-left"
-                  onClick={() => setDialog("single")}
-                >
-                  <IconListCheck className="size-6" />
-                  单条方案
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-auto sm:h-auto flex-col items-start gap-1 p-5 text-left"
-                  disabled={available.length < 2}
-                  onClick={() => setDialog("group")}
-                >
-                  <IconCalendarEvent className="size-6" />
-                  组合方案
-                </Button>
+                <AnimateIcon animateOnHover asChild>
+                  <Button
+                    variant="outline"
+                    className="h-auto sm:h-auto flex-col items-start gap-1 p-5 text-left"
+                    onClick={() => setDialog("single")}
+                  >
+                    <ListChecks className="size-6" />
+                    单条方案
+                  </Button>
+                </AnimateIcon>
+                <AnimateIcon animateOnHover asChild>
+                  <Button
+                    variant="outline"
+                    className="h-auto sm:h-auto flex-col items-start gap-1 p-5 text-left"
+                    disabled={available.length < 2}
+                    onClick={() => setDialog("group")}
+                  >
+                    <CalendarDays className="size-6" />
+                    组合方案
+                  </Button>
+                </AnimateIcon>
               </div>
             </DialogPanel>
           </DialogPopup>
@@ -329,9 +336,9 @@ function PlanRow({
           <div className="flex min-w-0 items-center gap-2.5">
             <Badge size="sm" variant={item.kind === "group" ? "info" : "outline"}>
               {item.kind === "group" ? (
-                <IconCalendarEvent className="size-3" />
+                <CalendarDays className="size-3" />
               ) : (
-                <IconListCheck className="size-3" />
+                <ListChecks className="size-3" />
               )}
               {item.kind === "group" ? "组合" : "单条"}
             </Badge>
@@ -364,25 +371,29 @@ function PlanRow({
         </span>
         <div className="flex items-center gap-1.5">
           <DataTableHoverActions>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              onClick={onEdit}
-              aria-label="编辑方案"
-              render={<motion.button type="button" {...PRESS} />}
-            >
-              <IconPencil />
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              className="text-destructive"
-              onClick={onDelete}
-              aria-label="删除方案"
-              render={<motion.button type="button" {...PRESS} />}
-            >
-              <IconTrash />
-            </Button>
+            <AnimateIcon animateOnHover asChild>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={onEdit}
+                aria-label="编辑方案"
+                render={<motion.button type="button" {...PRESS} />}
+              >
+                <Pencil />
+              </Button>
+            </AnimateIcon>
+            <AnimateIcon animateOnHover asChild>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="text-destructive"
+                onClick={onDelete}
+                aria-label="删除方案"
+                render={<motion.button type="button" {...PRESS} />}
+              >
+                <Trash2 />
+              </Button>
+            </AnimateIcon>
           </DataTableHoverActions>
           <Switch
             checked={item.enabled}

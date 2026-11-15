@@ -1,11 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { IconCheck } from "@tabler/icons-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { z } from "zod"
 
+import { AnimateIcon, Check } from "@/ui/icons"
 import { MultipleSelect } from "@/ui/multiple-select"
 import { Button } from "@/ui/button"
 import { DialogClose, DialogFooter } from "@/ui/dialog"
@@ -193,13 +193,15 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
       </Field>
       <DialogFooter variant="bare" className="px-0">
         <DialogClose render={<Button type="button" variant="outline" />}>取消</DialogClose>
-        <Button
-          type="submit"
-          loading={form.formState.isSubmitting || mutations.create.isPending || mutations.update.isPending}
-        >
-          <IconCheck className="size-4" />
-          保存方案
-        </Button>
+        <AnimateIcon animateOnHover asChild>
+          <Button
+            type="submit"
+            loading={form.formState.isSubmitting || mutations.create.isPending || mutations.update.isPending}
+          >
+            <Check className="size-4" />
+            保存方案
+          </Button>
+        </AnimateIcon>
       </DialogFooter>
     </Form>
   )

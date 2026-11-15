@@ -2,15 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import {
-  IconAlertTriangle,
-  IconInfoCircle,
-  IconLibrary,
-  IconLogin,
-  IconQrcode,
-  IconRefresh,
-} from "@tabler/icons-react"
 import { QRCodeSVG } from "qrcode.react"
+
+import { AnimateIcon, Info, LibraryBig, LogIn, QrCode, RefreshCw, TriangleAlert } from "@/ui/icons"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { z } from "zod"
@@ -85,7 +79,7 @@ function OpenidGuide({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
               <li>回到这里，把整条链接粘贴到上面的 OpenID 输入框，不需要手动截取。</li>
             </ol>
             <div className="flex gap-2 rounded-lg bg-muted/60 p-3 text-xs leading-5 text-muted-foreground">
-              <IconInfoCircle className="mt-0.5 size-4 shrink-0" />
+              <Info className="mt-0.5 size-4 shrink-0" animateOnHover />
               <p>openid 等同登录凭据，只在这个应用里粘贴，不要发给别人。</p>
             </div>
           </div>
@@ -260,26 +254,30 @@ function LoginPage() {
     <main className="relative grid min-h-svh place-items-center overflow-hidden p-6">
       <Card className="login-card relative z-10 w-full max-w-[26rem] overflow-hidden p-7 sm:p-8">
         <header className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <IconLibrary className="size-4" />
-            </span>
-            <span className="truncate text-[13px] font-medium">HDU Sniper</span>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-pressed={mode === "qr"}
-            className={cn(
-              "h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground",
-              mode === "qr" && "bg-muted text-foreground",
-            )}
-            onClick={toggleQr}
-          >
-            <IconQrcode className="size-4" />
-            钉钉扫码
-          </Button>
+          <AnimateIcon animateOnHover asChild>
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+                <LibraryBig className="size-4" />
+              </span>
+              <span className="truncate text-[13px] font-medium">HDU Sniper</span>
+            </div>
+          </AnimateIcon>
+          <AnimateIcon animateOnHover asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-pressed={mode === "qr"}
+              className={cn(
+                "h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground",
+                mode === "qr" && "bg-muted text-foreground",
+              )}
+              onClick={toggleQr}
+            >
+              <QrCode className="size-4" />
+              钉钉扫码
+            </Button>
+          </AnimateIcon>
         </header>
 
         <h1 className="mt-5 text-2xl font-semibold tracking-tight">登录图书馆账户</h1>
@@ -334,14 +332,20 @@ function LoginPage() {
                   </Field>
                   {passwordError && (
                     <Alert variant="error">
-                      <IconAlertTriangle className="size-4" />
+                      <TriangleAlert className="size-4" animate />
                       <AlertDescription>{passwordError}</AlertDescription>
                     </Alert>
                   )}
-                  <Button type="submit" className="h-10 w-full sm:h-10" loading={form.formState.isSubmitting}>
-                    <IconLogin className="size-4" />
-                    登录
-                  </Button>
+                  <AnimateIcon animateOnHover asChild>
+                    <Button
+                      type="submit"
+                      className="h-10 w-full sm:h-10"
+                      loading={form.formState.isSubmitting}
+                    >
+                      <LogIn className="size-4" />
+                      登录
+                    </Button>
+                  </AnimateIcon>
                 </form>
               ) : (
                 <form
@@ -366,14 +370,16 @@ function LoginPage() {
                   </Field>
                   {openidError && (
                     <Alert variant="error">
-                      <IconAlertTriangle className="size-4" />
+                      <TriangleAlert className="size-4" animate />
                       <AlertDescription>{openidError}</AlertDescription>
                     </Alert>
                   )}
-                  <Button type="submit" className="h-10 w-full sm:h-10" loading={openidBusy}>
-                    <IconLogin className="size-4" />
-                    登录
-                  </Button>
+                  <AnimateIcon animateOnHover asChild>
+                    <Button type="submit" className="h-10 w-full sm:h-10" loading={openidBusy}>
+                      <LogIn className="size-4" />
+                      登录
+                    </Button>
+                  </AnimateIcon>
                   <p className="-mt-1 text-center text-xs text-muted-foreground">
                     没有 openid？
                     <button
@@ -404,15 +410,17 @@ function LoginPage() {
                 <div className="absolute inset-0 grid place-items-center bg-white/95 p-4 text-center">
                   <div className="grid gap-3">
                     <p className="text-xs leading-5 text-neutral-600">{qrMessage}</p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="justify-self-center"
-                      onClick={() => void loadQr()}
-                    >
-                      <IconRefresh className="size-4" />
-                      刷新二维码
-                    </Button>
+                    <AnimateIcon animateOnHover asChild>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="justify-self-center"
+                        onClick={() => void loadQr()}
+                      >
+                        <RefreshCw className="size-4" />
+                        刷新二维码
+                      </Button>
+                    </AnimateIcon>
                   </div>
                 </div>
               )}

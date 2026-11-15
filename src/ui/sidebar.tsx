@@ -3,11 +3,11 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
-import { IconLayoutSidebar } from "@tabler/icons-react";
 import * as React from "react";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
+import { AnimateIcon, PanelLeft } from "@/ui/icons";
 
 import { ScrollArea } from "@/ui/scroll-area";
 
@@ -274,21 +274,23 @@ export function SidebarTrigger({
   const { toggleSidebar } = useSidebar();
 
   return (
-    <Button
-      className={cn("size-7", className)}
-      data-sidebar="trigger"
-      data-slot="sidebar-trigger"
-      onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
-        onClick?.(event);
-        toggleSidebar();
-      }}
-      size="icon"
-      variant="ghost"
-      {...props}
-    >
-      <IconLayoutSidebar />
-      <span className="sr-only">Toggle Sidebar</span>
-    </Button>
+    <AnimateIcon animateOnHover asChild>
+      <Button
+        className={cn("size-7", className)}
+        data-sidebar="trigger"
+        data-slot="sidebar-trigger"
+        onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+          onClick?.(event);
+          toggleSidebar();
+        }}
+        size="icon"
+        variant="ghost"
+        {...props}
+      >
+        <PanelLeft />
+        <span className="sr-only">Toggle Sidebar</span>
+      </Button>
+    </AnimateIcon>
   );
 }
 

@@ -1,9 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { IconCalendarEvent, IconRefresh } from "@tabler/icons-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 
+import { AnimateIcon, CalendarDays, RefreshCw } from "@/ui/icons"
 import { Button } from "@/ui/button"
 import { toastManager } from "@/ui/toast"
 import {
@@ -105,24 +105,26 @@ function BookingsView({
         eyebrow="BOOKINGS"
         title="当前预约"
         actions={
-          <Button
-            variant="ghost"
-            size="sm"
-            className="font-medium text-foreground/80 hover:text-foreground"
-            disabled={fetching}
-            onClick={onRefresh}
-            render={<motion.button type="button" {...PRESS} />}
-          >
-            <motion.span
-              className="inline-flex"
-              initial={false}
-              animate={{ rotate: turns * 360 }}
-              transition={SETTLE}
+          <AnimateIcon animateOnHover asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="font-medium text-foreground/80 hover:text-foreground"
+              disabled={fetching}
+              onClick={onRefresh}
+              render={<motion.button type="button" {...PRESS} />}
             >
-              <IconRefresh className="size-3.5" />
-            </motion.span>
-            刷新
-          </Button>
+              <motion.span
+                className="inline-flex"
+                initial={false}
+                animate={{ rotate: turns * 360 }}
+                transition={SETTLE}
+              >
+                <RefreshCw className="size-3.5" />
+              </motion.span>
+              刷新
+            </Button>
+          </AnimateIcon>
         }
       />
 
@@ -130,7 +132,7 @@ function BookingsView({
         <DataTable
           columns={COLUMNS}
           isEmpty={rows.length === 0}
-          empty={<NoData icon={IconCalendarEvent} title="暂无当前预约" />}
+          empty={<NoData icon={CalendarDays} title="暂无当前预约" />}
         >
           <DataTableHeader>
             <span>预约</span>

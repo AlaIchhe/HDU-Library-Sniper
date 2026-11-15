@@ -1,9 +1,9 @@
 "use client";
 
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
-import { IconSelector, IconX } from "@tabler/icons-react";
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { AnimateIcon, ChevronsUpDown, X } from "@/ui/icons";
 import { Input } from "@/ui/input";
 import { ScrollArea } from "@/ui/scroll-area";
 
@@ -77,28 +77,32 @@ export function ComboboxInput({
         {...props}
       />
       {showTrigger && (
-        <ComboboxTrigger
-          className={cn(
-            "absolute top-1/2 inline-flex size-8 shrink-0 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border border-transparent opacity-80 outline-none transition-opacity pointer-coarse:after:absolute pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 hover:opacity-100 has-[+[data-slot=combobox-clear]]:hidden sm:size-7 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-            sizeValue === "sm" ? "end-0" : "end-0.5",
-          )}
-          {...triggerProps}
-        >
-          <ComboboxPrimitive.Icon data-slot="combobox-icon">
-            <IconSelector />
-          </ComboboxPrimitive.Icon>
-        </ComboboxTrigger>
+        <AnimateIcon animateOnHover asChild>
+          <ComboboxTrigger
+            className={cn(
+              "absolute top-1/2 inline-flex size-8 shrink-0 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border border-transparent opacity-80 outline-none transition-opacity pointer-coarse:after:absolute pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 hover:opacity-100 has-[+[data-slot=combobox-clear]]:hidden sm:size-7 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+              sizeValue === "sm" ? "end-0" : "end-0.5",
+            )}
+            {...triggerProps}
+          >
+            <ComboboxPrimitive.Icon data-slot="combobox-icon">
+              <ChevronsUpDown />
+            </ComboboxPrimitive.Icon>
+          </ComboboxTrigger>
+        </AnimateIcon>
       )}
       {showClear && (
-        <ComboboxClear
-          className={cn(
-            "absolute top-1/2 inline-flex size-8 shrink-0 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border border-transparent opacity-80 outline-none transition-opacity pointer-coarse:after:absolute pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 hover:opacity-100 has-[+[data-slot=combobox-clear]]:hidden sm:size-7 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-            sizeValue === "sm" ? "end-0" : "end-0.5",
-          )}
-          {...clearProps}
-        >
-          <IconX />
-        </ComboboxClear>
+        <AnimateIcon animateOnHover asChild>
+          <ComboboxClear
+            className={cn(
+              "absolute top-1/2 inline-flex size-8 shrink-0 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border border-transparent opacity-80 outline-none transition-opacity pointer-coarse:after:absolute pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 hover:opacity-100 has-[+[data-slot=combobox-clear]]:hidden sm:size-7 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+              sizeValue === "sm" ? "end-0" : "end-0.5",
+            )}
+            {...clearProps}
+          >
+            <X />
+          </ComboboxClear>
+        </AnimateIcon>
       )}
     </ComboboxPrimitive.InputGroup>
   );

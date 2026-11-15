@@ -1,8 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { IconClock } from "@tabler/icons-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
+
+import { Clock } from "@/ui/icons"
 
 import {
   AlertDialog,
@@ -109,7 +110,7 @@ export function StatusBar({ runtimeState }: { runtimeState: string | undefined }
             transition={{ duration: 0.14 }}
             className="flex shrink-0 items-center gap-1 tabular-nums text-muted-foreground"
           >
-            <IconClock className="size-3" />
+            <Clock className="size-3" animateOnHover />
             {countdown?.text ?? "…"}
           </motion.span>
         ) : null}

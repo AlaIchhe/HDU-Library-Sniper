@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { IconCalendarEvent, IconListCheck, IconMoon } from "@tabler/icons-react";
+import { CalendarDays, ListChecks, Moon } from "../src/ui/icons";
 
 import { filterCommands, matchesQuery, type Command } from "../src/web/commands";
 
@@ -9,7 +9,7 @@ const plans: Command = {
   id: "go-plans",
   label: "预约方案",
   group: "导航",
-  icon: IconListCheck,
+  icon: ListChecks,
   keywords: ["plans", "yuyue", "fangan"],
   run: noop,
 };
@@ -17,7 +17,7 @@ const bookings: Command = {
   id: "go-bookings",
   label: "当前预约",
   group: "导航",
-  icon: IconCalendarEvent,
+  icon: CalendarDays,
   keywords: ["bookings", "dangqian"],
   run: noop,
 };
@@ -25,7 +25,7 @@ const theme: Command = {
   id: "theme",
   label: "切换到深色主题",
   group: "操作",
-  icon: IconMoon,
+  icon: Moon,
   keywords: ["theme", "zhuti", "qiehuan"],
   run: noop,
 };

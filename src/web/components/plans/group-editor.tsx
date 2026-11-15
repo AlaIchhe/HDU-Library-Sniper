@@ -2,11 +2,11 @@
 
 import { createContext, useContext, useState } from "react"
 import { Reorder, useDragControls, useReducedMotion, type DragControls } from "motion/react"
-import { IconCheck, IconChevronDown, IconChevronUp, IconGripVertical } from "@tabler/icons-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { z } from "zod"
 
+import { AnimateIcon, Check, ChevronDown, ChevronUp, GripVertical } from "@/ui/icons"
 import { Badge } from "@/ui/badge"
 import { Button } from "@/ui/button"
 import { Checkbox } from "@/ui/checkbox"
@@ -60,26 +60,30 @@ function SortableRow({
       </DragHandleContext.Provider>
       <Badge variant="secondary">{index + 1}</Badge>
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      <Button
-        type="button"
-        size="icon-xs"
-        variant="ghost"
-        disabled={index === 0}
-        aria-label={`上移 ${label}`}
-        onClick={() => onMove(index, index - 1)}
-      >
-        <IconChevronUp />
-      </Button>
-      <Button
-        type="button"
-        size="icon-xs"
-        variant="ghost"
-        disabled={index === total - 1}
-        aria-label={`下移 ${label}`}
-        onClick={() => onMove(index, index + 1)}
-      >
-        <IconChevronDown />
-      </Button>
+      <AnimateIcon animateOnHover asChild>
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="ghost"
+          disabled={index === 0}
+          aria-label={`上移 ${label}`}
+          onClick={() => onMove(index, index - 1)}
+        >
+          <ChevronUp />
+        </Button>
+      </AnimateIcon>
+      <AnimateIcon animateOnHover asChild>
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="ghost"
+          disabled={index === total - 1}
+          aria-label={`下移 ${label}`}
+          onClick={() => onMove(index, index + 1)}
+        >
+          <ChevronDown />
+        </Button>
+      </AnimateIcon>
     </Reorder.Item>
   )
 }
@@ -97,14 +101,16 @@ function ReorderHandle({ label }: { label: string }) {
   const controls = useContext(DragHandleContext)
 
   return (
-    <button
-      type="button"
-      aria-label={label}
-      className="grid size-6 shrink-0 cursor-grab touch-none place-items-center rounded-md text-muted-foreground/60 outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
-      onPointerDown={(event) => controls?.start(event)}
-    >
-      <IconGripVertical className="size-3.5" />
-    </button>
+    <AnimateIcon animateOnHover asChild>
+      <button
+        type="button"
+        aria-label={label}
+        className="grid size-6 shrink-0 cursor-grab touch-none place-items-center rounded-md text-muted-foreground/60 outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+        onPointerDown={(event) => controls?.start(event)}
+      >
+        <GripVertical className="size-3.5" />
+      </button>
+    </AnimateIcon>
   )
 }
 
@@ -199,10 +205,12 @@ export function GroupEditor({
       </div>
       <DialogFooter variant="bare" className="px-0">
         <DialogClose render={<Button type="button" variant="outline" />}>取消</DialogClose>
-        <Button type="submit" loading={form.formState.isSubmitting}>
-          <IconCheck className="size-4" />
-          保存组合
-        </Button>
+        <AnimateIcon animateOnHover asChild>
+          <Button type="submit" loading={form.formState.isSubmitting}>
+            <Check className="size-4" />
+            保存组合
+          </Button>
+        </AnimateIcon>
       </DialogFooter>
     </Form>
   )

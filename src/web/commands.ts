@@ -1,4 +1,4 @@
-import type { Icon } from "@tabler/icons-react"
+import type { AnimatedIconComponent } from "@/ui/icons"
 
 /** 命令面板里的一个可执行条目。 */
 export type Command = {
@@ -7,7 +7,7 @@ export type Command = {
   label: string
   /** 分组标题，同组连续排列。 */
   group: string
-  icon: Icon
+  icon: AnimatedIconComponent
   /** 附加到搜索索引的关键词（拼音首字母、英文别名等）。 */
   keywords?: string[]
   /** 展示在右侧的快捷键提示。 */

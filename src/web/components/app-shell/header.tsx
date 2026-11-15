@@ -1,12 +1,12 @@
 "use client"
 
 import { Outlet } from "@tanstack/react-router"
-import { IconCommand as CommandIcon, IconExternalLink, IconLogout } from "@tabler/icons-react"
 import { motion, useReducedMotion } from "motion/react"
 
 import { AnimatedThemeToggler } from "@/ui/animated-theme-toggler"
 import { Avatar, AvatarFallback } from "@/ui/avatar"
 import { Button } from "@/ui/button"
+import { AnimateIcon, Command as CommandIcon, ExternalLink, LogOut } from "@/ui/icons"
 import {
   Menu,
   MenuGroup,
@@ -52,16 +52,18 @@ export function AppHeader({
       ) : null}
       <StatusBar runtimeState={runtimeState} />
       <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2 text-muted-foreground hover:text-foreground"
-          onClick={onOpenPalette}
-        >
-          <CommandIcon className="size-3.5" />
-          <span className="max-lg:hidden">搜索命令</span>
-          <MenuShortcut className="me-0 max-lg:hidden">⌘K</MenuShortcut>
-        </Button>
+        <AnimateIcon animateOnHover asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 text-muted-foreground hover:text-foreground"
+            onClick={onOpenPalette}
+          >
+            <CommandIcon className="size-3.5" />
+            <span className="max-lg:hidden">搜索命令</span>
+            <MenuShortcut className="me-0 max-lg:hidden">⌘K</MenuShortcut>
+          </Button>
+        </AnimateIcon>
         <UpdatePill />
         <CheckinControl />
         <AnimatedThemeToggler
@@ -78,20 +80,24 @@ export function AppHeader({
           <MenuPopup align="end">
             <MenuGroup>
               <MenuGroupLabel>{sessionName || "已登录"}</MenuGroupLabel>
-              <MenuItem
-                onClick={() =>
-                  void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases")
-                }
-              >
-                <IconExternalLink />
-                更新日志
-              </MenuItem>
+              <AnimateIcon animateOnHover asChild>
+                <MenuItem
+                  onClick={() =>
+                    void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases")
+                  }
+                >
+                  <ExternalLink />
+                  更新日志
+                </MenuItem>
+              </AnimateIcon>
             </MenuGroup>
             <MenuSeparator />
-            <MenuItem variant="destructive" onClick={() => void onLogout()}>
-              <IconLogout />
-              退出登录
-            </MenuItem>
+            <AnimateIcon animateOnHover asChild>
+              <MenuItem variant="destructive" onClick={() => void onLogout()}>
+                <LogOut />
+                退出登录
+              </MenuItem>
+            </AnimateIcon>
           </MenuPopup>
         </Menu>
       </div>

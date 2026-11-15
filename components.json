@@ -10,7 +10,7 @@
     "cssVariables": true,
     "prefix": ""
   },
-  "iconLibrary": "tabler",
+  "iconLibrary": "lucide",
   "aliases": {
     "components": "@/ui",
     "utils": "@/lib/utils",
@@ -20,6 +20,7 @@
   },
   "registries": {
     "@coss": "https://coss.com/ui/r/{name}.json",
-    "@magicui": "https://magicui.design/r/{name}.json"
+    "@magicui": "https://magicui.design/r/{name}.json",
+    "@animate-ui": "https://animate-ui.com/r/{name}.json"
   }
 }

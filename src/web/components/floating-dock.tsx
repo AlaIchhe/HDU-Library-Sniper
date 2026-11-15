@@ -2,16 +2,11 @@
 
 import { useRef, useState, type PointerEvent } from "react"
 import { Link } from "@tanstack/react-router"
-import {
-  IconCalendarEvent,
-  IconCalendarEventFilled,
-  IconListCheck,
-  IconListCheckFilled,
-} from "@tabler/icons-react"
 import { motion, useReducedMotion } from "motion/react"
 
 import { useMediaQuery } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
+import { AnimateIcon, CalendarDays, ListChecks } from "@/ui/icons"
 
 const BUTTON = 44
 const GAP = 6
@@ -22,14 +17,12 @@ const ITEMS = [
   {
     to: "/plans" as const,
     label: "预约方案",
-    icon: IconListCheck,
-    activeIcon: IconListCheckFilled,
+    icon: ListChecks,
   },
   {
     to: "/bookings" as const,
     label: "当前预约",
-    icon: IconCalendarEvent,
-    activeIcon: IconCalendarEventFilled,
+    icon: CalendarDays,
   },
 ]
 
@@ -72,7 +65,7 @@ export function FloatingDock({
         const distance = pointerX === null ? Number.POSITIVE_INFINITY : Math.abs(pointerX - center)
         const scale =
           interactive && pointerX !== null ? 1 + (MAX_SCALE - 1) * Math.max(0, 1 - distance / 110) : 1
-        const Icon = active ? item.activeIcon : item.icon
+        const Icon = item.icon
 
         return (
           <motion.div
@@ -88,22 +81,24 @@ export function FloatingDock({
             >
               {item.label}
             </span>
-            <Link
-              aria-current={active ? "page" : undefined}
-              aria-label={item.label}
-              className={cn(
-                "relative grid size-11 place-items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                active
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs dark:bg-foreground/10"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-              to={item.to}
-            >
-              <Icon className="size-5" />
-              {active ? (
-                <span aria-hidden className="absolute bottom-1 size-1 rounded-full bg-current" />
-              ) : null}
-            </Link>
+            <AnimateIcon animateOnHover asChild>
+              <Link
+                aria-current={active ? "page" : undefined}
+                aria-label={item.label}
+                className={cn(
+                  "relative grid size-11 place-items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                  active
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs dark:bg-foreground/10"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+                to={item.to}
+              >
+                <Icon className="size-5" strokeWidth={active ? 2.25 : 1.75} />
+                {active ? (
+                  <span aria-hidden className="absolute bottom-1 size-1 rounded-full bg-current" />
+                ) : null}
+              </Link>
+            </AnimateIcon>
           </motion.div>
         )
       })}

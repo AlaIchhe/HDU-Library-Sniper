@@ -3,10 +3,10 @@
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
-import { IconX } from "@tabler/icons-react";
 import type React from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
+import { AnimateIcon, X } from "@/ui/icons";
 
 export const Sheet: typeof SheetPrimitive.Root = SheetPrimitive.Root;
 
@@ -90,14 +90,16 @@ export function SheetPopup({
         >
           {children}
           {showCloseButton && (
-            <SheetPrimitive.Close
-              aria-label="Close"
-              className="absolute end-2 top-2"
-              render={<Button size="icon" variant="ghost" />}
-              {...closeProps}
-            >
-              <IconX />
-            </SheetPrimitive.Close>
+            <AnimateIcon animateOnHover asChild>
+              <SheetPrimitive.Close
+                aria-label="Close"
+                className="absolute end-2 top-2"
+                render={<Button size="icon" variant="ghost" />}
+                {...closeProps}
+              >
+                <X />
+              </SheetPrimitive.Close>
+            </AnimateIcon>
           )}
         </SheetPrimitive.Popup>
       </SheetViewport>

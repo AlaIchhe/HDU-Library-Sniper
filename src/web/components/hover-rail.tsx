@@ -2,15 +2,9 @@
 
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
-import {
-  IconCalendarEvent,
-  IconCalendarEventFilled,
-  IconLibrary,
-  IconListCheck,
-  IconListCheckFilled,
-} from "@tabler/icons-react"
 
 import { cn } from "@/lib/utils"
+import { AnimateIcon, CalendarDays, LibraryBig, ListChecks } from "@/ui/icons"
 
 type RailLinkProps = {
   to: "/plans" | "/bookings"
@@ -20,38 +14,34 @@ type RailLinkProps = {
 }
 
 function RailLink({ to, label, active, expanded }: RailLinkProps) {
-  const Icon = active
-    ? to === "/plans"
-      ? IconListCheckFilled
-      : IconCalendarEventFilled
-    : to === "/plans"
-      ? IconListCheck
-      : IconCalendarEvent
+  const Icon = to === "/plans" ? ListChecks : CalendarDays
 
   return (
-    <Link
-      aria-current={active ? "page" : undefined}
-      aria-label={label}
-      className={cn(
-        "flex h-11 items-center rounded-lg text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
-        active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs dark:bg-foreground/10"
-          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-        expanded ? "gap-3 px-3" : "justify-center px-0",
-      )}
-      title={expanded ? undefined : label}
-      to={to}
-    >
-      <Icon className="size-5 shrink-0" />
-      <span
+    <AnimateIcon animateOnHover asChild>
+      <Link
+        aria-current={active ? "page" : undefined}
+        aria-label={label}
         className={cn(
-          "whitespace-nowrap transition-opacity",
-          expanded ? "opacity-100" : "w-0 overflow-hidden opacity-0",
+          "flex h-11 items-center rounded-lg text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
+          active
+            ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs dark:bg-foreground/10"
+            : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+          expanded ? "gap-3 px-3" : "justify-center px-0",
         )}
+        title={expanded ? undefined : label}
+        to={to}
       >
-        {label}
-      </span>
-    </Link>
+        <Icon className="size-5 shrink-0" strokeWidth={active ? 2.25 : 1.75} />
+        <span
+          className={cn(
+            "whitespace-nowrap transition-opacity",
+            expanded ? "opacity-100" : "w-0 overflow-hidden opacity-0",
+          )}
+        >
+          {label}
+        </span>
+      </Link>
+    </AnimateIcon>
   )
 }
 
@@ -95,9 +85,11 @@ export function HoverRail({
       onMouseLeave={() => setHovered(false)}
     >
       <div className="flex h-14 shrink-0 items-center px-3.5">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-lg">
-          <IconLibrary className="size-5" />
-        </span>
+        <AnimateIcon animateOnHover>
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-lg">
+            <LibraryBig className="size-5" />
+          </span>
+        </AnimateIcon>
       </div>
 
       <nav

@@ -1,8 +1,9 @@
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { IconMoon, IconSun } from "@tabler/icons-react";
 import { flushSync } from "react-dom";
 
 import { cn } from "@/lib/utils";
+import { AnimateIcon, Moon, Sun } from "@/ui/icons";
 
 export type TransitionVariant =
   | "circle"
@@ -138,6 +139,7 @@ export const AnimatedThemeToggler = ({
   const isControlled = theme !== undefined;
   const [internalIsDark, setInternalIsDark] = useState(false);
   const isDark = isControlled ? theme === "dark" : internalIsDark;
+  const reduced = useReducedMotion();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const isTransitioningRef = useRef(false);
   const activeAnimRef = useRef<Animation | null>(null);
@@ -266,9 +268,22 @@ export const AnimatedThemeToggler = ({
   }, [shape, fromCenter, duration, isDark, isControlled, onThemeChange, cancelAnim]);
 
   return (
-    <button type="button" ref={buttonRef} onClick={toggleTheme} className={cn(className)} {...props}>
-      {isDark ? <IconSun /> : <IconMoon />}
-      <span className="sr-only">Toggle theme</span>
-    </button>
+    <AnimateIcon animateOnHover asChild>
+      <button type="button" ref={buttonRef} onClick={toggleTheme} className={cn(className)} {...props}>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={isDark ? "sun" : "moon"}
+            className="inline-flex items-center justify-center"
+            initial={reduced ? false : { opacity: 0, rotate: -30, scale: 0.75 }}
+            animate={{ opacity: 1, rotate: 0, scale: 1 }}
+            exit={reduced ? { opacity: 0 } : { opacity: 0, rotate: 30, scale: 0.75 }}
+            transition={{ type: "spring", stiffness: 420, damping: 26, mass: 0.6 }}
+          >
+            {isDark ? <Sun /> : <Moon />}
+          </motion.span>
+        </AnimatePresence>
+        <span className="sr-only">Toggle theme</span>
+      </button>
+    </AnimateIcon>
   );
 };

@@ -2,18 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
+import { MotionConfig } from "motion/react"
+
 import {
-  IconCalendarEvent,
-  IconCalendarEventFilled,
-  IconExternalLink,
-  IconLibrary,
-  IconListCheck,
-  IconListCheckFilled,
-  IconLogout,
-  IconMoon,
-  IconRefresh,
-  IconSun,
-} from "@tabler/icons-react"
+  AnimateIcon,
+  CalendarDays,
+  ExternalLink,
+  LibraryBig,
+  ListChecks,
+  LogOut,
+  Moon,
+  RefreshCw,
+  Sun,
+} from "@/ui/icons"
 import { AnimatedGridPattern } from "@/ui/animated-grid-pattern"
 import {
   Sidebar,
@@ -174,7 +175,7 @@ export function AppShell() {
       id: "go-plans",
       label: "预约方案",
       group: "导航",
-      icon: IconListCheck,
+      icon: ListChecks,
       keywords: ["plans", "yuyue", "fangan"],
       shortcut: "G P",
       run: () => void navigate({ to: "/plans" }),
@@ -183,7 +184,7 @@ export function AppShell() {
       id: "go-bookings",
       label: "当前预约",
       group: "导航",
-      icon: IconCalendarEvent,
+      icon: CalendarDays,
       keywords: ["bookings", "dangqian"],
       shortcut: "G B",
       run: () => void navigate({ to: "/bookings" }),
@@ -192,7 +193,7 @@ export function AppShell() {
       id: "refresh",
       label: "刷新当前页",
       group: "操作",
-      icon: IconRefresh,
+      icon: RefreshCw,
       keywords: ["refresh", "shuaxin"],
       shortcut: "R",
       run: refreshCurrentPage,
@@ -201,7 +202,7 @@ export function AppShell() {
       id: "theme",
       label: theme === "dark" ? "切换到浅色主题" : "切换到深色主题",
       group: "操作",
-      icon: theme === "dark" ? IconSun : IconMoon,
+      icon: theme === "dark" ? Sun : Moon,
       keywords: ["theme", "dark", "light", "zhuti", "shense", "qianse", "qiehuan", "huan"],
       run: () => useAppStore.getState().toggleTheme(),
     },
@@ -209,7 +210,7 @@ export function AppShell() {
       id: "changelog",
       label: "查看更新日志",
       group: "操作",
-      icon: IconExternalLink,
+      icon: ExternalLink,
       keywords: ["changelog", "release", "gengxin"],
       run: () => void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases"),
     },
@@ -217,7 +218,7 @@ export function AppShell() {
       id: "logout",
       label: "退出登录",
       group: "账户",
-      icon: IconLogout,
+      icon: LogOut,
       keywords: ["logout", "tuichu", "dengchu"],
       run: () => void logout(),
     },
@@ -229,132 +230,136 @@ export function AppShell() {
   const bookingsActive = pathname === "/bookings"
 
   return (
-    <div className="relative min-h-dvh min-w-0 overflow-x-hidden text-foreground">
-      <LightRays
-        count={5}
-        color="rgba(140, 180, 255, 0.12)"
-        blur={28}
-        speed={18}
-        className="fixed inset-0 -z-10"
-      />
-      <AnimatedGridPattern
-        numSquares={18}
-        maxOpacity={0.06}
-        className="fixed inset-0 -z-10 [mask-image:radial-gradient(ellipse_at_center,white,transparent_72%)]"
-      />
+    <MotionConfig reducedMotion="user">
+      <div className="relative min-h-dvh min-w-0 overflow-x-hidden text-foreground">
+        <LightRays
+          count={5}
+          color="rgba(140, 180, 255, 0.12)"
+          blur={28}
+          speed={18}
+          className="fixed inset-0 -z-10"
+        />
+        <AnimatedGridPattern
+          numSquares={18}
+          maxOpacity={0.06}
+          className="fixed inset-0 -z-10 [mask-image:radial-gradient(ellipse_at_center,white,transparent_72%)]"
+        />
 
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
+        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
 
-      {pathname === "/" ? (
-        <ToastProvider>
-          <Outlet />
-        </ToastProvider>
-      ) : (
-        <ToastProvider>
-          {navMode === "wide" ? (
-            <SidebarProvider className="min-w-0">
-              <Sidebar variant="inset">
-                <SidebarHeader>
-                  <div className="flex items-center gap-3 px-2 py-2">
-                    <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-lg">
-                      <IconLibrary className="size-5" />
-                    </span>
-                    <div className="group-data-[collapsible=icon]:hidden">
-                      <strong className="block text-sm">HDU Sniper</strong>
+        {pathname === "/" ? (
+          <ToastProvider>
+            <Outlet />
+          </ToastProvider>
+        ) : (
+          <ToastProvider>
+            {navMode === "wide" ? (
+              <SidebarProvider className="min-w-0">
+                <Sidebar variant="inset">
+                  <SidebarHeader>
+                    <AnimateIcon animateOnHover asChild>
+                      <div className="flex items-center gap-3 px-2 py-2">
+                        <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-lg">
+                          <LibraryBig className="size-5" />
+                        </span>
+                        <div className="group-data-[collapsible=icon]:hidden">
+                          <strong className="block text-sm">HDU Sniper</strong>
+                        </div>
+                      </div>
+                    </AnimateIcon>
+                  </SidebarHeader>
+                  <SidebarContent>
+                    <SidebarGroup>
+                      <SidebarGroupLabel>工作台</SidebarGroupLabel>
+                      <SidebarGroupContent>
+                        <SidebarMenu>
+                          <SidebarMenuItem>
+                            <AnimateIcon animateOnHover asChild>
+                              <SidebarMenuButton
+                                isActive={plansActive}
+                                tooltip="预约方案（G P）"
+                                className="transition-[width,height,padding,background-color,color,box-shadow,transform] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-xs focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar data-[active=true]:shadow-xs"
+                                render={<Link to="/plans" />}
+                              >
+                                <ListChecks size={20} strokeWidth={plansActive ? 2.25 : 1.75} />
+                                预约方案
+                              </SidebarMenuButton>
+                            </AnimateIcon>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <AnimateIcon animateOnHover asChild>
+                              <SidebarMenuButton
+                                isActive={bookingsActive}
+                                tooltip="当前预约（G B）"
+                                className="transition-[width,height,padding,background-color,color,box-shadow,transform] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-xs focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar data-[active=true]:shadow-xs"
+                                render={<Link to="/bookings" />}
+                              >
+                                <CalendarDays size={20} strokeWidth={bookingsActive ? 2.25 : 1.75} />
+                                当前预约
+                              </SidebarMenuButton>
+                            </AnimateIcon>
+                          </SidebarMenuItem>
+                        </SidebarMenu>
+                      </SidebarGroupContent>
+                    </SidebarGroup>
+                  </SidebarContent>
+                  <SidebarFooter>
+                    <div className="flex min-w-0 flex-col gap-1.5 rounded-xl border bg-card/50 px-3 py-2.5">
+                      <div className="flex min-w-0 items-center gap-2 text-xs">
+                        <StatusDot
+                          tone={errorState ? "bad" : authRequired ? "warn" : "ok"}
+                          pulse={!errorState && !authRequired}
+                        />
+                        <span className="truncate text-muted-foreground">
+                          {errorState ? "后台服务异常" : authRequired ? "需要重新登录" : "后台服务在线"}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </SidebarHeader>
-                <SidebarContent>
-                  <SidebarGroup>
-                    <SidebarGroupLabel>工作台</SidebarGroupLabel>
-                    <SidebarGroupContent>
-                      <SidebarMenu>
-                        <SidebarMenuItem>
-                          <SidebarMenuButton
-                            isActive={plansActive}
-                            tooltip="预约方案（G P）"
-                            className="transition-[width,height,padding,background-color,color,box-shadow,transform] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-xs focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar data-[active=true]:shadow-xs"
-                            render={<Link to="/plans" />}
-                          >
-                            {plansActive ? <IconListCheckFilled size={20} /> : <IconListCheck size={20} />}
-                            预约方案
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                          <SidebarMenuButton
-                            isActive={bookingsActive}
-                            tooltip="当前预约（G B）"
-                            className="transition-[width,height,padding,background-color,color,box-shadow,transform] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-xs focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar data-[active=true]:shadow-xs"
-                            render={<Link to="/bookings" />}
-                          >
-                            {bookingsActive ? (
-                              <IconCalendarEventFilled size={20} />
-                            ) : (
-                              <IconCalendarEvent size={20} />
-                            )}
-                            当前预约
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      </SidebarMenu>
-                    </SidebarGroupContent>
-                  </SidebarGroup>
-                </SidebarContent>
-                <SidebarFooter>
-                  <div className="flex min-w-0 flex-col gap-1.5 rounded-xl border bg-card/50 px-3 py-2.5">
-                    <div className="flex min-w-0 items-center gap-2 text-xs">
-                      <StatusDot
-                        tone={errorState ? "bad" : authRequired ? "warn" : "ok"}
-                        pulse={!errorState && !authRequired}
-                      />
-                      <span className="truncate text-muted-foreground">
-                        {errorState ? "后台服务异常" : authRequired ? "需要重新登录" : "后台服务在线"}
-                      </span>
-                    </div>
-                  </div>
-                </SidebarFooter>
-              </Sidebar>
-              <SidebarInset className="min-w-0 max-w-full overflow-x-hidden">
+                  </SidebarFooter>
+                </Sidebar>
+                <SidebarInset className="min-w-0 max-w-full overflow-x-hidden">
+                  <AppHeader
+                    sessionName={session?.name}
+                    theme={theme}
+                    runtimeState={runtime.data?.state}
+                    showSidebarTrigger
+                    onOpenPalette={() => setPaletteOpen(true)}
+                    onLogout={logout}
+                  />
+                  <AppContent pathname={pathname} compact={false} />
+                </SidebarInset>
+              </SidebarProvider>
+            ) : (
+              <div
+                className={cn(
+                  "relative flex min-h-dvh min-w-0 flex-col overflow-x-hidden bg-background",
+                  navMode === "medium" && "pl-16",
+                )}
+              >
+                {navMode === "medium" ? (
+                  <HoverRail
+                    plansActive={plansActive}
+                    bookingsActive={bookingsActive}
+                    runtimeState={runtime.data?.state}
+                  />
+                ) : null}
                 <AppHeader
                   sessionName={session?.name}
                   theme={theme}
                   runtimeState={runtime.data?.state}
-                  showSidebarTrigger
+                  showSidebarTrigger={false}
                   onOpenPalette={() => setPaletteOpen(true)}
                   onLogout={logout}
                 />
-                <AppContent pathname={pathname} compact={false} />
-              </SidebarInset>
-            </SidebarProvider>
-          ) : (
-            <div
-              className={cn(
-                "relative flex min-h-dvh min-w-0 flex-col overflow-x-hidden bg-background",
-                navMode === "medium" && "pl-16",
-              )}
-            >
-              {navMode === "medium" ? (
-                <HoverRail
-                  plansActive={plansActive}
-                  bookingsActive={bookingsActive}
-                  runtimeState={runtime.data?.state}
-                />
-              ) : null}
-              <AppHeader
-                sessionName={session?.name}
-                theme={theme}
-                runtimeState={runtime.data?.state}
-                showSidebarTrigger={false}
-                onOpenPalette={() => setPaletteOpen(true)}
-                onLogout={logout}
-              />
-              <AppContent pathname={pathname} compact={navMode === "compact"} />
-              {navMode === "compact" ? (
-                <FloatingDock plansActive={plansActive} bookingsActive={bookingsActive} />
-              ) : null}
-            </div>
-          )}
-        </ToastProvider>
-      )}
-    </div>
+                <AppContent pathname={pathname} compact={navMode === "compact"} />
+                {navMode === "compact" ? (
+                  <FloatingDock plansActive={plansActive} bookingsActive={bookingsActive} />
+                ) : null}
+              </div>
+            )}
+          </ToastProvider>
+        )}
+      </div>
+    </MotionConfig>
   )
 }

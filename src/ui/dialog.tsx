@@ -3,10 +3,10 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
-import { IconX } from "@tabler/icons-react";
 import type React from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
+import { AnimateIcon, X } from "@/ui/icons";
 import { ScrollArea } from "@/ui/scroll-area";
 
 export const Dialog: typeof DialogPrimitive.Root = DialogPrimitive.Root;
@@ -72,14 +72,16 @@ export function DialogPopup({
         >
           {children}
           {showCloseButton && (
-            <DialogPrimitive.Close
-              aria-label="Close"
-              className="absolute end-2 top-2"
-              render={<Button size="icon" variant="ghost" />}
-              {...closeProps}
-            >
-              <IconX />
-            </DialogPrimitive.Close>
+            <AnimateIcon animateOnHover asChild>
+              <DialogPrimitive.Close
+                aria-label="Close"
+                className="absolute end-2 top-2"
+                render={<Button size="icon" variant="ghost" />}
+                {...closeProps}
+              >
+                <X />
+              </DialogPrimitive.Close>
+            </AnimateIcon>
           )}
         </DialogPrimitive.Popup>
       </DialogViewport>

@@ -1,11 +1,10 @@
-import type { Icon } from "@tabler/icons-react"
 import type { ReactNode } from "react"
-import { IconAlertCircle } from "@tabler/icons-react"
 import { z } from "zod"
 
 import { Alert, AlertDescription, AlertTitle } from "@/ui/alert"
 import { Button } from "@/ui/button"
 import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from "@/ui/empty"
+import { type AnimatedIconComponent, CircleAlert } from "@/ui/icons"
 import { Spinner } from "@/ui/spinner"
 
 export const loginSchema = z.object({
@@ -42,7 +41,7 @@ export function Busy({ label = "正在加载..." }: { label?: string }) {
 export function Failure({ message, retry }: { message: string; retry?: () => void }) {
   return (
     <Alert variant="error">
-      <IconAlertCircle size={18} />
+      <CircleAlert size={18} animate />
       <div>
         <AlertTitle>请求失败</AlertTitle>
         <AlertDescription>
@@ -63,7 +62,7 @@ export function NoData({
   title,
   action,
 }: {
-  icon: Icon
+  icon: AnimatedIconComponent
   title: string
   /** 可选的操作区。空状态是死胡同还是入口，区别就在这里。 */
   action?: ReactNode
@@ -72,7 +71,7 @@ export function NoData({
     <Empty>
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <Icon className="size-5" />
+          <Icon className="size-5" animate />
         </EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>
       </EmptyHeader>

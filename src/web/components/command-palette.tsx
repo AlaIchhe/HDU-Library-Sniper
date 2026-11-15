@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { motion, useReducedMotion } from "motion/react"
-import { IconSearch } from "@tabler/icons-react"
 
 import { Dialog, DialogPanel, DialogPopup } from "@/ui/dialog"
+import { AnimateIcon, Search } from "@/ui/icons"
 import { MenuShortcut } from "@/ui/menu"
 import { cn } from "@/lib/utils"
 import type { Command } from "../commands"
@@ -113,7 +113,11 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
         className="row-start-1 max-h-[min(80dvh,30rem)] max-w-xl self-start"
       >
         <div className="flex items-center gap-3 border-b px-4">
-          <IconSearch className="size-4 shrink-0 text-muted-foreground" />
+          <Search
+            className="size-4 shrink-0 text-muted-foreground"
+            animate={query.length > 0 ? "find" : false}
+            animateOnHover
+          />
           <input
             ref={inputRef}
             value={query}
@@ -173,32 +177,36 @@ function CommandRow({
 
   return (
     <motion.li variants={itemVariants} role="option" aria-selected={active}>
-      <button
-        type="button"
-        onClick={onSelect}
-        onPointerEnter={onHover}
-        className={cn(
-          "relative flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-sm outline-none",
-          "transition-colors duration-100",
-          active ? "text-accent-foreground" : "text-foreground",
-        )}
-        data-active={active}
-      >
-        {/* 共享 layoutId 的选中滑块：在条目之间滑动，而不是各条目自己变色 */}
-        {active && (
-          <motion.span
-            layoutId="command-palette-active"
-            aria-hidden
-            className="absolute inset-0 -z-10 rounded-lg bg-accent"
-            initial={reduced ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ type: "spring", stiffness: 500, damping: 36, mass: 0.6 }}
-          />
-        )}
-        <Icon className="size-4 shrink-0 opacity-80" />
-        <span className="min-w-0 flex-1 truncate">{command.label}</span>
-        {command.shortcut ? <MenuShortcut className="me-0 shrink-0">{command.shortcut}</MenuShortcut> : null}
-      </button>
+      <AnimateIcon animateOnHover asChild>
+        <button
+          type="button"
+          onClick={onSelect}
+          onPointerEnter={onHover}
+          className={cn(
+            "relative flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-sm outline-none",
+            "transition-colors duration-100",
+            active ? "text-accent-foreground" : "text-foreground",
+          )}
+          data-active={active}
+        >
+          {/* 共享 layoutId 的选中滑块：在条目之间滑动，而不是各条目自己变色 */}
+          {active && (
+            <motion.span
+              layoutId="command-palette-active"
+              aria-hidden
+              className="absolute inset-0 -z-10 rounded-lg bg-accent"
+              initial={reduced ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ type: "spring", stiffness: 500, damping: 36, mass: 0.6 }}
+            />
+          )}
+          <Icon className="size-4 shrink-0 opacity-80" />
+          <span className="min-w-0 flex-1 truncate">{command.label}</span>
+          {command.shortcut ? (
+            <MenuShortcut className="me-0 shrink-0">{command.shortcut}</MenuShortcut>
+          ) : null}
+        </button>
+      </AnimateIcon>
     </motion.li>
   )
 }

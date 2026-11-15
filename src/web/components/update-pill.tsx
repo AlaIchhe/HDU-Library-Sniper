@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from "react"
-import { IconCircleArrowUp, IconLoader2 } from "@tabler/icons-react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 
 import { Button } from "@/ui/button"
+import { AnimateIcon, CircleArrowUp, LoaderCircle } from "@/ui/icons"
 import { toastManager } from "@/ui/toast"
 import { cn } from "@/lib/utils"
 import { getUpdateProgress, subscribeUpdateProgress, type UpdateProgress } from "../update-state"
@@ -41,6 +42,7 @@ function describePill(progress: UpdateProgress): Copy {
  */
 export function UpdatePill() {
   const progress = useSyncExternalStore(subscribeUpdateProgress, getUpdateProgress)
+  const reduced = useReducedMotion()
   if (progress.phase === "idle") return null
 
   const busy = progress.phase !== "available"
@@ -59,39 +61,61 @@ export function UpdatePill() {
   }
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      title={hint}
-      aria-busy={busy}
-      data-phase={progress.phase}
-      onClick={() => {
-        if (!busy) void install()
-      }}
-      className={cn(
-        "relative min-w-16 overflow-hidden tabular-nums md:min-w-36",
-        busy && "cursor-default hover:bg-transparent data-pressed:bg-transparent",
-      )}
-    >
-      {busy && (
-        <span
-          aria-hidden
-          className={cn(
-            "absolute inset-y-0 left-0 bg-primary/15 transition-[width] duration-300 ease-out",
-            progress.phase === "downloading" && progress.total <= 0 && "animate-pulse",
-          )}
-          style={{ width: `${progress.phase === "downloading" ? progress.percent : 100}%` }}
-        />
-      )}
-      <span className="relative flex items-center gap-1.5">
-        {busy ? (
-          <IconLoader2 className="size-3.5 animate-spin" />
-        ) : (
-          <IconCircleArrowUp className="size-3.5" />
+    <AnimateIcon animateOnHover={!busy} asChild>
+      <Button
+        variant="outline"
+        size="sm"
+        title={hint}
+        aria-busy={busy}
+        data-phase={progress.phase}
+        onClick={() => {
+          if (!busy) void install()
+        }}
+        className={cn(
+          "relative min-w-16 overflow-hidden tabular-nums md:min-w-36",
+          busy && "cursor-default hover:bg-transparent data-pressed:bg-transparent",
         )}
-        <span className="max-md:hidden">{long}</span>
-        <span className="md:hidden">{short}</span>
-      </span>
-    </Button>
+      >
+        {busy && (
+          <span
+            aria-hidden
+            className={cn(
+              "absolute inset-y-0 left-0 bg-primary/15 transition-[width] duration-300 ease-out",
+              progress.phase === "downloading" && progress.total <= 0 && "animate-pulse",
+            )}
+            style={{ width: `${progress.phase === "downloading" ? progress.percent : 100}%` }}
+          />
+        )}
+        <span className="relative flex items-center gap-1.5">
+          <AnimatePresence mode="wait" initial={false}>
+            {busy ? (
+              <motion.span
+                key="busy"
+                className="inline-flex"
+                initial={reduced ? false : { opacity: 0, scale: 0.75 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.75 }}
+                transition={{ duration: 0.15 }}
+              >
+                <LoaderCircle animate className="size-3.5" />
+              </motion.span>
+            ) : (
+              <motion.span
+                key="available"
+                className="inline-flex"
+                initial={reduced ? false : { opacity: 0, scale: 0.75 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.75 }}
+                transition={{ duration: 0.15 }}
+              >
+                <CircleArrowUp className="size-3.5" />
+              </motion.span>
+            )}
+          </AnimatePresence>
+          <span className="max-md:hidden">{long}</span>
+          <span className="md:hidden">{short}</span>
+        </span>
+      </Button>
+    </AnimateIcon>
   )
 }
