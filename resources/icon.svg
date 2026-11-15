@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>HDU Library Sniper</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#27272A"/>
+      <stop offset="1" stop-color="#09090B"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect x="4" y="4" width="1016" height="1016" rx="224" fill="none" stroke="#fff" stroke-opacity=".08" stroke-width="8"/>
+  <!-- Lucide "library" (ISC)，24 网格放大 34 倍居中 -->
+  <g transform="translate(104 104) scale(34)" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 4v16M8 8v12M12 6v14" stroke="#FAFAFA"/>
+    <path d="m16 6 4 14" stroke="#F59E0B"/>
+  </g>
+</svg>

@@ -25,7 +25,7 @@ export default defineConfig({
         theme_color: "#0f172a",
         background_color: "#f8fafc",
         display: "standalone",
-        icons: [{ src: "favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }],
+        icons: [{ src: "favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }],
       },
       workbox: {
         // 只使用系统字体，不需要为 Web 字体做预缓存或运行时缓存。
