@@ -179,3 +179,69 @@ func TestFloorsSurfacesLibraryErrorMessage(t *testing.T) {
 		t.Fatalf("expected HDU rate-limit error message, got: %v", err)
 	}
 }
+
+func TestRoomMetaSharedCacheAndLiveFloors(t *testing.T) {
+	var getSeats, postSeats atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/Seat/Index/searchSeats" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet {
+			getSeats.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{
+					"space_category": map[string]any{"category_id": "591", "content_id": "3"},
+					"range":          map[string]any{"minBeginTime": 7, "maxEndTime": 22, "min_duration": 1, "max_duration": 15},
+				},
+			})
+			return
+		}
+		postSeats.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"allContent": map[string]any{
+				"children": []any{
+					map[string]any{}, map[string]any{},
+					map[string]any{
+						"children": map[string]any{
+							"children": []any{
+								map[string]any{
+									"roomName": "自习一楼",
+									"seatMap": map[string]any{
+										"info": map[string]any{"id": 1559},
+										"POIs": []any{map[string]any{"id": "1", "title": "101", "state": "0"}},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := NewClientWithBaseURL(srv.URL)
+	ctx := context.Background()
+	q := "space_category[category_id]=591&space_category[content_id]=3"
+
+	if _, err := client.BookingRange(ctx, q); err != nil {
+		t.Fatalf("BookingRange 1: %v", err)
+	}
+	if _, err := client.BookingRange(ctx, q); err != nil {
+		t.Fatalf("BookingRange 2: %v", err)
+	}
+	if _, err := client.Floors(ctx, q, time.Now(), 2); err != nil {
+		t.Fatalf("Floors 1: %v", err)
+	}
+	if _, err := client.Floors(ctx, q, time.Now(), 2); err != nil {
+		t.Fatalf("Floors 2: %v", err)
+	}
+
+	if got := getSeats.Load(); got != 1 {
+		t.Fatalf("expected 1 cached GET searchSeats across BookingRange+Floors, got %d", got)
+	}
+	if got := postSeats.Load(); got != 2 {
+		t.Fatalf("expected 2 live POST searchSeats for Floors (used by booking executor), got %d", got)
+	}
+}

@@ -241,6 +241,7 @@ func (s *Service) Logout() error {
 	}
 	s.Client.Jar().Clear()
 	s.Client.SetIdentity("", "")
+	s.Client.ClearRoomMeta()
 	return s.Store.ClearSession()
 }
 

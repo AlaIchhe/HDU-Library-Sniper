@@ -61,6 +61,9 @@ func (s *Store) SaveSession(rec *SessionRecord) error {
 func (s *Store) ClearSession() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec(`DELETE FROM session`)
+	if _, err := s.db.Exec(`DELETE FROM session`); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM meta WHERE key LIKE 'catalog:%'`)
 	return err
 }

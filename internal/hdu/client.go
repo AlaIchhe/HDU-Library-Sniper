@@ -26,6 +26,12 @@ type category struct {
 	contentID  string
 }
 
+type roomMetaEntry struct {
+	cat      category
+	rng      core.BookingRange
+	hasRange bool
+}
+
 // LibraryClient talks to hdu.huitu.zhishulib.com with strict read/write timeouts and session hooks.
 type LibraryClient struct {
 	baseURL   string
@@ -36,7 +42,7 @@ type LibraryClient struct {
 	mu         sync.Mutex
 	uid        string
 	name       string
-	categories map[string]category
+	roomMeta   map[string]roomMetaEntry
 	onRefresh  func(context.Context) bool
 	onAuthLost func()
 }
@@ -69,7 +75,7 @@ func NewClientWithBaseURL(baseURL string) *LibraryClient {
 			Jar:           jar,
 			CheckRedirect: noAuthRedirect,
 		},
-		categories: make(map[string]category),
+		roomMeta: make(map[string]roomMetaEntry),
 	}
 }
 

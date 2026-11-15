@@ -54,33 +54,27 @@ func (c *LibraryClient) RoomTypes(ctx context.Context) ([]core.RoomTypeOption, e
 }
 
 func (c *LibraryClient) BookingRange(ctx context.Context, roomQuery string) (core.BookingRange, error) {
-	body, err := c.requestJSON(
-		ctx,
-		"/Seat/Index/searchSeats?"+strings.TrimPrefix(roomQuery, "?")+"&LAB_JSON=1",
-		http.MethodGet, nil, nil, false,
-	)
+	meta, err := c.loadRoomMeta(ctx, roomQuery)
 	if err != nil {
 		return core.BookingRange{}, err
 	}
-	r := core.AsMap(core.Get(body, "data", "range"))
-	if r == nil {
+	if !meta.hasRange {
 		return core.BookingRange{}, LibraryError("预约时间范围解析失败")
 	}
-	minDur := core.ToInt64(r["min_duration"])
-	if minDur <= 0 {
-		minDur = 1
-	}
-	return core.BookingRange{
-		MinBeginTime: core.ToInt64(r["minBeginTime"]),
-		MaxEndTime:   core.ToInt64(r["maxEndTime"]),
-		MinDuration:  minDur,
-		MaxDuration:  core.ToInt64(r["max_duration"]),
-	}, nil
+	return meta.rng, nil
 }
 
-func (c *LibraryClient) lookupCategory(ctx context.Context, roomQuery string) (category, error) {
+// ClearRoomMeta clears the in-memory room category and range metadata cache (e.g., on logout).
+func (c *LibraryClient) ClearRoomMeta() {
 	c.mu.Lock()
-	cached, ok := c.categories[roomQuery]
+	c.roomMeta = make(map[string]roomMetaEntry)
+	c.mu.Unlock()
+}
+
+func (c *LibraryClient) loadRoomMeta(ctx context.Context, roomQuery string) (roomMetaEntry, error) {
+	key := strings.TrimPrefix(strings.TrimSpace(roomQuery), "?")
+	c.mu.Lock()
+	cached, ok := c.roomMeta[key]
 	c.mu.Unlock()
 	if ok {
 		return cached, nil
@@ -88,11 +82,11 @@ func (c *LibraryClient) lookupCategory(ctx context.Context, roomQuery string) (c
 
 	body, err := c.requestJSON(
 		ctx,
-		"/Seat/Index/searchSeats?"+strings.TrimPrefix(roomQuery, "?")+"&LAB_JSON=1",
+		"/Seat/Index/searchSeats?"+key+"&LAB_JSON=1",
 		http.MethodGet, nil, nil, false,
 	)
 	if err != nil {
-		return category{}, err
+		return roomMetaEntry{}, err
 	}
 	sc := core.AsMap(core.Get(body, "data", "space_category"))
 	catID := ""
@@ -102,20 +96,36 @@ func (c *LibraryClient) lookupCategory(ctx context.Context, roomQuery string) (c
 		contentID = strings.TrimSpace(core.ToString(sc["content_id"]))
 	}
 	if catID == "" {
-		return category{}, LibraryError("房间详情解析失败")
+		return roomMetaEntry{}, LibraryError("房间详情解析失败")
 	}
-	cat := category{categoryID: catID, contentID: contentID}
+	entry := roomMetaEntry{
+		cat: category{categoryID: catID, contentID: contentID},
+	}
+	if r := core.AsMap(core.Get(body, "data", "range")); r != nil {
+		minDur := core.ToInt64(r["min_duration"])
+		if minDur <= 0 {
+			minDur = 1
+		}
+		entry.hasRange = true
+		entry.rng = core.BookingRange{
+			MinBeginTime: core.ToInt64(r["minBeginTime"]),
+			MaxEndTime:   core.ToInt64(r["maxEndTime"]),
+			MinDuration:  minDur,
+			MaxDuration:  core.ToInt64(r["max_duration"]),
+		}
+	}
 	c.mu.Lock()
-	c.categories[roomQuery] = cat
+	c.roomMeta[key] = entry
 	c.mu.Unlock()
-	return cat, nil
+	return entry, nil
 }
 
 func (c *LibraryClient) Floors(ctx context.Context, roomQuery string, lookupTime time.Time, durationHours int64) ([]map[string]any, error) {
-	cat, err := c.lookupCategory(ctx, roomQuery)
+	meta, err := c.loadRoomMeta(ctx, roomQuery)
 	if err != nil {
 		return nil, err
 	}
+	cat := meta.cat
 	form := url.Values{}
 	form.Set("beginTime", strconv.FormatInt(lookupTime.Unix(), 10))
 	form.Set("duration", strconv.FormatInt(durationHours*3600, 10))

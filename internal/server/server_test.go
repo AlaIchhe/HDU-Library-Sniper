@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 
@@ -144,5 +146,139 @@ func TestPlanAndGroupLifecycle(t *testing.T) {
 	// Referenced single plan cannot be deleted
 	if res := do(http.MethodDelete, "/api/plans/"+id1, nil); res.Code != http.StatusConflict {
 		t.Fatalf("expected 409 deleting plan referenced by group, got %d", res.Code)
+	}
+}
+
+func TestCatalogCacheMemorySQLiteRefreshAndLogout(t *testing.T) {
+	srv, _ := testRouter(t)
+	var roomListHits, searchGetHits, searchPostHits atomic.Int32
+
+	hduMock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/content/index/startUp/openid/abcdef_123/":
+			w.WriteHeader(http.StatusOK)
+		case "/User/Center/baseInfo":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"DATA": map[string]any{"is_login": true, "uid": "304174", "user_info": map[string]any{"name": "陈同学"}},
+			})
+		case "/Space/Category/list":
+			roomListHits.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"content": map[string]any{
+					"defaultItems": []any{
+						map[string]any{
+							"name": "自习室",
+							"link": map[string]any{"url": "/Seat/Index/searchSeats?space_category%5Bcategory_id%5D=591&space_category%5Bcontent_id%5D=3"},
+						},
+					},
+				},
+			})
+		case "/Seat/Index/searchSeats":
+			if r.Method == http.MethodGet {
+				searchGetHits.Add(1)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"data": map[string]any{
+						"space_category": map[string]any{"category_id": "591", "content_id": "3"},
+						"range":          map[string]any{"minBeginTime": 7, "maxEndTime": 22, "min_duration": 1, "max_duration": 15},
+					},
+				})
+				return
+			}
+			searchPostHits.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"allContent": map[string]any{
+					"children": []any{
+						map[string]any{}, map[string]any{},
+						map[string]any{
+							"children": map[string]any{
+								"children": []any{
+									map[string]any{
+										"roomName": "杭韵数阁（六楼）",
+										"seatMap": map[string]any{
+											"info": map[string]any{"id": 1559},
+											"POIs": []any{map[string]any{"id": "1", "title": "101", "state": "0"}},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+		}
+	}))
+	defer hduMock.Close()
+
+	makeHandler := func() http.Handler {
+		authSvc := auth.NewServiceWithEndpoints(srv.Store, nil, auth.Endpoints{Library: hduMock.URL})
+		exec := booking.NewExecutor(srv.Store)
+		sched := scheduler.New(srv.Store, authSvc, exec)
+		s := New(srv.Store, authSvc, exec, sched, nil)
+		_ = authSvc.LoginOpenID(t.Context(), "abcdef_123")
+		return s.Handler()
+	}
+
+	h := makeHandler()
+	req := func(handler http.Handler, method, target string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(method, target, nil))
+		return rec
+	}
+
+	roomQuery := "space_category[category_id]=591&space_category[content_id]=3"
+	floorsPath := "/api/catalog/floors?roomQuery=" + url.QueryEscape(roomQuery) + "&roomType=" + url.QueryEscape("自习室")
+	dur8Path := "/api/catalog/durations?roomQuery=" + url.QueryEscape(roomQuery) + "&startHour=8"
+	dur10Path := "/api/catalog/durations?roomQuery=" + url.QueryEscape(roomQuery) + "&startHour=10"
+
+	for range 3 {
+		if r := req(h, http.MethodGet, "/api/catalog/room-types"); r.Code != 200 {
+			t.Fatalf("room-types = %d %s", r.Code, r.Body.String())
+		}
+		if r := req(h, http.MethodGet, floorsPath); r.Code != 200 {
+			t.Fatalf("floors = %d %s", r.Code, r.Body.String())
+		}
+	}
+	if r := req(h, http.MethodGet, dur8Path); r.Code != 200 {
+		t.Fatalf("durations 8 = %d %s", r.Code, r.Body.String())
+	}
+	if r := req(h, http.MethodGet, dur10Path); r.Code != 200 {
+		t.Fatalf("durations 10 = %d %s", r.Code, r.Body.String())
+	}
+
+	if roomListHits.Load() != 1 || searchGetHits.Load() != 1 || searchPostHits.Load() != 1 {
+		t.Fatalf("expected 1/1/1 upstream hits on warm memory cache, got %d/%d/%d",
+			roomListHits.Load(), searchGetHits.Load(), searchPostHits.Load())
+	}
+
+	// Simulate fresh server restart on the same SQLite store: zero new upstream requests.
+	h2 := makeHandler()
+	if r := req(h2, http.MethodGet, "/api/catalog/room-types"); r.Code != 200 {
+		t.Fatalf("restarted room-types = %d", r.Code)
+	}
+	if r := req(h2, http.MethodGet, floorsPath); r.Code != 200 {
+		t.Fatalf("restarted floors = %d", r.Code)
+	}
+	if r := req(h2, http.MethodGet, dur8Path); r.Code != 200 {
+		t.Fatalf("restarted durations = %d", r.Code)
+	}
+	if roomListHits.Load() != 1 || searchGetHits.Load() != 1 || searchPostHits.Load() != 1 {
+		t.Fatalf("expected 0 extra hits on restarted server via SQLite cache, got %d/%d/%d",
+			roomListHits.Load(), searchGetHits.Load(), searchPostHits.Load())
+	}
+
+	// Explicit refresh bypasses cache.
+	if r := req(h2, http.MethodGet, floorsPath+"&refresh=1"); r.Code != 200 {
+		t.Fatalf("refresh floors = %d", r.Code)
+	}
+	if searchPostHits.Load() != 2 {
+		t.Fatalf("expected POST searchSeats hit=2 after ?refresh=1, got %d", searchPostHits.Load())
+	}
+
+	// Logout clears persisted catalog cache in SQLite and memory.
+	if r := req(h2, http.MethodPost, "/api/session/logout"); r.Code != 200 {
+		t.Fatalf("logout = %d", r.Code)
+	}
+	if v, err := srv.Store.GetMeta("catalog:room_types"); err != nil || v != "" {
+		t.Fatalf("expected catalog:room_types cleared on logout, got %q, err=%v", v, err)
 	}
 }

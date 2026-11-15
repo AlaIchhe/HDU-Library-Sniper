@@ -50,9 +50,18 @@ export function useCheckin() {
   const authenticated = useAuthenticated()
   return useQuery({ queryKey: queryKeys.checkin, queryFn: api.checkinStatus, enabled: authenticated })
 }
+const CATALOG_STALE_TIME = 30 * 60_000
+const CATALOG_GC_TIME = 60 * 60_000
+
 export function useRoomTypes() {
   const authenticated = useAuthenticated()
-  return useQuery({ queryKey: queryKeys.roomTypes, queryFn: api.roomTypes, enabled: authenticated })
+  return useQuery({
+    queryKey: queryKeys.roomTypes,
+    queryFn: api.roomTypes,
+    enabled: authenticated,
+    staleTime: CATALOG_STALE_TIME,
+    gcTime: CATALOG_GC_TIME,
+  })
 }
 export function useFloors(roomQuery: string, roomType?: string) {
   const authenticated = useAuthenticated()
@@ -60,6 +69,8 @@ export function useFloors(roomQuery: string, roomType?: string) {
     queryKey: queryKeys.floors(roomQuery, roomType),
     queryFn: () => api.floors(roomQuery, roomType),
     enabled: authenticated && Boolean(roomQuery),
+    staleTime: CATALOG_STALE_TIME,
+    gcTime: CATALOG_GC_TIME,
   })
 }
 export function useDurations(roomQuery: string, startHour: string, roomType?: string) {
@@ -69,6 +80,8 @@ export function useDurations(roomQuery: string, startHour: string, roomType?: st
     queryKey: queryKeys.durations(roomQuery, hour, roomType),
     queryFn: () => api.durations(roomQuery, hour, roomType),
     enabled: authenticated && Boolean(roomQuery) && startHour !== "",
+    staleTime: CATALOG_STALE_TIME,
+    gcTime: CATALOG_GC_TIME,
   })
 }
 

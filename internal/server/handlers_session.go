@@ -63,5 +63,6 @@ func (s *Server) handleSessionQRCancel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSessionLogout(w http.ResponseWriter, r *http.Request) {
 	_ = s.Auth.Logout()
+	s.catalog.clear()
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
