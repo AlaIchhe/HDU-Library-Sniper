@@ -1,4 +1,5 @@
-import { isTauri } from "../platform/tauri"
+import { isMyGo } from "mygo-runtime"
+import { DesktopAPI } from "../mygo"
 import { useAppStore } from "./store"
 import type {
   AuditEvent,
@@ -61,15 +62,12 @@ type RawResponse = {
 }
 
 async function sendRequest(path: string, init?: RequestInit): Promise<RawResponse> {
-  if (isTauri()) {
-    const { invoke } = await import("@tauri-apps/api/core")
-    const response = await invoke<{ status: number; body: string }>("api_request", {
-      request: {
-        method: init?.method || "GET",
-        path,
-        body: typeof init?.body === "string" ? init.body : undefined,
-      },
-    })
+  if (isMyGo()) {
+    const response = await DesktopAPI.request(
+      init?.method || "GET",
+      path,
+      typeof init?.body === "string" ? init.body : "",
+    )
     return {
       status: response.status,
       ok: response.status >= 200 && response.status < 300,
@@ -95,11 +93,10 @@ async function call<T>(path: string, init?: RequestInit, validate?: (body: unkno
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === "AbortError") throw cause
     const detail = cause instanceof Error ? cause.message : String(cause)
-    if (isTauri()) {
-      const { error } = await import("@tauri-apps/plugin-log")
-      error(`API 请求失败: ${path} -> ${detail}`)
+    if (isMyGo()) {
+      console.error(`API 请求失败: ${path} -> ${detail}`)
     }
-    throw new Error(isTauri() ? `本地服务不可用：${detail}` : "无法连接本地后台服务，请确认服务已启动")
+    throw new Error(isMyGo() ? `本地服务不可用：${detail}` : "无法连接本地后台服务，请确认服务已启动")
   }
 
   let body: { detail?: string; message?: string } = {}
@@ -111,14 +108,13 @@ async function call<T>(path: string, init?: RequestInit, validate?: (body: unkno
     }
   }
   if (!response.ok) {
-    if (isTauri()) {
-      const { error, warn } = await import("@tauri-apps/plugin-log")
+    if (isMyGo()) {
       // 后台的 detail 是唯一能说明失败原因的信息（登录态失效 / 上游超时 /
       // 网络错误）；不带上它，日志里就只剩一个孤零零的状态码。
       const detail = body.detail || body.message
       const message = `API 返回错误: ${path} -> ${response.status}${detail ? ` (${detail})` : ""}`
-      if (response.status >= 500) error(message)
-      else warn(message)
+      if (response.status >= 500) console.error(message)
+      else console.warn(message)
     }
     if (response.status === 401) {
       // 后台服务重启会丢失内存会话；清掉本地状态让轮询停下并回到登录页

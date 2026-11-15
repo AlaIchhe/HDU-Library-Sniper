@@ -10,9 +10,6 @@ on:
     paths-ignore:
       - "**/*.md"
       - "docs/**"
-  schedule:
-    # 每天 02:00 Asia/Shanghai，只为预热 Windows release 缓存
-    - cron: "0 18 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -24,52 +21,52 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: .
+
       - run: bun install --frozen-lockfile
+
       - name: Biome（lint + format）
         run: ./node_modules/.bin/biome ci .
+
       - name: Typecheck
         run: bun run typecheck
-      - name: Rust format
-        run: cargo fmt --all -- --check
-      - name: Rust clippy
-        run: cargo clippy -p hdu-sniper-core -p hdu-sniper-hdu -p hdu-sniper-auth -p hdu-sniper-store -p hdu-sniper-server --all-targets -- -D warnings
-      - name: Duplication gate
-        run: npx --yes jscpd@4 --min-lines 12 --min-tokens 70 --format rust,typescript,tsx --threshold 3 --ignore "**/node_modules/**,**/target/**,**/ui/**" src crates
-      - name: Rust tests
-        run: cargo test -p hdu-sniper-core -p hdu-sniper-hdu -p hdu-sniper-auth -p hdu-sniper-store -p hdu-sniper-server
 
-  warmup:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - uses: actions/cache@v6
-        with:
-          path: ~\.bun\install\cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release
-          workspaces: .
-      - run: bun install --frozen-lockfile
-      - name: Build frontend and Rust server
+      - name: Frontend unit tests
+        run: bun run test
+
+      - name: Go format
         run: |
-          npm run build
-          cargo build -p hdu-sniper-server
-      - name: Warm release build cache
-        working-directory: src-tauri
-        run: cargo build --release
+          unformatted=$(gofmt -l cmd internal main.go)
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Go vet
+        env:
+          CGO_ENABLED: "0"
+        run: go vet ./...
+
+      - name: Go tests
+        env:
+          CGO_ENABLED: "0"
+        run: go test ./...
+
+      - name: Cross-compile desktop & server targets
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          for target in linux/amd64 windows/amd64 darwin/arm64 darwin/amd64; do
+            GOOS=${target%/*} GOARCH=${target#*/} go build . ./cmd/server
+          done
+          bun run build:web
+
+      - name: Duplication gate
+        run: npx --yes jscpd@4 --min-lines 12 --min-tokens 70 --format go,typescript,tsx --threshold 3 --ignore "**/node_modules/**,**/build/**,**/.mygo/**,**/ui/**" src internal cmd

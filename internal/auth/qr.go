@@ -1,0 +1,306 @@
+package auth
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"hdu-library-sniper/internal/core"
+	"hdu-library-sniper/internal/hdu"
+)
+
+const (
+	qrTTL      = 90 * time.Second
+	qrPollIdle = 15 * time.Second
+	qrPollTick = 1200 * time.Millisecond
+)
+
+type qrSession struct {
+	createdAt    time.Time
+	lastPolledAt time.Time
+	status       core.QrLoginStatus
+	cancel       context.CancelFunc
+}
+
+var (
+	reCsrfKey   = []*regexp.Regexp{regexp.MustCompile(`Csrf-Key['"]?\s*[:=,]\s*['"]([^'"]+)['"]`)}
+	reCsrfValue = []*regexp.Regexp{regexp.MustCompile(`Csrf-Value['"]?\s*[:=,]\s*['"]([^'"]+)['"]`)}
+)
+
+func (s *Service) ssoCSRFHeaders(ctx context.Context) (http.Header, string, error) {
+	client := s.newHTTPClient(s.Client.Jar())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.Endpoints.SSOLoginPage, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("User-Agent", hdu.UserAgent)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	referer := resp.Request.URL.String()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+
+	reqJS, err := http.NewRequestWithContext(ctx, http.MethodGet, s.Endpoints.SSOCsrfScript, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	reqJS.Header.Set("User-Agent", hdu.UserAgent)
+	reqJS.Header.Set("Referer", referer)
+	respJS, err := client.Do(reqJS)
+	if err != nil {
+		return nil, "", err
+	}
+	defer respJS.Body.Close()
+	jsBytes, _ := io.ReadAll(respJS.Body)
+	script := string(jsBytes)
+
+	h := http.Header{}
+	h.Set("Origin", s.Endpoints.SSO)
+	h.Set("Referer", referer)
+	if k := firstMatch(script, reCsrfKey); k != "" {
+		h.Set("Csrf-Key", k)
+	}
+	if v := firstMatch(script, reCsrfValue); v != "" {
+		h.Set("Csrf-Value", v)
+	}
+	return h, referer, nil
+}
+
+func (s *Service) CreateQrLogin(ctx context.Context) (*core.QrLoginStart, error) {
+	select {
+	case s.qrSem <- struct{}{}:
+	default:
+		return nil, errors.New("当前扫码请求过多，请稍后再试")
+	}
+	releaseOnErr := true
+	defer func() {
+		if releaseOnErr {
+			<-s.qrSem
+		}
+	}()
+
+	headers, _, err := s.ssoCSRFHeaders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	client := s.newHTTPClient(s.Client.Jar())
+	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	reqID, err := http.NewRequestWithContext(ctx, http.MethodGet, s.Endpoints.SSO+"/api/protected/qrlogin/loginid?"+ts, nil)
+	if err != nil {
+		return nil, err
+	}
+	reqID.Header = headers.Clone()
+	reqID.Header.Set("User-Agent", hdu.UserAgent)
+	respID, err := client.Do(reqID)
+	if err != nil {
+		return nil, err
+	}
+	defer respID.Body.Close()
+	var idBody map[string]any
+	if err := json.NewDecoder(respID.Body).Decode(&idBody); err != nil {
+		return nil, errors.New("获取扫码登录会话失败")
+	}
+	uuid := strings.TrimSpace(core.ToString(idBody["data"]))
+	if uuid == "" {
+		return nil, errors.New("获取扫码登录 uuid 失败")
+	}
+
+	imgURL := fmt.Sprintf("%s/api/public/qrlogin/qrgen/%s/dingDingQr?t=%s", s.Endpoints.SSO, url.PathEscape(uuid), ts)
+	reqImg, err := http.NewRequestWithContext(ctx, http.MethodGet, imgURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	reqImg.Header.Set("User-Agent", hdu.UserAgent)
+	reqImg.Header.Set("Referer", s.Endpoints.SSOLoginPage)
+	respImg, err := client.Do(reqImg)
+	if err != nil {
+		return nil, err
+	}
+	defer respImg.Body.Close()
+	if respImg.StatusCode >= 400 {
+		return nil, fmt.Errorf("获取二维码图片失败（HTTP %d）", respImg.StatusCode)
+	}
+	pngBytes, err := io.ReadAll(respImg.Body)
+	if err != nil {
+		return nil, err
+	}
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes)
+
+	loopCtx, cancel := context.WithCancel(context.Background())
+	now := time.Now()
+	s.mu.Lock()
+	s.pruneQrSessionsLocked(now)
+	s.qrSessions[uuid] = &qrSession{
+		createdAt:    now,
+		lastPolledAt: now,
+		status:       core.QrLoginStatus{Status: "pending"},
+		cancel:       cancel,
+	}
+	s.mu.Unlock()
+
+	releaseOnErr = false
+	go s.runQrScanLoop(loopCtx, uuid)
+
+	return &core.QrLoginStart{
+		UUID:       uuid,
+		Image:      dataURL,
+		TTLSeconds: int64(qrTTL.Seconds()),
+	}, nil
+}
+
+func (s *Service) PollQrLogin(uuid string) core.QrLoginStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	qs, ok := s.qrSessions[uuid]
+	if !ok {
+		return core.QrLoginStatus{Status: "error", Message: "扫码会话不存在或已取消"}
+	}
+	qs.lastPolledAt = time.Now()
+	return qs.status
+}
+
+func (s *Service) CancelQrLogin(uuid string) bool {
+	s.mu.Lock()
+	qs, ok := s.qrSessions[uuid]
+	if ok {
+		delete(s.qrSessions, uuid)
+	}
+	s.mu.Unlock()
+	if ok && qs.cancel != nil {
+		qs.cancel()
+	}
+	return ok
+}
+
+func (s *Service) pruneQrSessionsLocked(now time.Time) {
+	for id, qs := range s.qrSessions {
+		if now.Sub(qs.createdAt) > 5*time.Minute {
+			if qs.cancel != nil {
+				qs.cancel()
+			}
+			delete(s.qrSessions, id)
+		}
+	}
+}
+
+func (s *Service) runQrScanLoop(ctx context.Context, uuid string) {
+	defer func() { <-s.qrSem }()
+	deadline := time.Now().Add(qrTTL)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		qs, ok := s.qrSessions[uuid]
+		var idle bool
+		if ok && time.Since(qs.lastPolledAt) > qrPollIdle {
+			idle = true
+			delete(s.qrSessions, uuid)
+		}
+		s.mu.Unlock()
+		if !ok || idle {
+			return
+		}
+
+		token, err := s.pollQrRoundForToken(ctx, uuid)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			s.setQrStatus(uuid, core.QrLoginStatus{Status: "error", Message: err.Error()})
+			return
+		}
+		if token != "" {
+			if err := s.completeQrLogin(ctx, token); err != nil {
+				s.setQrStatus(uuid, core.QrLoginStatus{Status: "error", Message: err.Error()})
+			} else {
+				sess := s.Status()
+				s.setQrStatus(uuid, core.QrLoginStatus{Status: "success", Session: &sess})
+			}
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(qrPollTick):
+		}
+	}
+	s.setQrStatus(uuid, core.QrLoginStatus{Status: "expired", Message: "二维码已过期"})
+}
+
+func (s *Service) setQrStatus(uuid string, st core.QrLoginStatus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if qs, ok := s.qrSessions[uuid]; ok {
+		qs.status = st
+	}
+}
+
+func (s *Service) pollQrRoundForToken(ctx context.Context, uuid string) (string, error) {
+	headers, _, err := s.ssoCSRFHeaders(ctx)
+	if err != nil {
+		return "", err
+	}
+	client := s.newHTTPClient(s.Client.Jar())
+	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	scanURL := fmt.Sprintf("%s/api/protected/qrlogin/scan/%s?%s", s.Endpoints.SSO, url.PathEscape(uuid), ts)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scanURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header = headers
+	req.Header.Set("User-Agent", hdu.UserAgent)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(core.ToString(body["data"])), nil
+}
+
+func (s *Service) completeQrLogin(ctx context.Context, token string) error {
+	s.loginGate.Lock()
+	defer s.loginGate.Unlock()
+
+	form := url.Values{}
+	form.Set(token, "login")
+	client := s.newHTTPClient(s.Client.Jar())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.Endpoints.SSOLoginPage, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", hdu.UserAgent)
+	req.Header.Set("Origin", s.Endpoints.SSO)
+	req.Header.Set("Referer", s.Endpoints.SSOLoginPage)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+
+	if !s.Client.ValidateOnce(ctx) {
+		return errors.New("扫码登录成功但图书馆会话校验失败")
+	}
+	s.mu.Lock()
+	s.authenticated = true
+	s.lastError = ""
+	s.creds = &Credentials{}
+	s.mu.Unlock()
+	return s.persistSession()
+}

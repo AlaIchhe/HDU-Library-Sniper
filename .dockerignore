@@ -1,5 +1,8 @@
 node_modules
 dist
+build
+.mygo
+.cargo
 .git
 .github
 artifacts
@@ -8,12 +11,9 @@ artifacts
 playwright-report
 test-results
 docs/media
-src-tauri/target
-src-tauri/gen
 *.db
 *.db-shm
 *.db-wal
 .env
 .env.*
-target
 .toolchain

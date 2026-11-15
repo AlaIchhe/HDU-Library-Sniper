@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="96" alt="HDU Library Sniper">
+  <img src="resources/icon.png" width="96" alt="HDU Library Sniper">
 </p>
 
 <h1 align="center">HDU Library Sniper</h1>
@@ -25,8 +25,7 @@
 </p>
 
 <p align="center">
-  <sub>支持 Windows x64 与 macOS（Apple Silicon / Intel 通用）。Windows 下载 <code>*-setup.exe</code>，
-  macOS 下载 <code>*_universal.dmg</code>；macOS 版未做公证，首次打开需要按
+  <sub>支持 Windows、macOS 与 Linux 桌面端及容器部署。macOS 版默认未公证，首次打开需要按
   <a href="docs/MACOS.md">macOS 说明</a>放行一次。</sub>
 </p>
 
@@ -68,10 +67,10 @@ https://github.com/user-attachments/assets/f8abc8a4-c9f6-4fd9-881b-3f6ec2d45c0d
 3. 保存并启用方案，在“当前预约”中查看结果。
 
 > [!NOTE]
-> 应用安装后默认开机自启。关闭窗口会隐藏到系统托盘，后台继续运行；从托盘菜单退出才会停止任务。预约和签到时，请保持电脑开机、联网且应用运行。
+> 可在系统托盘菜单中开关开机自启（通过 MyGo 系统集成实现）。关闭窗口会隐藏到系统托盘，后台继续运行；从托盘菜单退出才会停止任务。预约和签到时，请保持电脑开机、联网且应用运行。
 
 > [!IMPORTANT]
-> 账号凭据（学号密码或微信 openid）加密后保存在本机 SQLite（Windows 使用系统钥匙串，其他平台使用 `HDU_SNIPER_SECRET_KEY`），不上传到第三方服务器；退出登录不会删除已保存的凭据，Cookie 失效时会用它在后台自动重新登录。没有可用密钥时会退回明文并在日志中告警。请在可信设备上使用，并遵守学校图书馆服务规则。
+> 账号凭据（学号密码或微信 openid）使用 AES-256-GCM 加密后保存在本机 SQLite（密钥取自环境变量 `HDU_SNIPER_SECRET_KEY` 或数据目录中自动生成的 `.secret.key`），不上传到第三方服务器；退出登录不会删除已保存的凭据，Cookie 失效时会用它在后台自动重新登录。请在可信设备上使用，并遵守学校图书馆服务规则。
 
 ---
 

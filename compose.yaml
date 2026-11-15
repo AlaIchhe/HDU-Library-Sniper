@@ -18,7 +18,7 @@ services:
       - hdu-sniper-data:/var/lib/hdu-sniper
     restart: always
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/api/health"]
+      test: ["CMD", "/usr/local/bin/hdu-sniper-server", "--healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3

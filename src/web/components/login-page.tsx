@@ -28,7 +28,6 @@ import { api } from "../data/api"
 import { useSession } from "../data/queries"
 import { useAppStore } from "../data/store"
 import { consumeReturnTo } from "../return-to"
-import { openExternalUrl } from "../platform/tauri"
 import { Busy, type LoginFormValues, loginResolver } from "../shared"
 import type { QrLoginStart } from "../../shared/types"
 
@@ -441,7 +440,7 @@ function LoginPage() {
           <button
             type="button"
             className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-            onClick={() => void openExternalUrl(ISSUES_URL)}
+            onClick={() => window.open(ISSUES_URL, "_blank", "noopener,noreferrer")}
           >
             登录遇到问题？
           </button>

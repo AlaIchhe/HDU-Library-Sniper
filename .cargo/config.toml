@@ -1,8 +1,0 @@
-[alias]
-check-all = "check --workspace --all-targets"
-test-all = "test --workspace --all-targets"
-check-rust = "check -p hdu-sniper-core -p hdu-sniper-hdu -p hdu-sniper-auth -p hdu-sniper-store -p hdu-sniper-server --all-targets"
-
-[env]
-TS_RS_EXPORT_DIR = { value = "src/shared/generated", relative = true }
-TS_RS_LARGE_INT = "number"

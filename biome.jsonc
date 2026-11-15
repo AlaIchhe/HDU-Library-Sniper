@@ -9,15 +9,15 @@
     "includes": [
       "**",
       "!dist",
+      "!build",
+      "!.mygo",
       "!artifacts",
       "!.dsh-im",
       "!.audit",
-      "!src-tauri/target",
-      "!src-tauri/gen",
       "!playwright-report",
       "!test-results",
       "!src/web/index.css",
-      "!src/shared/generated",
+      "!src/web/mygo.ts",
       "!**/*.md",
       "!windows-test/evidence"
     ]

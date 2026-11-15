@@ -1,12 +1,11 @@
 node_modules
 dist
+build
+.mygo
 .toolchain
-target
 .env
 .env.local
 .data
-src-tauri/target
-src-tauri/gen
 *.db
 *.db-shm
 *.db-wal

@@ -13,7 +13,7 @@ HDU_SNIPER_HOME=/path/to/hdu-library-sniper
 HDU_WEB_PORT=8000
 ```
 
-保存的凭据（密码 / openid）会用 `HDU_SNIPER_SECRET_KEY` 做 AES-256-GCM 加密；桌面端未配置时会使用 Windows 钥匙串。没有可用密钥时才会退回明文，并在启动日志里给出警告。仍然请确保设备、数据卷权限仅限当前用户，不要提交 `.env.local`、密码、Cookie 或 SQLite 数据库。
+保存的凭据（密码 / openid）使用 AES-256-GCM 加密；可通过 `HDU_SNIPER_SECRET_KEY` 指定密钥，未配置时会在数据目录（`HDU_SNIPER_HOME`）下自动生成并持久化 `0600` 权限的 `.secret.key`。请确保设备与数据卷权限仅限当前用户，不要提交 `.env.local`、密码、Cookie 或 SQLite 数据库。
 
 ## 容器部署
 

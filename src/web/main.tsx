@@ -2,17 +2,18 @@ import { StrictMode, useEffect, useState, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
+import { isMyGo } from "mygo-runtime"
 
 import { Spinner } from "@/ui/spinner"
 import { router } from "./routes/router"
 import { initializeTheme } from "./data/store"
-import { isTauri } from "./platform/tauri"
+import { DesktopAPI } from "./mygo"
 import "./index.css"
 
-// 桌面端在 Rust setup() 阶段已同步完成初始化，这里只做一次状态确认：
-// 正常情况零轮询立即渲染，若数据库等初始化失败则直接展示底层报错。
+// 桌面端启动时会异步初始化数据库与任务调度，这里只等待一次 DesktopAPI.ready()：
+// 正常情况零轮询立即渲染，若底层初始化失败则直接展示错误。
 function StartupGate({ children }: { children: ReactNode }) {
-  const [ready, setReady] = useState(!isTauri() || !import.meta.env.PROD)
+  const [ready, setReady] = useState(!isMyGo())
   const [detail, setDetail] = useState<string | null>(null)
 
   useEffect(() => {
@@ -20,14 +21,8 @@ function StartupGate({ children }: { children: ReactNode }) {
     let cancelled = false
     void (async () => {
       try {
-        const { invoke } = await import("@tauri-apps/api/core")
-        const status = await invoke<{ running: boolean; error?: string | null }>("local_api_status")
-        if (cancelled) return
-        if (status.running) {
-          setReady(true)
-        } else {
-          setDetail(status.error || "本地服务未能初始化")
-        }
+        await DesktopAPI.ready()
+        if (!cancelled) setReady(true)
       } catch (cause) {
         if (!cancelled) {
           setDetail(cause instanceof Error ? cause.message : String(cause))
@@ -44,11 +39,10 @@ function StartupGate({ children }: { children: ReactNode }) {
     <div className="grid min-h-svh place-items-center p-6">
       <div className="grid max-w-[36rem] justify-items-center gap-3 text-center text-sm text-muted-foreground">
         {detail === null ? <Spinner className="size-5" /> : null}
-        <p>{detail === null ? "正在初始化本地服务…" : "本地服务启动失败，请查看日志后重新打开应用"}</p>
+        <p>
+          {detail === null ? "正在初始化本地服务…" : "本地服务启动失败，请检查配置目录权限后重新打开应用"}
+        </p>
         {detail !== null ? <p className="text-xs break-all text-destructive">{detail}</p> : null}
-        {detail !== null ? (
-          <p className="text-xs">日志：%LOCALAPPDATA%\io.github.alaichhe.hdu-library-sniper\logs</p>
-        ) : null}
       </div>
     </div>
   )
@@ -66,10 +60,6 @@ const queryClient = new QueryClient({
 
 initializeTheme()
 
-if (isTauri()) {
-  // 把 Rust 侧日志转发到 WebView 控制台，方便排查打包环境问题
-  void import("@tauri-apps/plugin-log").then(({ attachConsole }) => attachConsole()).catch(() => undefined)
-}
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

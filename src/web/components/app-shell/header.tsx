@@ -19,8 +19,6 @@ import {
 import { Separator } from "@/ui/separator"
 import { SidebarTrigger } from "@/ui/sidebar"
 import { useAppStore } from "../../data/store"
-import { openExternalUrl } from "../../platform/tauri"
-import { UpdatePill } from "../update-pill"
 import { cn } from "@/lib/utils"
 
 /** 统一的语义色状态点：颜色由 tone 决定，切换时用 spring 过渡而非硬切。 */
@@ -63,7 +61,6 @@ export function AppHeader({
             <MenuShortcut className="me-0 max-lg:hidden">⌘K</MenuShortcut>
           </Button>
         </AnimateIcon>
-        <UpdatePill />
         <CheckinControl />
         <AnimatedThemeToggler
           className="grid size-8 place-items-center rounded-full border text-foreground/80 transition-colors hover:bg-muted hover:text-foreground [&_svg]:size-4"
@@ -82,7 +79,11 @@ export function AppHeader({
               <AnimateIcon animateOnHover asChild>
                 <MenuItem
                   onClick={() =>
-                    void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases")
+                    window.open(
+                      "https://github.com/AlaIchhe/HDU-Library-Sniper/releases",
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
                   }
                 >
                   <ExternalLink />

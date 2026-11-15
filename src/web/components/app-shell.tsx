@@ -36,10 +36,7 @@ import { useAppStore } from "../data/store"
 import { queryKeys, useRuntime, useSession } from "../data/queries"
 import { LightRays } from "@/ui/light-rays"
 import { api } from "../data/api"
-import { notifyAuditEvents } from "../platform/notifications"
-import { openExternalUrl } from "../platform/tauri"
 import { forgetReturnTo, rememberReturnTo } from "../return-to"
-import { startUpdateCheck } from "../platform/updater"
 import { CommandPalette } from "./command-palette"
 import { cn } from "@/lib/utils"
 import { useHotkeys } from "../hooks/use-hotkeys"
@@ -70,35 +67,6 @@ export function AppShell() {
   const navMode = useNavMode()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const authenticated = Boolean(session?.authenticated)
-
-  // 开机静默查一次更新：只点亮顶栏控件，不下载、不弹提示。
-  useEffect(() => {
-    startUpdateCheck()
-  }, [])
-  useEffect(() => {
-    if (!authenticated) return
-    let active = true
-    const poll = async () => {
-      try {
-        const result = await api.audit(50)
-        if (active) await notifyAuditEvents(result.events)
-      } catch {
-        /* backend may not be ready yet */
-      }
-    }
-    // 不轮询：登录后、窗口重新获得焦点/可见时检查一次新事件。
-    const refresh = () => {
-      if (document.visibilityState === "visible") void poll()
-    }
-    void poll()
-    window.addEventListener("focus", refresh)
-    document.addEventListener("visibilitychange", refresh)
-    return () => {
-      active = false
-      window.removeEventListener("focus", refresh)
-      document.removeEventListener("visibilitychange", refresh)
-    }
-  }, [authenticated])
 
   // 后台任务结束（抢座/签到跑完）后刷新预约列表和“下一次执行”；平时不轮询。
   const lastRunAt = runtime.data?.lastRunAt
@@ -212,7 +180,12 @@ export function AppShell() {
       group: "操作",
       icon: ExternalLink,
       keywords: ["changelog", "release", "gengxin"],
-      run: () => void openExternalUrl("https://github.com/AlaIchhe/HDU-Library-Sniper/releases"),
+      run: () =>
+        window.open(
+          "https://github.com/AlaIchhe/HDU-Library-Sniper/releases",
+          "_blank",
+          "noopener,noreferrer",
+        ),
     },
     {
       id: "logout",

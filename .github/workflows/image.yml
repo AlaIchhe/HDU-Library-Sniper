@@ -42,7 +42,7 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ (github.ref_type == 'tag' && !contains(github.ref_name, '-')) || github.event_name == 'workflow_dispatch' }}
             type=sha,prefix=sha-,format=short
             type=ref,event=tag
           labels: |
