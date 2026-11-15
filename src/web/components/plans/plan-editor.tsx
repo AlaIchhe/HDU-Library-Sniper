@@ -1,10 +1,9 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { useForm, useWatch } from "react-hook-form"
 
-import { AnimateIcon, Check, RefreshCw } from "@/ui/icons"
+import { AnimateIcon, Check } from "@/ui/icons"
 import { MultipleSelect } from "@/ui/multiple-select"
 import { Button } from "@/ui/button"
 import { DialogClose, DialogFooter } from "@/ui/dialog"
@@ -14,17 +13,14 @@ import { Input } from "@/ui/input"
 import { toastManager } from "@/ui/toast"
 import type { BookingPlan, Weekday } from "../../../shared/types"
 import { weekdayLabels } from "../../../shared/types"
-import { api } from "../../data/api"
-import { queryKeys, useDurations, useFloors, usePlanMutations, useRoomTypes } from "../../data/queries"
+import { useDurations, useFloors, usePlanMutations, useRoomTypes } from "../../data/queries"
 import { type PlanFormValues, planResolver } from "../../shared"
 
 import { SearchableField, SelectField } from "./fields"
 
 export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClose: () => void }) {
-  const queryClient = useQueryClient()
   const mutations = usePlanMutations()
   const roomTypes = useRoomTypes()
-  const [refreshingCatalog, setRefreshingCatalog] = useState(false)
   const form = useForm<PlanFormValues>({
     resolver: planResolver,
     defaultValues: {
@@ -59,28 +55,6 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
     value: String(day),
     label: weekdayLabels[day],
   }))
-
-  async function refreshCatalog() {
-    setRefreshingCatalog(true)
-    try {
-      const nextRoomTypes = await api.roomTypes(true)
-      queryClient.setQueryData(queryKeys.roomTypes, nextRoomTypes)
-      const activeQuery = nextRoomTypes.options.find((item) => item.name === room)?.query || roomQuery
-      if (activeQuery) {
-        const nextFloors = await api.floors(activeQuery, effectiveRoomType, true)
-        queryClient.setQueryData(queryKeys.floors(activeQuery, effectiveRoomType), nextFloors)
-        queryClient.removeQueries({ queryKey: ["durations"] })
-      }
-      toastManager.add({ type: "success", title: "已从馆方更新座位目录" })
-    } catch (cause) {
-      toastManager.add({
-        type: "error",
-        title: cause instanceof Error ? cause.message : "刷新座位目录失败",
-      })
-    } finally {
-      setRefreshingCatalog(false)
-    }
-  }
 
   async function submit(values: PlanFormValues) {
     const payload = {
@@ -217,19 +191,6 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
         )}
       </Field>
       <DialogFooter variant="bare" className="px-0">
-        <AnimateIcon animateOnHover asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="me-auto"
-            disabled={refreshingCatalog}
-            onClick={refreshCatalog}
-          >
-            <RefreshCw className={refreshingCatalog ? "size-3.5 animate-spin" : "size-3.5"} />
-            刷新座位目录
-          </Button>
-        </AnimateIcon>
         <DialogClose render={<Button type="button" variant="outline" />}>取消</DialogClose>
         <AnimateIcon animateOnHover asChild>
           <Button

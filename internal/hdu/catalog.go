@@ -64,10 +64,16 @@ func (c *LibraryClient) BookingRange(ctx context.Context, roomQuery string) (cor
 	return meta.rng, nil
 }
 
-// ClearRoomMeta clears the in-memory room category and range metadata cache (e.g., on logout).
-func (c *LibraryClient) ClearRoomMeta() {
+// ClearRoomMeta clears cached room category and range metadata (for specific queries, or all when omitted).
+func (c *LibraryClient) ClearRoomMeta(roomQueries ...string) {
 	c.mu.Lock()
-	c.roomMeta = make(map[string]roomMetaEntry)
+	if len(roomQueries) == 0 {
+		c.roomMeta = make(map[string]roomMetaEntry)
+	} else {
+		for _, q := range roomQueries {
+			delete(c.roomMeta, strings.TrimPrefix(strings.TrimSpace(q), "?"))
+		}
+	}
 	c.mu.Unlock()
 }
 

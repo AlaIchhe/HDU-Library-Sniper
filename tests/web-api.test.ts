@@ -72,32 +72,4 @@ describe("web API transport", () => {
     await expect(api.session()).rejects.toThrow("本地服务不可用：startup API error: db locked");
     expect(errorSpy).toHaveBeenCalledWith("API 请求失败: /api/session -> startup API error: db locked");
   });
-
-  test("only sends ?refresh=1 when explicitly triggered for catalog lazy refresh", async () => {
-    const callMock = vi.fn().mockResolvedValue({
-      status: 200,
-      body: JSON.stringify({ options: [] }),
-    });
-    stubMyGoCall(callMock);
-
-    await api.roomTypes();
-    await api.roomTypes(true);
-    await api.floors("q=1", "自习室", true);
-
-    expect(callMock).toHaveBeenNthCalledWith(1, "DesktopAPI.Request", "GET", "/api/catalog/room-types", "");
-    expect(callMock).toHaveBeenNthCalledWith(
-      2,
-      "DesktopAPI.Request",
-      "GET",
-      "/api/catalog/room-types?refresh=1",
-      "",
-    );
-    expect(callMock).toHaveBeenNthCalledWith(
-      3,
-      "DesktopAPI.Request",
-      "GET",
-      "/api/catalog/floors?roomQuery=q%3D1&roomType=%E8%87%AA%E4%B9%A0%E5%AE%A4&refresh=1",
-      "",
-    );
-  });
 });

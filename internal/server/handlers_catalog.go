@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"hdu-library-sniper/internal/hdu"
 )
 
+const catalogStaleAfter = 30 * 24 * time.Hour
+
 var errNoFloorsAvailable = errors.New("该房间类型当前没有可预约楼层（可能尚未开放预约，请尝试其他房间类型）")
 
 type floorsPayload struct {
@@ -20,14 +23,24 @@ type floorsPayload struct {
 	Range   core.BookingRange  `json:"range"`
 }
 
-// catalogFlights coalesces concurrent cold loads or lazy refreshes per SQLite key.
+type persistedCatalog struct {
+	FetchedAt int64           `json:"fetchedAt"`
+	ExpiresAt *int64          `json:"expiresAt,omitempty"`
+	Data      json.RawMessage `json:"data"`
+}
+
+// catalogFlights coalesces concurrent cold loads and background refreshes per SQLite key.
 type catalogFlights struct {
-	mu    sync.Mutex
-	locks map[string]*sync.Mutex
+	mu         sync.Mutex
+	locks      map[string]*sync.Mutex
+	refreshing map[string]bool
 }
 
 func newCatalogFlights() *catalogFlights {
-	return &catalogFlights{locks: make(map[string]*sync.Mutex)}
+	return &catalogFlights{
+		locks:      make(map[string]*sync.Mutex),
+		refreshing: make(map[string]bool),
+	}
 }
 
 func (f *catalogFlights) lock(key string) *sync.Mutex {
@@ -41,91 +54,125 @@ func (f *catalogFlights) lock(key string) *sync.Mutex {
 	return m
 }
 
-func decodePersistedCatalog[T any](raw string) (T, bool) {
-	var zero T
-	if raw == "" {
-		return zero, false
+func (f *catalogFlights) tryStartRefresh(key string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.refreshing[key] {
+		return false
 	}
-	// Tolerate legacy TTL envelopes so existing SQLite rows don't decode into zero structs.
-	var wrapped struct {
-		ExpiresAt *int64          `json:"expiresAt"`
-		Data      json.RawMessage `json:"data"`
-	}
-	payload := []byte(raw)
-	if json.Unmarshal(payload, &wrapped) == nil && wrapped.ExpiresAt != nil && len(wrapped.Data) > 0 {
-		payload = wrapped.Data
-	}
-	var val T
-	if json.Unmarshal(payload, &val) != nil {
-		return zero, false
-	}
-	return val, true
+	f.refreshing[key] = true
+	return true
 }
 
-func savePersistedCatalog(s *Server, key string, val any) {
+func (f *catalogFlights) finishRefresh(key string) {
+	f.mu.Lock()
+	delete(f.refreshing, key)
+	f.mu.Unlock()
+}
+
+func decodePersistedCatalog[T any](raw string, now int64) (val T, stale bool, ok bool) {
+	if raw == "" {
+		return val, false, false
+	}
+	var env persistedCatalog
+	if json.Unmarshal([]byte(raw), &env) == nil && len(env.Data) > 0 && (env.FetchedAt > 0 || env.ExpiresAt != nil) {
+		if json.Unmarshal(env.Data, &val) != nil {
+			return val, false, false
+		}
+		stale = env.FetchedAt <= 0 || now-env.FetchedAt >= int64(catalogStaleAfter/time.Second)
+		return val, stale, true
+	}
+	// Tolerate bare JSON rows by serving immediately and refreshing lazily in the background.
+	if json.Unmarshal([]byte(raw), &val) != nil {
+		return val, false, false
+	}
+	return val, true, true
+}
+
+func savePersistedCatalog(s *Server, key string, val any, fetchedAt int64) {
 	if s.Store == nil {
 		return
 	}
-	if raw, err := json.Marshal(val); err == nil {
-		_ = s.Store.SetMeta(key, string(raw))
+	dataRaw, err := json.Marshal(val)
+	if err != nil {
+		return
+	}
+	if envRaw, err := json.Marshal(persistedCatalog{FetchedAt: fetchedAt, Data: dataRaw}); err == nil {
+		_ = s.Store.SetMeta(key, string(envRaw))
 	}
 }
 
-func loadOrFetchCatalog[T any](
+func loadCatalog[T any](
 	s *Server,
+	reqCtx context.Context,
 	key string,
-	forceRefresh bool,
-	fetch func() (T, error),
+	fetch func(ctx context.Context) (T, error),
 ) (T, error) {
 	var zero T
-	readStore := func() (T, bool) {
+	readStore := func() (T, bool, bool) {
 		if s.Store == nil {
-			return zero, false
+			return zero, false, false
 		}
 		raw, err := s.Store.GetMeta(key)
 		if err != nil {
-			return zero, false
+			return zero, false, false
 		}
-		return decodePersistedCatalog[T](raw)
+		return decodePersistedCatalog[T](raw, time.Now().Unix())
 	}
 
-	if !forceRefresh {
-		if stored, ok := readStore(); ok {
-			return stored, nil
+	if stored, stale, ok := readStore(); ok {
+		if stale {
+			scheduleCatalogRefresh(s, key, fetch)
 		}
+		return stored, nil
 	}
 
 	if s.catalog != nil {
 		lk := s.catalog.lock(key)
 		lk.Lock()
 		defer lk.Unlock()
-		if !forceRefresh {
-			if stored, ok := readStore(); ok {
-				return stored, nil
+		if stored, stale, ok := readStore(); ok {
+			if stale {
+				scheduleCatalogRefresh(s, key, fetch)
 			}
+			return stored, nil
 		}
 	}
 
-	fresh, err := fetch()
+	fresh, err := fetch(reqCtx)
 	if err != nil {
 		return zero, err
 	}
-	savePersistedCatalog(s, key, fresh)
+	savePersistedCatalog(s, key, fresh, time.Now().Unix())
 	return fresh, nil
 }
 
-func wantsRefresh(r *http.Request) bool {
-	v := strings.TrimSpace(r.URL.Query().Get("refresh"))
-	return v == "1" || strings.EqualFold(v, "true")
+func scheduleCatalogRefresh[T any](s *Server, key string, fetch func(ctx context.Context) (T, error)) {
+	if s.catalog == nil || s.Store == nil || !s.catalog.tryStartRefresh(key) {
+		return
+	}
+	go func() {
+		defer s.catalog.finishRefresh(key)
+		if s.Auth != nil && !s.Auth.Authenticated() {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), core.WriteTimeout)
+		defer cancel()
+		fresh, err := fetch(ctx)
+		if err != nil {
+			return
+		}
+		savePersistedCatalog(s, key, fresh, time.Now().Unix())
+	}()
 }
 
 func (s *Server) handleRoomTypes(w http.ResponseWriter, r *http.Request) {
-	opts, err := loadOrFetchCatalog(
+	opts, err := loadCatalog(
 		s,
+		r.Context(),
 		"catalog:room_types",
-		wantsRefresh(r),
-		func() ([]core.RoomTypeOption, error) {
-			return s.Auth.Client.RoomTypes(r.Context())
+		func(ctx context.Context) ([]core.RoomTypeOption, error) {
+			return s.Auth.Client.RoomTypes(ctx)
 		},
 	)
 	if err != nil {
@@ -143,17 +190,14 @@ func (s *Server) handleFloors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	roomType := q.Get("roomType")
-	refresh := wantsRefresh(r)
 
-	payload, err := loadOrFetchCatalog(
+	payload, err := loadCatalog(
 		s,
+		r.Context(),
 		"catalog:floors:"+roomQuery,
-		refresh,
-		func() (floorsPayload, error) {
-			if refresh {
-				s.Auth.Client.ClearRoomMeta()
-			}
-			br, err := s.Auth.Client.BookingRange(r.Context(), roomQuery)
+		func(ctx context.Context) (floorsPayload, error) {
+			s.Auth.Client.ClearRoomMeta(roomQuery)
+			br, err := s.Auth.Client.BookingRange(ctx, roomQuery)
 			if err != nil {
 				return floorsPayload{}, err
 			}
@@ -161,7 +205,7 @@ func (s *Server) handleFloors(w http.ResponseWriter, r *http.Request) {
 			targetDate := nowLocal.AddDate(0, 0, core.BookingDayOffsetFor(roomType))
 			lookup := time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), 10, 0, 0, 0, core.Shanghai).UTC()
 
-			rawFloors, err := s.Auth.Client.Floors(r.Context(), roomQuery, lookup, 1)
+			rawFloors, err := s.Auth.Client.Floors(ctx, roomQuery, lookup, 1)
 			if err != nil {
 				return floorsPayload{}, err
 			}
@@ -174,7 +218,7 @@ func (s *Server) handleFloors(w http.ResponseWriter, r *http.Request) {
 			if len(opts) == 0 {
 				return floorsPayload{}, errNoFloorsAvailable
 			}
-			savePersistedCatalog(s, "catalog:range:"+roomQuery, br)
+			savePersistedCatalog(s, "catalog:range:"+roomQuery, br, time.Now().Unix())
 			return floorsPayload{Options: opts, Range: br}, nil
 		},
 	)
@@ -201,16 +245,13 @@ func (s *Server) handleDurations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "开始时间无效")
 		return
 	}
-	refresh := wantsRefresh(r)
-	br, err := loadOrFetchCatalog(
+	br, err := loadCatalog(
 		s,
+		r.Context(),
 		"catalog:range:"+roomQuery,
-		refresh,
-		func() (core.BookingRange, error) {
-			if refresh {
-				s.Auth.Client.ClearRoomMeta()
-			}
-			return s.Auth.Client.BookingRange(r.Context(), roomQuery)
+		func(ctx context.Context) (core.BookingRange, error) {
+			s.Auth.Client.ClearRoomMeta(roomQuery)
+			return s.Auth.Client.BookingRange(ctx, roomQuery)
 		},
 	)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"hdu-library-sniper/internal/auth"
 	"hdu-library-sniper/internal/booking"
@@ -150,9 +151,11 @@ func TestPlanAndGroupLifecycle(t *testing.T) {
 	}
 }
 
-func TestCatalogPersistenceAndLazyRefresh(t *testing.T) {
+func TestCatalogPersistenceAndLongHorizonSWR(t *testing.T) {
 	srv, _ := testRouter(t)
 	var roomListHits, searchGetHits, searchPostHits atomic.Int32
+	var seatTitle atomic.Value
+	seatTitle.Store("101")
 
 	hduMock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -197,7 +200,7 @@ func TestCatalogPersistenceAndLazyRefresh(t *testing.T) {
 										"roomName": "杭韵数阁（六楼）",
 										"seatMap": map[string]any{
 											"info": map[string]any{"id": 1559},
-											"POIs": []any{map[string]any{"id": "1", "title": "101", "state": "0"}},
+											"POIs": []any{map[string]any{"id": "1", "title": seatTitle.Load().(string), "state": "0"}},
 										},
 									},
 								},
@@ -224,6 +227,18 @@ func TestCatalogPersistenceAndLazyRefresh(t *testing.T) {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, httptest.NewRequest(method, target, nil))
 		return rec
+	}
+	waitMetaContains := func(key, substr string) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if v, err := srv.Store.GetMeta(key); err == nil && strings.Contains(v, substr) {
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		v, _ := srv.Store.GetMeta(key)
+		t.Fatalf("timed out waiting for meta %s to contain %q, got %s", key, substr, v)
 	}
 
 	roomQuery := "space_category[category_id]=591&space_category[content_id]=3"
@@ -267,15 +282,13 @@ func TestCatalogPersistenceAndLazyRefresh(t *testing.T) {
 			roomListHits.Load(), searchGetHits.Load(), searchPostHits.Load())
 	}
 
-	// Legacy expired {expiresAt, data} rows still resolve cleanly without re-polling upstream.
+	// Legacy expired {expiresAt, data} rows still serve immediately and silently upgrade in background.
 	_ = srv.Store.SetMeta("catalog:range:"+roomQuery, `{"expiresAt":1,"data":{"minBeginTime":7,"maxEndTime":22,"minDuration":1,"maxDuration":15}}`)
 	r := req(h2, http.MethodGet, dur8Path)
-	if r.Code != 200 {
-		t.Fatalf("legacy envelope durations = %d %s", r.Code, r.Body.String())
+	if r.Code != 200 || !strings.Contains(r.Body.String(), `"options":[1,2,`) {
+		t.Fatalf("expected legacy range unwrapped cleanly, status=%d body=%s", r.Code, r.Body.String())
 	}
-	if !strings.Contains(r.Body.String(), `"options":[1,2,`) || searchGetHits.Load() != 1 {
-		t.Fatalf("expected legacy range unwrapped without upstream hit, body=%s getHits=%d", r.Body.String(), searchGetHits.Load())
-	}
+	waitMetaContains("catalog:range:"+roomQuery, `"fetchedAt"`)
 
 	// Logout preserves persisted institutional catalog data in SQLite.
 	if r := req(h2, http.MethodPost, "/api/session/logout"); r.Code != 200 {
@@ -285,13 +298,30 @@ func TestCatalogPersistenceAndLazyRefresh(t *testing.T) {
 		t.Fatalf("expected catalog:room_types preserved on logout, got %q, err=%v", v, err)
 	}
 
-	// Explicit lazy refresh bypasses persistence and refreshes both roomMeta and floors.
+	// Entries older than catalogStaleAfter (30d) serve old data immediately while triggering one background SWR refresh.
 	h3 := makeHandler()
-	if r := req(h3, http.MethodGet, floorsPath+"&refresh=1"); r.Code != 200 {
-		t.Fatalf("refresh floors = %d %s", r.Code, r.Body.String())
+	seatTitle.Store("202")
+	staleTime := time.Now().Add(-31 * 24 * time.Hour).Unix()
+	oldRaw, _ := srv.Store.GetMeta("catalog:floors:" + roomQuery)
+	var oldEnv persistedCatalog
+	_ = json.Unmarshal([]byte(oldRaw), &oldEnv)
+	oldEnv.FetchedAt = staleTime
+	staleBytes, _ := json.Marshal(oldEnv)
+	_ = srv.Store.SetMeta("catalog:floors:"+roomQuery, string(staleBytes))
+
+	beforePost := searchPostHits.Load()
+	for range 3 {
+		resp := req(h3, http.MethodGet, floorsPath)
+		if resp.Code != 200 || !strings.Contains(resp.Body.String(), `"101"`) {
+			t.Fatalf("expected immediate stale-while-revalidate response with old seat 101, got %d %s", resp.Code, resp.Body.String())
+		}
 	}
-	if searchGetHits.Load() != 2 || searchPostHits.Load() != 2 {
-		t.Fatalf("expected GET/POST searchSeats hits=2/2 after ?refresh=1, got %d/%d",
-			searchGetHits.Load(), searchPostHits.Load())
+	waitMetaContains("catalog:floors:"+roomQuery, `"202"`)
+	if searchPostHits.Load() != beforePost+1 {
+		t.Fatalf("expected exactly 1 coalesced background SWR POST, got delta=%d", searchPostHits.Load()-beforePost)
+	}
+	freshResp := req(h3, http.MethodGet, floorsPath)
+	if !strings.Contains(freshResp.Body.String(), `"202"`) {
+		t.Fatalf("expected subsequent request to return updated SQLite seat 202, got %s", freshResp.Body.String())
 	}
 }
