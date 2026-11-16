@@ -18,8 +18,7 @@
       "!test-results",
       "!src/web/index.css",
       "!src/web/mygo.ts",
-      "!**/*.md",
-      "!windows-test/evidence"
+      "!**/*.md"
     ]
   },
   "formatter": {

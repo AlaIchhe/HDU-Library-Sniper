@@ -2,7 +2,7 @@
 
 import { useMediaQuery } from "@/lib/use-media-query"
 
-export type NavMode = "wide" | "medium" | "compact"
+type NavMode = "wide" | "medium" | "compact"
 
 /**
  * 三档导航：

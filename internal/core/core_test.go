@@ -51,3 +51,12 @@ func TestTimeHelpers(t *testing.T) {
 		t.Fatalf("anchor after 20:00 = %d", got)
 	}
 }
+
+func TestTimeoutInvariants(t *testing.T) {
+	if BookingPrelockLeadSeconds <= int64(WriteTimeout.Seconds()) {
+		t.Fatalf("prelock lead %ds must exceed write timeout %v", BookingPrelockLeadSeconds, WriteTimeout)
+	}
+	if ReadTimeout >= WriteTimeout || ReadTimeout < 3*time.Second {
+		t.Fatalf("expected 3s <= ReadTimeout (%v) < WriteTimeout (%v)", ReadTimeout, WriteTimeout)
+	}
+}

@@ -1,4 +1,4 @@
-import type { FieldErrors, FieldValues, Resolver } from "react-hook-form"
+import { type ChangeEvent, type FormEvent, useCallback, useRef, useState } from "react"
 
 export interface LoginFormValues {
   studentId: string
@@ -22,7 +22,103 @@ export interface GroupFormValues {
   ids: string[]
 }
 
-function makeResolver<T extends FieldValues>(
+type FieldError = { type: string; message: string }
+type FieldErrors<T extends object> = Partial<Record<keyof T, FieldError>>
+type ResolverResult<T extends object> =
+  | { values: T; errors: FieldErrors<T> }
+  | { values: Record<string, never>; errors: FieldErrors<T> }
+
+type Resolver<T extends object> = (
+  values: T,
+  context?: unknown,
+  options?: unknown,
+) => Promise<ResolverResult<T>>
+
+export function useForm<T extends object>({
+  resolver,
+  defaultValues,
+}: {
+  resolver: Resolver<T>
+  defaultValues: T
+}) {
+  const [values, setValues] = useState<T>(defaultValues)
+  const [errors, setErrors] = useState<FieldErrors<T>>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const valuesRef = useRef<T>(defaultValues)
+  const submittedRef = useRef(false)
+  const fieldNonceRef = useRef<Partial<Record<keyof T, number>>>({})
+
+  const validateField = useCallback(
+    async <K extends keyof T>(name: K, snapshot: T) => {
+      const nonce = (fieldNonceRef.current[name] ?? 0) + 1
+      fieldNonceRef.current[name] = nonce
+      const result = await resolver(snapshot)
+      if (fieldNonceRef.current[name] !== nonce) return
+      const nextError = result.errors[name]
+      setErrors((prev) => {
+        if (nextError) return { ...prev, [name]: nextError }
+        if (!(name in prev)) return prev
+        const next = { ...prev }
+        delete next[name]
+        return next
+      })
+    },
+    [resolver],
+  )
+
+  const setValue = useCallback(
+    <K extends keyof T>(name: K, value: T[K], options?: { shouldValidate?: boolean }) => {
+      const nextValues = { ...valuesRef.current, [name]: value }
+      valuesRef.current = nextValues
+      setValues(nextValues)
+      if (options?.shouldValidate || submittedRef.current) {
+        void validateField(name, nextValues)
+      }
+    },
+    [validateField],
+  )
+
+  const register = useCallback(
+    <K extends keyof T>(name: K) => ({
+      name: String(name),
+      value: String(values[name] ?? ""),
+      onChange: (event: ChangeEvent<HTMLInputElement>) => {
+        setValue(name, event.target.value as T[K])
+      },
+    }),
+    [values, setValue],
+  )
+
+  const handleSubmit = useCallback(
+    (onValid: (data: T) => unknown) => async (event?: FormEvent<HTMLFormElement>) => {
+      event?.preventDefault()
+      submittedRef.current = true
+      setIsSubmitting(true)
+      try {
+        const result = await resolver(valuesRef.current)
+        if (Object.keys(result.errors).length > 0) {
+          setErrors(result.errors)
+          return
+        }
+        setErrors({})
+        await onValid(result.values as T)
+      } finally {
+        setIsSubmitting(false)
+      }
+    },
+    [resolver],
+  )
+
+  return {
+    values,
+    register,
+    setValue,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  }
+}
+
+function makeResolver<T extends object>(
   validate: (values: T) => { data: T; errors: FieldErrors<T> },
 ): Resolver<T> {
   return async (values) => {

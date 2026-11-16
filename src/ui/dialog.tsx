@@ -11,13 +11,13 @@ import { ScrollArea } from "@/ui/scroll-area";
 
 export const Dialog: typeof DialogPrimitive.Root = DialogPrimitive.Root;
 
-export const DialogPortal: typeof DialogPrimitive.Portal = DialogPrimitive.Portal;
+const DialogPortal: typeof DialogPrimitive.Portal = DialogPrimitive.Portal;
 
 export function DialogClose(props: DialogPrimitive.Close.Props): React.ReactElement {
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
-export function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop.Props): React.ReactElement {
+function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop.Props): React.ReactElement {
   return (
     <DialogPrimitive.Backdrop
       className={cn(
@@ -30,7 +30,7 @@ export function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop
   );
 }
 
-export function DialogViewport({ className, ...props }: DialogPrimitive.Viewport.Props): React.ReactElement {
+function DialogViewport({ className, ...props }: DialogPrimitive.Viewport.Props): React.ReactElement {
   return (
     <DialogPrimitive.Viewport
       className={cn("fixed inset-0 z-50 grid grid-rows-[1fr_auto_3fr] justify-items-center p-4", className)}
@@ -183,5 +183,3 @@ export function DialogPanel({
     </ScrollArea>
   );
 }
-
-export { DialogPrimitive, DialogBackdrop as DialogOverlay, DialogPopup as DialogContent };

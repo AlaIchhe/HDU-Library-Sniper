@@ -76,19 +76,6 @@ export function EmptyTitle({ className, ...props }: React.ComponentProps<"div">)
   );
 }
 
-export function EmptyDescription({ className, ...props }: React.ComponentProps<"p">): React.ReactElement {
-  return (
-    <div
-      className={cn(
-        "text-muted-foreground text-sm [&>a:hover]:text-primary [&>a]:underline [&>a]:underline-offset-4 [[data-slot=empty-title]+&]:mt-1",
-        className,
-      )}
-      data-slot="empty-description"
-      {...props}
-    />
-  );
-}
-
 export function EmptyContent({ className, ...props }: React.ComponentProps<"div">): React.ReactElement {
   return (
     <div

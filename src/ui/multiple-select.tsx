@@ -3,7 +3,7 @@
 import type * as React from "react";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/ui/select";
 
-export type MultipleSelectOption = { value: string; label: string };
+type MultipleSelectOption = { value: string; label: string };
 
 export function MultipleSelect({
   options,

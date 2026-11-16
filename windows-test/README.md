@@ -1,196 +1,45 @@
-# Windows 安装测试（真实 NSIS 安装）
+# Windows 安装测试（MyGo v3 NSIS 安装包）
 
 用 [`dockur/windows`](https://github.com/dockur/windows) 在一台 Linux 主机上跑一台真正的 Windows 11，
-把 Release 里的 `*-setup.exe` 真的装一遍。Linux CI 能测代码，测不了这些：
+把本地 `bun run build -- -platform windows/amd64` 或 Release 里的 `hdu-library-sniper-setup-*-amd64.exe` 装一遍，验证 CI 测不到的 Windows 桌面行为：
 
-- `perMachine` 安装到 `C:\Program Files`，需要管理员令牌
-- NSIS 钩子 `taskkill` + `msiexec /x{5839189D-…}` 的旧 MSI 迁移路径
-- 卸载信息写进 `HKLM\...\Uninstall`，自启动写进 `HKCU\...\Run`
-- 覆盖安装时用户数据（`%USERPROFILE%\.hdu-library-sniper`）不丢
-- WebView2 运行时是否存在、Tauri 窗口能不能起来、托盘和单实例插件行为
-- 桌面 / 开始菜单快捷方式落在 `SetShellVarContext all` 的机器级目录
-- 卸载后残留（进程、文件、注册表、快捷方式）
+- per-user 安装到 `%LOCALAPPDATA%\Programs\HDU Library Sniper`
+- 卸载信息写进 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.alaichhe.hdu-library-sniper`
+- 首次启动由 MyGo 写入自启动 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\io.github.alaichhe.hdu-library-sniper`（`--mygo-opened-at-login`）
+- 覆盖安装时用户数据（`%APPDATA%\HDU Library Sniper\data\sniper.db`）保留
+- WebView2 窗口渲染（`DesktopAPI.Ready` / `DesktopAPI.Request` 内存 IPC，不监听本地 HTTP 端口）、托盘和单实例锁
+- 开始菜单快捷方式落盘与卸载后清理（文件、注册表、Run 自启动项、快捷方式、进程）
 
 ## 环境要求
 
 - Linux + KVM（`/dev/kvm` 可读写）
-- Podman（本仓库已在 rootful podman 5.4.2 上验证）或 Docker
-- 约 12 GB 磁盘（8 GB ISO + 系统盘增长），6 GB 可用内存给虚拟机
-
-本机实测：Debian 13 / Intel Celeron N5105（4 核，无 AVX2）/ 16 GB 内存 / 143 GB 可用。
+- Podman 或 Docker
+- 约 12 GB 磁盘（Windows ISO + 系统盘），6 GB 可用内存给虚拟机
 
 ## 用法
 
 ```bash
-# 第一次准备 ISO（宿主侧下载比容器内快得多，且 destroy 重装不用再下）
-curl -L -C - -o windows-test/win11.iso "$MS_WIN11_ISO_URL"
+# 本地打包 Windows 安装包（需安装 makensis），run.sh 会优先拷贝 build/windows-amd64/*-setup-*.exe
+bun run build -- -platform windows/amd64
 
-./windows-test/run.sh start     # 首次：自动装 Windows，约 15–25 分钟
+./windows-test/run.sh start     # 首次：自动装 Windows 11，登录后通过 RunOnce 跑 verify.ps1
 ./windows-test/run.sh logs      # 跟着看进度（也可用浏览器打开 http://127.0.0.1:8006）
 ./windows-test/run.sh status
 ./windows-test/run.sh stop      # 优雅关机（ACPI）
 ./windows-test/run.sh destroy   # 删掉系统盘，下次 start 重装 Windows
 ```
 
-`oem/setup.exe` 是 release 资产 `HDU.Library.Sniper_2.1.5_x64-setup.exe` 的副本
-（sha256 `1888db247b17025af2f970f912fe7dad72e80333c03ccd3ff7ba5f563be5925b`）。
-换版本只要覆盖它，`run.sh destroy` 后重来。
+如果未先本地构建，`run.sh` 会自动从 GitHub Latest Release 拉取 `*-setup-*-amd64.exe` 到 `windows-test/oem/setup.exe`。
 
 ## 自动化链路
 
 ```
 容器 /oem  ──烘进安装介质──▶  C:\OEM\
                                ├─ install.bat     ← SetupComplete.cmd 以 SYSTEM 执行
-                               ├─ verify.ps1
+                               ├─ verify.ps1      ← 注册到 RunOnce（交互式用户会话）
                                └─ setup.exe
-
-install.bat       注册 HKLM\...\RunOnce：登录后在用户会话里跑 verify.ps1 -Watch
-verify.ps1        ① 跑一整套安装/启动/覆盖/卸载检查 → ② 常驻轮询 Z:\jobs
 ```
 
-为什么不用计划任务：`schtasks /create /ru <user> /rp <pass>` 建出来的是「不管用户是否登录都运行」的任务，
-触发后会落在 session 0，没有桌面、没有映射的 `Z:`，截图和 GUI 启动都做不了。RunOnce 在交互式会话里跑，
-而且这台 unattended 安装出来的机器关掉了 UAC，直接就是完整令牌。
-
-脚本结尾的 `-Watch` 让进程常驻并每 3 秒轮询 `Z:\jobs`，后续验证不需要重装 Windows。
-
-## 实测结果
-
-2026-11-14，Windows 11 Pro 25H2（build 26200），2 vCPU / 6 GB，release 2.1.5：
-
-```
-21 passed, 0 failed   (49.7s)
-```
-
-证据在 [`evidence/2026-11-14-win11-25h2/`](evidence/2026-11-14-win11-25h2)：
-`report.json`、`verify.log`、安装后与卸载后的桌面截图。
-
-整条自动链路也验证过一次：在 guest 里写好 `RunOnce` 后重启，Windows 自动登录 → RunOnce 拉起
-`verify.ps1` → 套件跑完 → 结果回传到 `Z:`，见同目录的 `boot-run.log`（那次镜像是旧版脚本，
-18 项检查；21 项的版本是随后从控制台直接跑的）。
-
-其中几个只有真机能看到的结论：
-
-- 静默安装 `setup.exe /S` 10.6 s 完成，退出码 0，落盘到 `C:\Program Files\HDU Library Sniper`
-- 卸载项：`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\HDU Library Sniper`，`DisplayVersion=2.1.5`
-- 自启动：`HKCU\...\Run\HDU-Library-Sniper = "C:\Program Files\HDU Library Sniper\hdu-library-sniper.exe" --background`
-- 快捷方式在 `C:\Users\Public\Desktop` 和 `C:\ProgramData\Microsoft\Windows\Start Menu\Programs`
-  （perMachine 安装用了 `SetShellVarContext all`，不在用户目录里）
-- `--background` 启动后进程常驻，`127.0.0.1:8000/api/health` 返回 200 `{"status":"ok"}`
-- 数据落在 `%USERPROFILE%\.hdu-library-sniper\data\hdu-sniper.sqlite`，日志在
-  `%LOCALAPPDATA%\io.github.alaichhe.hdu-library-sniper\logs`
-- 第二次启动不会起第二个进程（single-instance 生效）
-- 卸载后文件、卸载项、Run 键、两个快捷方式、进程全部清干净；用户数据目录保留（符合「凭据不清」的设计）
-
-## 检查项
-
-| id | 验证内容 |
-| --- | --- |
-| `baseline.clean` / `baseline.cleanup` | 起始状态干净；上一轮残留会先静默卸载 |
-| `install.exit` | `/S` 静默安装退出码 0，并记录耗时 |
-| `files.exe` / `files.version` / `files.uninstaller` | 主程序与卸载器落盘、版本信息正确 |
-| `shortcut.desktop` / `shortcut.startmenu` | 用户目录或机器级目录里存在快捷方式 |
-| `registry.uninstall` / `registry.installlocation` | 控制面板卸载项存在，`InstallLocation` 指向 Program Files |
-| `registry.autostart` | `HKCU\...\Run` 值精确匹配 `"<exe>" --background` |
-| `launch.survives` / `launch.health` | 进程 20 s 不退出；`127.0.0.1:8000/api/health` 返回 200 |
-| `data.sqlite` / `data.logs` / `data.startup` | 数据目录、日志目录、启动日志生成 |
-| `single-instance` | 再启动一次不会出现第二个进程 |
-| `reinstall.data` / `reinstall.no-duplicate` | 覆盖安装不动用户数据、不产生重复卸载项 |
-| `uninstall.*` / `shortcut.removed` | 文件、卸载项、自启动、快捷方式、进程都清干净 |
-| `uninstall.userdata` | 用户数据目录是否保留（记录实际行为） |
-
-## 重复跑
-
-```bash
-cat > windows-test/shared/jobs/smoke.ps1 <<'EOF'
-& 'C:\OEM\setup.exe' /S
-Get-Item 'C:\Program Files\HDU Library Sniper\hdu-library-sniper.exe' | Select-Object Length, LastWriteTime
-EOF
-```
-
-常驻进程会执行并把输出写到 `windows-test/shared/results/jobs/smoke.out`。
-
-## 启动/登录回归脚本
-
-`scripts/` 下是几段可以在 guest 里直接跑的 probe，用来盯住"前端起来了后端没起来"和 SSO 登录这两类问题：
-
-- `first-launch-test.ps1`：卸载旧版 → 清空用户数据和 WebView2 缓存 → 静默安装 → 不带 `--background` 启动，在 3/8/15/30/45s 截图并用 UIA 读取窗口文本，结果写到 `shared/results/frontend/<时间戳>/`。
-- `failure-modes.ps1`：端口被占、WinINET 代理指向死端口、同会话二次启动三种失败模式。
-- `proxy-bypass.ps1` / `noproxy-fix.ps1`：验证 `ProxyOverride` 各写法对 `127.0.0.1` 的影响，以及 `NO_PROXY` 修复是否生效。
-- `vmctl.py`（宿主机）：通过 QEMU HMP monitor 截图和发键盘（`podman exec` 进容器连 `/run/shm/monitor.sock`），不依赖 RDP/VNC；需要 GUI 的 probe 用它投递到交互会话最省事。
-
-## 已知坑
-
-1. **同版本静默重装是 no-op。** 2.1.5 覆盖装 2.1.5 只花 3.3 s，文件、快捷方式都不重建
-   （Tauri 的 NSIS 模板检测到同版本就直接退出）。所以「覆盖安装」要用 N-1 → N 升级来测，
-   见下一节的 MSI 迁移脚本。
-2. **宿主机往共享目录丢文件，Windows 侧可能几分钟看不到。** SMB2 目录租约缓存，
-   `dir Z:\jobs` 会一直返回旧列表，直到 guest 自己在同一目录里写一次（脚本里每轮先写 `.tick` 打租约）。
-   所以 jobs 通道适合「改完等着」，不适合秒级交互。
-3. **这台无人值守安装关掉了 UAC**（`EnableLUA=0`）。perMachine 提权、Program Files 写入、
-   HKLM/HKCU 落点都覆盖了，但「弹 UAC 对话框、用户点『是』」这一下没有覆盖。
-4. 虚拟机时钟是 UTC-8，且 RTC 日期和宿主机差一天，结果目录名以 guest 时间为准。
-5. 虚拟机在校园网外，登录 / 预约 / 签到走不通；这里只验证「装得上、起得来、退得干净」。
-
-## 旧 MSI → 新 NSIS 的迁移测试
-
-`NSIS_HOOK_PREINSTALL` 里那条 `msiexec /x{5839189D-…}` 是最容易出事、又最难在 Linux 上验证的一段。
-把旧 MSI 一起烘进介质再跑脚本：
-
-```bash
-cp artifacts/HDU.Library.Sniper_2.0.33_x64_zh-CN.msi windows-test/oem/old-2.0.33.msi
-# guest 里：
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\OEM\upgrade-from-msi.ps1
-```
-
-脚本会：装 2.0.33 MSI → 造一份 sqlite 用户数据 → 直接跑 2.1.5 `setup.exe /S` → 断言旧卸载项被清掉、
-只剩 2.1.5、用户数据哈希不变、自启动存在、应用能起来。结果写到
-`windows-test/shared/results/upgrade/`。
-
-2026-11-14 已经用它查出并修掉一个真问题：hook 里写死的 ProductCode 和 `2.0.21 / 2.0.29 / 2.0.30 /
-2.0.31 / 2.0.32 / 2.0.33` 六个真实发布过的 MSI **一个都对不上**，`msiexec /x` 一直返回 1605，
-等于这条迁移从来没生效过。修法改成按卸载项枚举（`WindowsInstaller=1` 的键名就是 ProductCode）。
-证据见 [`evidence/2026-11-14-legacy-msi-hook/`](evidence/2026-11-14-legacy-msi-hook)。
-
-修完之后又跑了一遍**端到端**（不是单测 hook，而是 Tauri 打包出来的真实 `*-setup.exe`）：
-Linux 上用 `cargo-xwin` + `clang-cl`/`lld-link` 交叉编译出 Windows 安装包，丢进这台虚拟机，
-先装发布的 2.0.33 MSI 再跑新安装包，断言全过：
-
-```
-old MSI: exit=0 in 13.4s        entries: 2.0.33[msi=1]
-new setup: exit=0 in 10.6s      entries: 2.1.5[msi=]
-PASS legacy MSI uninstall entry removed / exactly one uninstall entry / exe 2.1.5
-PASS autostart / user data preserved
-```
-
-证据见 [`evidence/2026-11-14-legacy-msi-e2e/`](evidence/2026-11-14-legacy-msi-e2e)。
-同一份脚本也挂在 CI 上（[`install-test.yml`](../.github/workflows/install-test.yml)，
-`windows-latest` 每晚或手动跑），用的是发版同款工具链。
-
-## 在 Linux 上交叉构建 Windows 安装包
-
-发版在 `windows-latest` 上打包，但本机也能交叉构建，用于把安装器本身放进虚拟机验证：
-
-```bash
-apt-get install -y clang lld               # clang-cl + lld-link
-rustup target add x86_64-pc-windows-msvc
-cargo install cargo-xwin --locked          # 会把 MSVC CRT/SDK 下到 ~/.cache/cargo-xwin（约 1.7 GB）
-
-./node_modules/.bin/tauri build --debug --runner cargo-xwin \
-  --target x86_64-pc-windows-msvc --bundles nsis
-# 产物：target/x86_64-pc-windows-msvc/debug/bundle/nsis/*-setup.exe
-```
-
-Tauri 会提示「跨平台编译是实验性的」并且跳过签名（`bundler > windows > sign_command` 可以接自定义签名）；
-由于没有 `TAURI_SIGNING_PRIVATE_KEY`，更新包签名的最后一步会报错，但安装包在此之前已经产出。
-`--debug` 足够验证安装器行为，要真产物就去掉它。
-
-## 为什么没有 macOS
-
-`dockur/macos` 对本项目目前没有可测对象，也不该在这台机器上跑：
-
-- `src-tauri/tauri.conf.json` 的 `bundle.targets` 只有 `["nsis"]`，Release 只有 Windows 安装包，没有 `.dmg` / `.app` 可装。
-- dockur/macos 要求 AVX2，这台 N5105（Jasper Lake）没有。
-- 非 Apple 硬件安装 macOS 违反 Apple EULA，dockur 自己的 README 也写明只能在 Apple 硬件上运行。
-
-真要做 macOS 覆盖，顺序应该是：先加 `dmg` 打包目标和 CI 矩阵，再谈运行环境。
+- `oem/verify.ps1` 会检查安装、快捷方式、卸载项、`--background` 启动、SQLite 落盘、首次启动自启动注册、单实例锁、覆盖安装数据保留及完整卸载，并把 `report.json` / `verify.log` / 截图写回 `windows-test/shared/results/`。
+- `-Watch` 模式常驻轮询 `Z:\jobs`，可将 `scripts/first-launch-test.ps1` 等脚本直接丢进 `windows-test/shared/jobs/` 执行，无需重装 Windows。
+- `vmctl.py` 可通过 QEMU HMP monitor（`/run/shm/monitor.sock`）在不连接 RDP/VNC 的情况下截屏与发送按键。

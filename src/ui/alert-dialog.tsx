@@ -6,9 +6,9 @@ import { cn } from "@/lib/utils";
 
 export const AlertDialog: typeof AlertDialogPrimitive.Root = AlertDialogPrimitive.Root;
 
-export const AlertDialogPortal: typeof AlertDialogPrimitive.Portal = AlertDialogPrimitive.Portal;
+const AlertDialogPortal: typeof AlertDialogPrimitive.Portal = AlertDialogPrimitive.Portal;
 
-export function AlertDialogBackdrop({
+function AlertDialogBackdrop({
   className,
   ...props
 }: AlertDialogPrimitive.Backdrop.Props): React.ReactElement {
@@ -24,7 +24,7 @@ export function AlertDialogBackdrop({
   );
 }
 
-export function AlertDialogViewport({
+function AlertDialogViewport({
   className,
   ...props
 }: AlertDialogPrimitive.Viewport.Props): React.ReactElement {
@@ -127,9 +127,3 @@ export function AlertDialogDescription({
 export function AlertDialogClose(props: AlertDialogPrimitive.Close.Props): React.ReactElement {
   return <AlertDialogPrimitive.Close data-slot="alert-dialog-close" {...props} />;
 }
-
-export {
-  AlertDialogPrimitive,
-  AlertDialogBackdrop as AlertDialogOverlay,
-  AlertDialogPopup as AlertDialogContent,
-};

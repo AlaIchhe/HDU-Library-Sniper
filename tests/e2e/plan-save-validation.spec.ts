@@ -29,7 +29,7 @@ test("shows floor validation error when floors fail to load", async ({ page }) =
   const box = await nav.boundingBox();
   const viewportWidth = page.viewportSize()?.width ?? 1280;
   if (!box || box.x < 0 || box.x + box.width > viewportWidth) {
-    await page.getByRole("button", { name: "Toggle Sidebar" }).click();
+    await page.getByRole("button", { name: "切换侧栏" }).click();
     await expect(nav).toBeInViewport();
   }
   await nav.click();

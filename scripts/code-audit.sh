@@ -41,7 +41,7 @@ done
 section "2/10 超大文件（阈值 1200 行，>600 行列出）"
 LIMIT=1200
 find cmd internal main.go src -type f \( -name '*.go' -o -name '*.ts' -o -name '*.tsx' \) \
-  -not -path '*/components/ui/*' -print0 | xargs -0 wc -l | sort -rn \
+  -not -path 'src/ui/*' -print0 | xargs -0 wc -l | sort -rn \
   | awk -v lim="$LIMIT" 'NR>1 && $1>600 {printf "  %5d  %s\n", $1, $2; if ($1>lim) bad=1} END {exit bad?1:0}'
 if [ "$?" -ne 0 ]; then fail "存在超过 $LIMIT 行的文件，建议拆分"; else pass "无超过 $LIMIT 行的文件"; fi
 

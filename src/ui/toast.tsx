@@ -164,7 +164,7 @@ function Toasts({
 
 export const toastManager: ReturnType<typeof Toast.createToastManager> = Toast.createToastManager();
 
-export type ToastPosition =
+type ToastPosition =
   | "top-left"
   | "top-center"
   | "top-right"
@@ -172,7 +172,7 @@ export type ToastPosition =
   | "bottom-center"
   | "bottom-right";
 
-export interface ToastProviderProps extends Toast.Provider.Props {
+interface ToastProviderProps extends Toast.Provider.Props {
   position?: ToastPosition;
   portalProps?: React.ComponentProps<typeof Toast.Portal>;
 }
@@ -190,5 +190,3 @@ export function ToastProvider({
     </Toast.Provider>
   );
 }
-
-export { Toast as ToastPrimitive };

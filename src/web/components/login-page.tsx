@@ -5,7 +5,6 @@ import { useNavigate } from "@tanstack/react-router"
 import { QRCodeSVG } from "qrcode.react"
 
 import { AnimateIcon, Info, LibraryBig, LogIn, QrCode, RefreshCw, TriangleAlert } from "@/ui/icons"
-import { useForm } from "react-hook-form"
 
 import { Alert, AlertDescription } from "@/ui/alert"
 import { Button } from "@/ui/button"
@@ -28,7 +27,7 @@ import { api } from "../data/api"
 import { useSession } from "../data/queries"
 import { useAppStore } from "../data/store"
 import { consumeReturnTo } from "../return-to"
-import { Busy, type LoginFormValues, loginResolver } from "../shared"
+import { Busy, type LoginFormValues, loginResolver, useForm } from "../shared"
 import type { QrLoginStart } from "../../shared/types"
 
 const LIBRARY_URL = "https://hdu.huitu.zhishulib.com/"

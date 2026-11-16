@@ -1,10 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from "react"
 
-/** 单个按键序列：`g p` 用 ["g", "p"] 表示。 */
-export type HotkeySequence = readonly string[]
-
-export type HotkeyMap = Record<string, () => void>
-
 /** 序列前缀的有效期：按了 `g` 之后超过这个时间没跟上第二个键就作废。 */
 const SEQUENCE_TIMEOUT_MS = 1000
 
@@ -37,6 +32,8 @@ function normalizeKey(event: KeyboardEvent): string | null {
  * 注意：`src/ui/sidebar.tsx` 自己也监听 window keydown 并处理 ⌘/Ctrl+B，
  * 且它无条件 preventDefault。这里不要再占用 `b` 作为单键或序列起始键。
  */
+type HotkeyMap = Record<string, () => void>
+
 export function useHotkeys(map: HotkeyMap, options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true
   const mapRef = useRef(map)
@@ -99,9 +96,4 @@ export function useHotkeys(map: HotkeyMap, options?: { enabled?: boolean }) {
       clearPending()
     }
   }, [enabled])
-}
-
-/** 把 `["g", "p"]` 拼成 map 的 key。 */
-export function sequence(...keys: string[]): string {
-  return keys.join(" ")
 }

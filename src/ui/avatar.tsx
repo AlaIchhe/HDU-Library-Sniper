@@ -26,5 +26,3 @@ export function AvatarFallback({ className, ...props }: AvatarPrimitive.Fallback
     />
   );
 }
-
-export { AvatarPrimitive };

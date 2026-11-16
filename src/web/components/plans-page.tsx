@@ -277,7 +277,7 @@ export function PlansPage() {
           open={dialog === "group" || dialog === "edit-group"}
           onOpenChange={(open) => !open && setDialog(null)}
         >
-          <DrawerPopup position="bottom">
+          <DrawerPopup>
             <DrawerHeader>
               <DrawerTitle>{dialog === "edit-group" ? "编辑组合方案" : "创建组合方案"}</DrawerTitle>
             </DrawerHeader>

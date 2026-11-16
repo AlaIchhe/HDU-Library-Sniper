@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 
 /** 把 ISO 时间拆成可读的相对倒计时。 */
-export type Countdown = {
+type Countdown = {
   /** 已过期的毫秒数（未过期时为 0）。 */
   overdueMs: number
   /** 距离目标还有多久（已过期时为 0）。 */

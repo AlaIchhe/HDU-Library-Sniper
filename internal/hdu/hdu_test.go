@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"hdu-library-sniper/internal/core"
 )
 
 func TestEncryptPasswordAndApiToken(t *testing.T) {
@@ -243,5 +245,52 @@ func TestRoomMetaSharedCacheAndLiveFloors(t *testing.T) {
 	}
 	if got := postSeats.Load(); got != 2 {
 		t.Fatalf("expected 2 live POST searchSeats for Floors (used by booking executor), got %d", got)
+	}
+}
+
+func TestSeatMapConcurrencyGuardMapsToHTTP404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{"space_category": map[string]any{"category_id": "591", "content_id": "3"}},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{"CODE": "NotFound", "ui_type": "com.Message"})
+	}))
+	defer srv.Close()
+
+	client := NewClientWithBaseURL(srv.URL)
+	_, err := client.Floors(context.Background(), "space_category[category_id]=591&space_category[content_id]=3", time.Now(), 1)
+	if HTTPStatus(err) != http.StatusNotFound {
+		t.Fatalf("expected HTTP 404 error, got %v", err)
+	}
+}
+
+func TestActionContractsAndTimeouts(t *testing.T) {
+	if err := AssertActionSuccess(map[string]any{"CODE": "ok", "DATA": map[string]any{}}); err != nil {
+		t.Fatalf("expected cancel without result field to succeed, got %v", err)
+	}
+	if err := AssertActionSuccess(map[string]any{"CODE": "ok", "DATA": map[string]any{"result": "fail", "msg": "失败"}}); err == nil {
+		t.Fatal("expected explicit result=fail to error")
+	}
+	if err := AssertActionSuccess(map[string]any{"CODE": 1, "MESSAGE": "请求过于频繁"}); err == nil {
+		t.Fatal("expected rate limit CODE=1 to error")
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(120 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"CODE": "ok"})
+	}))
+	defer srv.Close()
+
+	client := NewClientWithBaseURL(srv.URL)
+	if client.readHTTP.Timeout != core.ReadTimeout || client.writeHTTP.Timeout != core.WriteTimeout {
+		t.Fatalf("unexpected client timeouts: read=%v write=%v", client.readHTTP.Timeout, client.writeHTTP.Timeout)
+	}
+	client.readHTTP.Timeout = 30 * time.Millisecond
+	if _, err := client.Bookings(context.Background()); !IsRequestTimeout(err) {
+		t.Fatalf("expected read timeout classified as RequestTimeout, got %v", err)
 	}
 }

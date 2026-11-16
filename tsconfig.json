@@ -15,6 +15,6 @@
     "skipLibCheck": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "tests", "vite.config.ts", "mygo.config.ts"],
+  "include": ["src", "tests", "vite.config.ts", "vitest.config.ts", "playwright.config.ts", "mygo.config.ts"],
   "exclude": ["build", ".mygo"]
 }

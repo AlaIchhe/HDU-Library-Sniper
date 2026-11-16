@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { useForm, useWatch } from "react-hook-form"
 
 import { AnimateIcon, Check } from "@/ui/icons"
 import { MultipleSelect } from "@/ui/multiple-select"
@@ -14,7 +13,7 @@ import { toastManager } from "@/ui/toast"
 import type { BookingPlan, Weekday } from "../../../shared/types"
 import { weekdayLabels } from "../../../shared/types"
 import { useDurations, useFloors, usePlanMutations, useRoomTypes } from "../../data/queries"
-import { type PlanFormValues, planResolver } from "../../shared"
+import { type PlanFormValues, planResolver, useForm } from "../../shared"
 
 import { SearchableField, SelectField } from "./fields"
 
@@ -35,11 +34,7 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
       weekdays: initial?.weekdays.map(String) || ["1", "2", "3", "4", "5", "6", "7"],
     },
   })
-  const room = useWatch({ control: form.control, name: "roomType" })
-  const floorId = useWatch({ control: form.control, name: "floorId" })
-  const hour = useWatch({ control: form.control, name: "startHour" })
-  const duration = useWatch({ control: form.control, name: "duration" })
-  const weekdays = useWatch({ control: form.control, name: "weekdays" })
+  const { roomType: room, floorId, startHour: hour, duration, weekdays } = form.values
   const [roomQuery, setRoomQuery] = useState(initial?.roomQuery || "")
   const effectiveRoomType = room || initial?.roomType || undefined
   const floors = useFloors(roomQuery, effectiveRoomType)

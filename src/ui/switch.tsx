@@ -23,5 +23,3 @@ export function Switch({ className, ...props }: SwitchPrimitive.Root.Props): Rea
     </SwitchPrimitive.Root>
   );
 }
-
-export { SwitchPrimitive };

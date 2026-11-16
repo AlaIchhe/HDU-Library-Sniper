@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, resolveApiBase } from "../src/web/data/api";
+import { useAppStore } from "../src/web/data/store";
 
 function stubMyGoCall(callImpl: ReturnType<typeof vi.fn>) {
   vi.stubGlobal("mygo", { call: callImpl });
@@ -71,5 +72,20 @@ describe("web API transport", () => {
 
     await expect(api.session()).rejects.toThrow("本地服务不可用：startup API error: db locked");
     expect(errorSpy).toHaveBeenCalledWith("API 请求失败: /api/session -> startup API error: db locked");
+  });
+
+  test("clears cached session on HTTP 401 and prompts re-login", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    useAppStore.getState().setSession({ authenticated: true, uid: "1", name: "23320116", refreshing: false });
+    stubMyGoCall(
+      vi.fn().mockResolvedValueOnce({
+        status: 401,
+        body: JSON.stringify({ detail: "unauthorized" }),
+      }),
+    );
+
+    await expect(api.bookings()).rejects.toThrow("登录已过期，请重新登录");
+    expect(useAppStore.getState().session).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith("API 返回错误: /api/bookings/current -> 401 (unauthorized)");
   });
 });

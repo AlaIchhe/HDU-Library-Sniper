@@ -13,7 +13,7 @@ export const SNAPPY = {
   mass: 0.6,
 } satisfies Transition
 
-export const SMOOTH = {
+const SMOOTH = {
   type: "spring",
   stiffness: 320,
   damping: 32,

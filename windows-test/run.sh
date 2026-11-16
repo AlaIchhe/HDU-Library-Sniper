@@ -24,16 +24,23 @@ DISK_SIZE=${DISK_SIZE:-64G}
 
 mkdir -p "$HERE/storage" "$HERE/shared/setup" "$HERE/shared/jobs" "$HERE/shared/results"
 
-# The installer is a release artifact, not source: fetch it instead of keeping a
-# 4 MB binary in git. Drop any *-setup.exe here to test a specific build.
+# The installer is a release artifact, not source: copy a local `mygo build`
+# output or fetch the latest release installer instead of keeping a binary in git.
 ensure_setup() {
   if [ -f "$HERE/oem/setup.exe" ]; then
+    return 0
+  fi
+  local local_setup
+  local_setup=$(find "$HERE/../build/windows-amd64" -maxdepth 1 -name '*-setup-*.exe' -print -quit 2>/dev/null || true)
+  if [ -n "$local_setup" ]; then
+    cp "$local_setup" "$HERE/oem/setup.exe"
+    echo "copied local installer $local_setup -> oem/setup.exe"
     return 0
   fi
   echo "oem/setup.exe missing, fetching the latest release installer..."
   local url
   url=$(curl -sSL --fail https://api.github.com/repos/AlaIchhe/HDU-Library-Sniper/releases/latest \
-    | python3 -c 'import json,sys; print(next(a["browser_download_url"] for a in json.load(sys.stdin)["assets"] if a["name"].endswith("-setup.exe")))')
+    | python3 -c 'import json,sys; print(next(a["browser_download_url"] for a in json.load(sys.stdin)["assets"] if a["name"].endswith(".exe") and "-setup-" in a["name"]))')
   curl -L --fail -o "$HERE/oem/setup.exe" "$url"
   echo "downloaded $url"
 }

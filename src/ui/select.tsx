@@ -25,7 +25,7 @@ export const selectTriggerVariants = cva(
   },
 );
 
-export const selectTriggerIconClassName = "-me-1 size-4.5 opacity-80 sm:size-4";
+const selectTriggerIconClassName = "-me-1 size-4.5 opacity-80 sm:size-4";
 
 export function SelectTrigger({
   className,
@@ -158,5 +158,3 @@ export function SelectItem({
     </SelectPrimitive.Item>
   );
 }
-
-export { SelectPrimitive, SelectPopup as SelectContent };

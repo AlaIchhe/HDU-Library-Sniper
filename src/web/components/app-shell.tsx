@@ -45,7 +45,6 @@ import { FloatingDock } from "./floating-dock"
 import { HoverRail } from "./hover-rail"
 import type { Command } from "../commands"
 
-/** 统一的语义色状态点：颜色由 tone 决定，切换时用 spring 过渡而非硬切。 */
 import { AppContent, AppHeader } from "./app-shell/header"
 import { StatusDot } from "./app-shell/status"
 
@@ -60,8 +59,6 @@ export function AppShell() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const theme = useAppStore((state) => state.theme)
-  const notice = useAppStore((state) => state.notice)
-  const setNotice = useAppStore((state) => state.setNotice)
   const requestRefresh = useAppStore((state) => state.requestRefresh)
   const runtime = useRuntime()
   const navMode = useNavMode()
@@ -97,15 +94,6 @@ export function AppShell() {
   useEffect(() => {
     if (authenticated && pathname !== "/") forgetReturnTo()
   }, [authenticated, pathname])
-
-  useEffect(() => {
-    if (!notice) return
-    toastManager.add({
-      type: notice.tone === "error" ? "error" : notice.tone === "warning" ? "warning" : "success",
-      title: notice.message,
-    })
-    setNotice(null)
-  }, [notice, setNotice])
 
   const logout = useCallback(async () => {
     try {

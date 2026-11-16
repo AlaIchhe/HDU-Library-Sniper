@@ -56,5 +56,3 @@ export function FormError({
     </p>
   );
 }
-
-export { FieldPrimitive };

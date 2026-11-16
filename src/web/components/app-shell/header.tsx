@@ -21,7 +21,6 @@ import { SidebarTrigger } from "@/ui/sidebar"
 import { useAppStore } from "../../data/store"
 import { cn } from "@/lib/utils"
 
-/** 统一的语义色状态点：颜色由 tone 决定，切换时用 spring 过渡而非硬切。 */
 import { CheckinControl, StatusBar } from "./status"
 
 export function AppHeader({
