@@ -41,6 +41,11 @@ jobs:
       - name: Frontend unit tests
         run: bun run test
 
+      - name: Contract sync
+        env:
+          CGO_ENABLED: "0"
+        run: go run ./cmd/gen-contract --check
+
       - name: Go format
         run: |
           unformatted=$(gofmt -l cmd internal main.go)

@@ -1,96 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import type { Booking, BookingGroup, BookingPlan } from "../../src/shared/types";
-
-type MockState = {
-  plans: Array<BookingPlan | BookingGroup>;
-  bookings: Booking[];
-  disabledOnEnable?: Record<string, string[]>;
-};
-
-function makePlan(id: string, seatNum: string, enabled: boolean): BookingPlan {
-  return {
-    id,
-    kind: "single",
-    roomType: "自习室",
-    roomQuery: "q=76",
-    floorId: 4,
-    floorName: "四楼",
-    seatNum,
-    fallbackSeats: [],
-    startHour: 8,
-    durationHours: 4,
-    weekdays: [1, 2, 3, 4, 5],
-    enabled,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  };
-}
-
-async function mockAuthenticatedApp(page: Page, state: MockState) {
-  await page.route("**/api/**", async (route) => route.fulfill({ json: {} }));
-  await page.route("**/api/session", async (route) =>
-    route.fulfill({ json: { authenticated: true, uid: "304174", name: "23320116", refreshing: false } }),
-  );
-  await page.route("**/api/runtime/status", async (route) => route.fulfill({ json: { state: "idle" } }));
-  await page.route("**/api/checkin", async (route) =>
-    route.fulfill({ json: { enabled: false, consentVersion: 1, acceptedAt: null } }),
-  );
-  await page.route("**/api/bookings/current", async (route) =>
-    route.fulfill({ json: { bookings: state.bookings } }),
-  );
-  await page.route("**/api/bookings/*/*", async (route) => {
-    const parts = new URL(route.request().url()).pathname.split("/");
-    const id = parts[3];
-    const action = parts[4];
-    if (action === "check-in") {
-      state.bookings = state.bookings.map((b) =>
-        b.bookingId === id ? { ...b, state: "in_use", statusLabel: "使用中", canCheckIn: false } : b,
-      );
-    }
-    await route.fulfill({ json: { success: true, message: "操作成功" } });
-  });
-  await page.route("**/api/plans", async (route) => {
-    if (route.request().method() === "GET") {
-      return route.fulfill({ json: { plans: state.plans } });
-    }
-    const body = route.request().postDataJSON() as Record<string, unknown>;
-    const created: BookingPlan = {
-      ...makePlan("p-new", String(body.seatNum ?? "101"), false),
-      roomType: String(body.roomType ?? "阅览室"),
-      floorName: String(body.floorName ?? "三楼"),
-    };
-    state.plans = [...state.plans, created];
-    return route.fulfill({ json: { plan: created } });
-  });
-  await page.route("**/api/plans/*/*", async (route) => {
-    const parts = new URL(route.request().url()).pathname.split("/");
-    const id = parts[3] ?? "";
-    const enabled = parts[4] === "enable";
-    const disabledPlanIds = enabled ? (state.disabledOnEnable?.[id] ?? []) : [];
-    state.plans = state.plans.map((p) => {
-      if (p.id === id) return { ...p, enabled };
-      if (disabledPlanIds.includes(p.id)) return { ...p, enabled: false };
-      return p;
-    });
-    const plan = state.plans.find((p) => p.id === id) ?? state.plans[0];
-    return route.fulfill({ json: { plan, disabledPlanIds } });
-  });
-  await page.route("**/api/groups", async (route) => {
-    const body = route.request().postDataJSON() as { name: string; memberPlanIds: string[] };
-    const group: BookingGroup = {
-      id: "g-1",
-      kind: "group",
-      name: body.name,
-      memberPlanIds: body.memberPlanIds,
-      weekdays: [1, 2, 3, 4, 5],
-      enabled: false,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    };
-    state.plans = [...state.plans, group];
-    return route.fulfill({ json: { plan: group } });
-  });
-}
+import { expect, test } from "@playwright/test";
+import { makePlan, mockAuthenticatedApp } from "./fixtures";
 
 test("plans toggle/undo, group creation drawer, bookings check-in, and command palette on desktop", async ({
   page,
@@ -105,9 +14,9 @@ test("plans toggle/undo, group creation drawer, bookings check-in, and command p
         seatNum: "308",
         startText: "08:00",
         durationText: "4 小时",
-        status: "RESERVED",
-        state: "reserved",
-        statusLabel: "待签到",
+        status: "0",
+        state: "check_in",
+        statusLabel: "可签到",
         canCheckIn: true,
         canCancel: true,
         canLeave: false,
@@ -153,7 +62,6 @@ test("floating dock navigates between plans and bookings on mobile viewport", as
   test.skip(testInfo.project.name !== "mobile", "FloatingDock 仅在移动端窄视口显示");
   await mockAuthenticatedApp(page, {
     plans: [makePlan("p-1", "101", false)],
-    bookings: [],
   });
 
   await page.goto("/plans");

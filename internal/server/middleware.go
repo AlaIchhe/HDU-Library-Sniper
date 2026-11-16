@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"hdu-library-sniper/internal/api"
 	"hdu-library-sniper/internal/hdu"
 )
 
@@ -20,7 +21,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"detail": msg})
+	writeJSON(w, status, api.ErrorResponse{Detail: msg})
 }
 
 func writeHDUError(w http.ResponseWriter, err error) {
@@ -93,7 +94,7 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if path != "/api/health" {
+		if path != api.PathHealth {
 			bucket, limit := rateBucketFor(path)
 			if !s.limiter.Allow(bucket, limit) {
 				writeError(w, http.StatusTooManyRequests, "请求过于频繁，请稍后再试")
@@ -117,14 +118,14 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 func rateBucketFor(path string) (string, int) {
 	switch path {
-	case "/api/session/login", "/api/session/openid":
+	case api.PathSessionLogin, api.PathSessionOpenID:
 		return "login", 5
-	case "/api/session/qr":
+	case api.PathSessionQR:
 		return "qr", 3
-	case "/api/checkin/enable", "/api/checkin/disable":
+	case api.PathCheckInEnable, api.PathCheckInDisable:
 		return "checkin", 10
 	default:
-		if strings.Contains(path, "/bookings/") && strings.HasSuffix(path, "/checkin") {
+		if strings.Contains(path, "/bookings/") && strings.HasSuffix(path, "/"+string(api.BookingActionCheckIn)) {
 			return "checkin", 10
 		}
 		return "api", 240

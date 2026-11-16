@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { mockAuthenticatedApp } from "./fixtures";
 
 // 中等宽度（1024–1279）使用图标 rail：hover / 聚焦时以覆盖层展开，不推动内容，
 // 展开层必须盖在顶栏之上，并能用 Esc 收起。
@@ -6,12 +7,7 @@ test.skip(({ isMobile }) => isMobile, "rail 只在桌面中等宽度出现");
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1120, height: 760 });
-  await page.route("**/api/**", async (route) => route.fulfill({ json: {} }));
-  await page.route("**/api/session", async (route) =>
-    route.fulfill({ json: { authenticated: true, uid: "304174", name: "23320116", refreshing: false } }),
-  );
-  await page.route("**/api/plans", async (route) => route.fulfill({ json: { plans: [] } }));
-  await page.route("**/api/runtime", async (route) => route.fulfill({ json: { state: "idle" } }));
+  await mockAuthenticatedApp(page);
   await page.goto("/plans");
   // Playwright 的鼠标初始在 (0,0)，正好落在 rail 上
   await page.mouse.move(700, 400);

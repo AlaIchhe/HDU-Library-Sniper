@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+
+	"hdu-library-sniper/internal/api"
 )
 
 func (s *Server) handleSessionStatus(w http.ResponseWriter, r *http.Request) {
@@ -10,28 +12,31 @@ func (s *Server) handleSessionStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		StudentID string `json:"studentId"`
-		Password  string `json:"password"`
-	}
+	var body api.LoginPasswordRequest
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	res := s.Auth.LoginPassword(r.Context(), body.StudentID, body.Password)
 	if res.Success {
 		s.Scheduler.SyncAsync()
 	}
-	writeJSON(w, http.StatusOK, res)
+	writeJSON(w, http.StatusOK, api.LoginResponse{
+		Success: res.Success,
+		Message: res.Message,
+		Session: res.Session,
+	})
 }
 
 func (s *Server) handleSessionOpenID(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		OpenID string `json:"openid"`
-	}
+	var body api.LoginOpenIDRequest
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	res := s.Auth.LoginOpenID(r.Context(), body.OpenID)
 	if res.Success {
 		s.Scheduler.SyncAsync()
 	}
-	writeJSON(w, http.StatusOK, res)
+	writeJSON(w, http.StatusOK, api.LoginResponse{
+		Success: res.Success,
+		Message: res.Message,
+		Session: res.Session,
+	})
 }
 
 func (s *Server) handleSessionCreateQR(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +55,7 @@ func (s *Server) handleSessionCreateQR(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSessionQRStatus(w http.ResponseWriter, r *http.Request) {
 	uuid := r.PathValue("uuid")
 	st := s.Auth.PollQrLogin(uuid)
-	if st.Status == "success" {
+	if st.Status == string(api.QrLoginSuccess) {
 		s.Scheduler.SyncAsync()
 	}
 	writeJSON(w, http.StatusOK, st)
@@ -58,10 +63,10 @@ func (s *Server) handleSessionQRStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSessionQRCancel(w http.ResponseWriter, r *http.Request) {
 	uuid := r.PathValue("uuid")
-	writeJSON(w, http.StatusOK, map[string]bool{"cancelled": s.Auth.CancelQrLogin(uuid)})
+	writeJSON(w, http.StatusOK, api.QrCancelResponse{Cancelled: s.Auth.CancelQrLogin(uuid)})
 }
 
 func (s *Server) handleSessionLogout(w http.ResponseWriter, r *http.Request) {
 	_ = s.Auth.Logout()
-	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	writeJSON(w, http.StatusOK, api.SuccessResponse{Success: true})
 }

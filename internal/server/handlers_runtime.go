@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"hdu-library-sniper/internal/api"
 	"hdu-library-sniper/internal/core"
 	"hdu-library-sniper/internal/hdu"
 )
@@ -24,14 +25,14 @@ func (s *Server) handleCurrentBookings(w http.ResponseWriter, r *http.Request) {
 			bookings = append(bookings, *b)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"bookings": bookings})
+	writeJSON(w, http.StatusOK, api.BookingsListResponse{Bookings: bookings})
 }
 
 func (s *Server) handleBookingAction(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	action := hdu.Action(r.PathValue("action"))
-	switch action {
-	case hdu.ActionCancel, hdu.ActionCheckIn, hdu.ActionComeBack, hdu.ActionSignOut, hdu.ActionLeave:
+	switch api.BookingAction(action) {
+	case api.BookingActionCancel, api.BookingActionCheckIn, api.BookingActionComeBack, api.BookingActionSignOut, api.BookingActionLeave:
 	default:
 		writeError(w, http.StatusNotFound, "不支持的预约操作")
 		return
@@ -45,12 +46,12 @@ func (s *Server) handleBookingAction(w http.ResponseWriter, r *http.Request) {
 	} else if action == hdu.ActionCancel {
 		s.Scheduler.Forget(id)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "操作成功"})
+	writeJSON(w, http.StatusOK, api.ActionResponse{Success: true, Message: "操作成功"})
 }
 
 func (s *Server) handleBookingRun(w http.ResponseWriter, r *http.Request) {
 	ok, msg := s.Scheduler.RunNow(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{"success": ok, "message": msg})
+	writeJSON(w, http.StatusOK, api.ActionResponse{Success: ok, Message: msg})
 }
 
 func (s *Server) handleRuntimeStatus(w http.ResponseWriter, r *http.Request) {
@@ -66,9 +67,7 @@ func (s *Server) handleGetCheckIn(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEnableCheckIn(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Agreed bool `json:"agreed"`
-	}
+	var in api.EnableCheckInRequest
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	if !in.Agreed {
 		writeError(w, http.StatusBadRequest, "请先阅读并同意自动签到确认声明")
@@ -96,5 +95,5 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": core.NonNil(events)})
+	writeJSON(w, http.StatusOK, api.AuditListResponse{Events: core.NonNil(events)})
 }

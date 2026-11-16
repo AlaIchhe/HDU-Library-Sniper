@@ -144,7 +144,7 @@ function LoginPage() {
       try {
         const result = await api.qrStatus(currentQr.uuid)
         if (stopped) return
-        if (result.status === "confirmed") {
+        if (result.status === "success") {
           if (result.session?.authenticated) {
             setSession(result.session)
             await navigate({ to: consumeReturnTo(), replace: true })

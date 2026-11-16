@@ -88,4 +88,36 @@ describe("web API transport", () => {
     expect(useAppStore.getState().session).toBeNull();
     expect(warnSpy).toHaveBeenCalledWith("API 返回错误: /api/bookings/current -> 401 (unauthorized)");
   });
+
+  test("serializes path and query parameters according to generated contract", async () => {
+    const callMock = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: JSON.stringify({ success: true, message: "操作成功" }) })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: JSON.stringify({
+          options: [],
+          range: { minBeginTime: 8, maxEndTime: 22, minDuration: 1, maxDuration: 8 },
+        }),
+      });
+    stubMyGoCall(callMock);
+
+    await api.bookingAction("b 1", "checkin");
+    expect(callMock).toHaveBeenNthCalledWith(
+      1,
+      "DesktopAPI.Request",
+      "POST",
+      "/api/bookings/b%201/checkin",
+      "",
+    );
+
+    await api.floors("q=76", "自习室");
+    expect(callMock).toHaveBeenNthCalledWith(
+      2,
+      "DesktopAPI.Request",
+      "GET",
+      "/api/catalog/floors?roomQuery=q%3D76&roomType=%E8%87%AA%E4%B9%A0%E5%AE%A4",
+      "",
+    );
+  });
 });

@@ -9,21 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"hdu-library-sniper/internal/api"
 	"hdu-library-sniper/internal/core"
 )
-
-type planInput struct {
-	RoomType      *string  `json:"roomType"`
-	RoomQuery     *string  `json:"roomQuery"`
-	FloorID       *int64   `json:"floorId"`
-	FloorName     *string  `json:"floorName"`
-	SeatNum       *string  `json:"seatNum"`
-	FallbackSeats []string `json:"fallbackSeats"`
-	StartHour     *int64   `json:"startHour"`
-	DurationHours *int64   `json:"durationHours"`
-	Weekdays      []int    `json:"weekdays"`
-	Enabled       *bool    `json:"enabled"`
-}
 
 func (s *Server) handleListPlans(w http.ResponseWriter, r *http.Request) {
 	items, err := s.Store.ListPlanItems()
@@ -31,7 +19,7 @@ func (s *Server) handleListPlans(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"plans": core.NonNil(items)})
+	writeJSON(w, http.StatusOK, api.PlansListResponse{Plans: core.NonNil(items)})
 }
 
 func (s *Server) handleGetPlan(w http.ResponseWriter, r *http.Request) {
@@ -44,11 +32,11 @@ func (s *Server) handleGetPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "方案不存在")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"plan": item})
+	writeJSON(w, http.StatusOK, api.PlanItemResponse{Plan: *item})
 }
 
 func (s *Server) handleCreatePlan(w http.ResponseWriter, r *http.Request) {
-	var in planInput
+	var in api.PlanUpsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "请求格式错误")
 		return
@@ -74,7 +62,7 @@ func (s *Server) handleCreatePlan(w http.ResponseWriter, r *http.Request) {
 	if plan.Enabled {
 		_, _ = s.Store.SetOnlyEnabled(plan.ID, true)
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"plan": plan})
+	writeJSON(w, http.StatusCreated, api.SinglePlanResponse{Plan: plan})
 }
 
 func (s *Server) handleUpdatePlan(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +76,7 @@ func (s *Server) handleUpdatePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "方案不存在")
 		return
 	}
-	var in planInput
+	var in api.PlanUpsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "请求格式错误")
 		return
@@ -111,7 +99,7 @@ func (s *Server) handleUpdatePlan(w http.ResponseWriter, r *http.Request) {
 	if updated.Enabled && !cur.Enabled {
 		_, _ = s.Store.SetOnlyEnabled(updated.ID, true)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"plan": updated})
+	writeJSON(w, http.StatusOK, api.SinglePlanResponse{Plan: updated})
 }
 
 func (s *Server) handleDeletePlan(w http.ResponseWriter, r *http.Request) {
@@ -134,13 +122,13 @@ func (s *Server) handleDeletePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "方案不存在")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	writeJSON(w, http.StatusOK, api.SuccessResponse{Success: true})
 }
 
 func (s *Server) handleTogglePlan(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	action := r.PathValue("action")
-	if action != "enable" && action != "disable" {
+	action := api.PlanToggleAction(r.PathValue("action"))
+	if action != api.PlanActionEnable && action != api.PlanActionDisable {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
@@ -153,24 +141,24 @@ func (s *Server) handleTogglePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "方案不存在")
 		return
 	}
-	enabled := action == "enable"
+	enabled := action == api.PlanActionEnable
 	disabled, err := s.Store.SetOnlyEnabled(id, enabled)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	updated, _ := s.Store.GetPlanItem(id)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"plan":            updated,
-		"disabledPlanIds": core.NonNil(disabled),
+	if updated == nil {
+		updated = item
+	}
+	writeJSON(w, http.StatusOK, api.TogglePlanResponse{
+		Plan:            *updated,
+		DisabledPlanIDs: core.NonNil(disabled),
 	})
 }
 
 func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Name          string   `json:"name"`
-		MemberPlanIDs []string `json:"memberPlanIds"`
-	}
+	var in api.GroupUpsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "请求格式错误")
 		return
@@ -196,7 +184,7 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"plan": g})
+	writeJSON(w, http.StatusCreated, api.GroupResponse{Plan: *g})
 }
 
 func (s *Server) handleGetGroup(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +197,7 @@ func (s *Server) handleGetGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "组合方案不存在")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"plan": item.Group})
+	writeJSON(w, http.StatusOK, api.GroupResponse{Plan: *item.Group})
 }
 
 func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
@@ -223,10 +211,7 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "组合方案不存在")
 		return
 	}
-	var in struct {
-		Name          string   `json:"name"`
-		MemberPlanIDs []string `json:"memberPlanIds"`
-	}
+	var in api.GroupUpsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "请求格式错误")
 		return
@@ -251,7 +236,7 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"plan": g})
+	writeJSON(w, http.StatusOK, api.GroupResponse{Plan: *g})
 }
 
 func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
@@ -264,7 +249,7 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "组合方案不存在")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	writeJSON(w, http.StatusOK, api.SuccessResponse{Success: true})
 }
 
 func (s *Server) resolveAndValidateGroup(name string, memberIDs []string, override *core.BookingPlan) ([]core.BookingPlan, []int, error) {
@@ -331,7 +316,7 @@ func (s *Server) revalidateParentGroups(updated *core.BookingPlan) error {
 	return nil
 }
 
-func applyPlanPatch(dst *core.BookingPlan, in *planInput) {
+func applyPlanPatch(dst *core.BookingPlan, in *api.PlanUpsertRequest) {
 	if in.RoomType != nil {
 		dst.RoomType = strings.TrimSpace(*in.RoomType)
 	}

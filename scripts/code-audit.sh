@@ -52,12 +52,12 @@ if have gofmt; then
   if [ -z "$unformatted" ]; then pass "gofmt 通过"; else fail "gofmt 有差异，运行 gofmt -w cmd internal main.go"; fi
 else warn "未找到 gofmt，跳过"; fi
 
-section "4/10 go vet"
+section "4/10 go vet + contract"
 if have go; then
-  if CGO_ENABLED=0 go vet ./... >"$OUT/go-vet.txt" 2>&1; then
-    pass "go vet 通过"
+  if CGO_ENABLED=0 go vet ./... >"$OUT/go-vet.txt" 2>&1 && CGO_ENABLED=0 go run ./cmd/gen-contract --check >>"$OUT/go-vet.txt" 2>&1; then
+    pass "go vet 与契约同步通过"
   else
-    fail "go vet 失败，见 $OUT/go-vet.txt"
+    fail "go vet 或契约同步失败，见 $OUT/go-vet.txt"
   fi
 else warn "未找到 go，跳过"; fi
 
@@ -98,7 +98,7 @@ section "9/10 jscpd 重复代码（门禁 3%）"
 if have npx; then
   if npx --yes jscpd@4 --min-lines 12 --min-tokens 70 --threshold 3 \
       --format go,typescript,tsx,css \
-      --ignore '**/node_modules/**,**/build/**,**/.mygo/**,**/.toolchain/**,**/ui/**,**/mygo.ts' \
+      --ignore '**/node_modules/**,**/build/**,**/.mygo/**,**/.toolchain/**,**/ui/**,**/mygo.ts,**/api.generated.ts' \
       --reporters console --output "$OUT/jscpd" src internal cmd tests >"$OUT/jscpd.txt" 2>&1; then
     pass "重复率低于 3%"
   else

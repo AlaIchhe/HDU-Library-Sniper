@@ -1,59 +1,62 @@
 import { isMyGo } from "mygo-runtime"
+import {
+  API_ROUTES,
+  API_SCHEMAS,
+  type APIEndpoints,
+  type BookingAction,
+  type ErrorResponse,
+  type GroupUpsertRequest,
+  type PlanToggleAction,
+  type PlanUpsertRequest,
+} from "../../shared/api.generated"
 import { DesktopAPI } from "../mygo"
 import { useAppStore } from "./store"
-import type {
-  AuditEvent,
-  Booking,
-  BookingPlan,
-  BookingRange,
-  CheckInStatus,
-  DurationOptions,
-  FloorOption,
-  NextExecutionTarget,
-  PlanListItem,
-  QrLoginStart,
-  QrLoginStatus,
-  RoomTypeOption,
-  RuntimeStatus,
-  SessionStatus,
-} from "../../shared/types"
 
 export function resolveApiBase(): string {
   const configured = import.meta.env.VITE_API_BASE?.trim()
   return configured ? configured.replace(/\/+$/, "") : ""
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string"
+type SchemaSpec = Record<string, string>
 
-function assertShape<T>(value: unknown, check: (record: Record<string, unknown>) => boolean): T {
-  if (!isRecord(value) || !check(value)) throw new Error("后台服务返回格式错误")
+function matchesField(value: unknown, code: string): boolean {
+  const optional = code.endsWith("?")
+  if (value === undefined) return optional
+  const kind = optional ? code.slice(0, -1) : code
+  if (kind === "s") return typeof value === "string"
+  if (kind === "n") return typeof value === "number" && Number.isFinite(value)
+  if (kind === "b") return typeof value === "boolean"
+  if (kind === "a") return Array.isArray(value)
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function assertContract<T>(value: unknown, schema: SchemaSpec): T {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("后台服务返回格式错误")
+  }
+  const record = value as Record<string, unknown>
+  for (const [key, code] of Object.entries(schema)) {
+    if (!matchesField(record[key], code)) throw new Error("后台服务返回格式错误")
+  }
   return value as T
 }
 
-const validateSession = (body: unknown) =>
-  assertShape<SessionStatus>(
-    body,
-    (v) =>
-      typeof v.authenticated === "boolean" &&
-      typeof v.refreshing === "boolean" &&
-      isOptionalString(v.uid) &&
-      isOptionalString(v.name) &&
-      isOptionalString(v.lastError),
-  )
-
-const validateCheckin = (body: unknown) =>
-  assertShape<CheckInStatus>(
-    body,
-    (v) =>
-      typeof v.enabled === "boolean" &&
-      typeof v.consentVersion === "string" &&
-      isOptionalString(v.consentedAt) &&
-      isOptionalString(v.lastAttemptAt) &&
-      isOptionalString(v.lastSuccessAt) &&
-      isOptionalString(v.lastMessage),
-  )
+function buildPath(
+  pattern: string,
+  pathParams?: Record<string, string | number>,
+  query?: Record<string, string | number | undefined>,
+): string {
+  const resolved = pathParams
+    ? pattern.replace(/\{(\w+)\}/g, (_, key: string) => encodeURIComponent(String(pathParams[key] ?? "")))
+    : pattern
+  if (!query) return resolved
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined) params.set(key, String(value))
+  }
+  const qs = params.toString()
+  return qs ? `${resolved}?${qs}` : resolved
+}
 
 type RawResponse = {
   status: number
@@ -61,23 +64,19 @@ type RawResponse = {
   text: string
 }
 
-async function sendRequest(path: string, init?: RequestInit): Promise<RawResponse> {
+async function sendRequest(method: string, path: string, body?: string): Promise<RawResponse> {
   if (isMyGo()) {
-    const response = await DesktopAPI.request(
-      init?.method || "GET",
-      path,
-      typeof init?.body === "string" ? init.body : "",
-    )
+    const response = await DesktopAPI.request(method, path, body ?? "")
     return {
       status: response.status,
       ok: response.status >= 200 && response.status < 300,
       text: response.body,
     }
   }
-  const url = `${resolveApiBase()}${path}`
-  const response = await fetch(url, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+  const response = await fetch(`${resolveApiBase()}${path}`, {
+    method,
+    body,
+    headers: { "Content-Type": "application/json" },
   })
   return {
     status: response.status,
@@ -86,32 +85,68 @@ async function sendRequest(path: string, init?: RequestInit): Promise<RawRespons
   }
 }
 
-async function call<T>(path: string, init?: RequestInit, validate?: (body: unknown) => T): Promise<T> {
+type HasRequiredOptions<K extends keyof APIEndpoints> = APIEndpoints[K] extends { pathParams: unknown }
+  ? true
+  : APIEndpoints[K] extends { request: unknown }
+    ? true
+    : APIEndpoints[K] extends { query: unknown }
+      ? undefined extends APIEndpoints[K]["query"]
+        ? false
+        : true
+      : false
+
+type CallOptions<K extends keyof APIEndpoints> = (APIEndpoints[K] extends { pathParams: infer P }
+  ? { path: P }
+  : { path?: never }) &
+  (APIEndpoints[K] extends { query: infer Q }
+    ? { query: Q }
+    : APIEndpoints[K] extends { query?: infer Q }
+      ? { query?: Q }
+      : { query?: never }) &
+  (APIEndpoints[K] extends { request: infer B } ? { body: B } : { body?: never })
+
+async function request<K extends keyof APIEndpoints>(
+  endpoint: K,
+  ...args: HasRequiredOptions<K> extends true ? [options: CallOptions<K>] : [options?: CallOptions<K>]
+): Promise<APIEndpoints[K]["response"]> {
+  const route = API_ROUTES[endpoint]
+  const options = args[0] as
+    | {
+        path?: Record<string, string | number>
+        query?: Record<string, string | number | undefined>
+        body?: unknown
+      }
+    | undefined
+  const path = buildPath(route.pattern, options?.path, options?.query)
+  const payload = options?.body !== undefined ? JSON.stringify(options.body) : undefined
+
   let response: RawResponse
   try {
-    response = await sendRequest(path, init)
+    response = await sendRequest(route.method, path, payload)
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === "AbortError") throw cause
     const detail = cause instanceof Error ? cause.message : String(cause)
-    if (isMyGo()) {
-      console.error(`API 请求失败: ${path} -> ${detail}`)
-    }
+    if (isMyGo()) console.error(`API 请求失败: ${path} -> ${detail}`)
     throw new Error(isMyGo() ? `本地服务不可用：${detail}` : "无法连接本地后台服务，请确认服务已启动")
   }
 
-  let body: { detail?: string; message?: string } = {}
+  let parsed: unknown
   if (response.text) {
     try {
-      body = JSON.parse(response.text) as typeof body
+      parsed = JSON.parse(response.text)
     } catch {
       throw new Error(response.ok ? "后台服务返回格式错误" : `请求失败 (${response.status})`)
     }
   }
+
   if (!response.ok) {
+    const errBody = (
+      typeof parsed === "object" && parsed !== null ? parsed : {}
+    ) as Partial<ErrorResponse> & {
+      message?: string
+    }
     if (isMyGo()) {
-      // 后台的 detail 是唯一能说明失败原因的信息（登录态失效 / 上游超时 /
-      // 网络错误）；不带上它，日志里就只剩一个孤零零的状态码。
-      const detail = body.detail || body.message
+      const detail = errBody.detail || errBody.message
       const message = `API 返回错误: ${path} -> ${response.status}${detail ? ` (${detail})` : ""}`
       if (response.status >= 500) console.error(message)
       else console.warn(message)
@@ -121,78 +156,47 @@ async function call<T>(path: string, init?: RequestInit, validate?: (body: unkno
       useAppStore.getState().setSession(null)
       throw new Error("登录已过期，请重新登录")
     }
-    throw new Error(body.detail || body.message || `请求失败 (${response.status})`)
+    throw new Error(errBody.detail || errBody.message || `请求失败 (${response.status})`)
   }
-  return validate ? validate(body) : (body as T)
+
+  return assertContract<APIEndpoints[K]["response"]>(parsed, API_SCHEMAS[route.schema])
 }
 
 export const api = {
-  session: () => call<SessionStatus>("/api/session", undefined, validateSession),
-  login: (studentId: string, password: string) =>
-    call<{ success: boolean; message: string }>("/api/session/login", {
-      method: "POST",
-      body: JSON.stringify({ studentId, password }),
-    }),
-  openidLogin: (openid: string) =>
-    call<{ success: boolean; message: string }>("/api/session/openid", {
-      method: "POST",
-      body: JSON.stringify({ openid }),
-    }),
-  logout: () => call<{ success: boolean }>("/api/session/logout", { method: "POST" }),
-  qrStart: () => call<QrLoginStart>("/api/session/qr", { method: "POST" }),
-  qrStatus: (uuid: string) => call<QrLoginStatus>(`/api/session/qr/${encodeURIComponent(uuid)}/status`),
+  session: () => request("sessionStatus"),
+  login: (studentId: string, password: string) => request("sessionLogin", { body: { studentId, password } }),
+  openidLogin: (openid: string) => request("sessionOpenId", { body: { openid } }),
+  logout: () => request("sessionLogout"),
+  qrStart: () => request("sessionQrStart"),
+  qrStatus: (uuid: string) => request("sessionQrStatus", { path: { uuid } }),
   // 离开扫码页时让服务端停掉这个二维码的 SSO 轮询，避免它继续换掉登录会话。
-  cancelQr: (uuid: string) =>
-    call<{ cancelled: boolean }>(`/api/session/qr/${encodeURIComponent(uuid)}/cancel`, { method: "POST" }),
-  plans: () => call<{ plans: PlanListItem[] }>("/api/plans"),
-  createPlan: (plan: Partial<BookingPlan>) =>
-    call<{ plan: BookingPlan }>("/api/plans", { method: "POST", body: JSON.stringify(plan) }),
-  setEnabled: (id: string, enabled: boolean) =>
-    call<{ plan: PlanListItem; disabledPlanIds: string[] }>(
-      `/api/plans/${encodeURIComponent(id)}/${enabled ? "enable" : "disable"}`,
-      { method: "POST" },
-    ),
-  deletePlan: (id: string) =>
-    call<{ success: boolean }>(`/api/plans/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  updatePlan: (id: string, patch: Partial<BookingPlan>) =>
-    call<{ plan: BookingPlan }>(`/api/plans/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    }),
-  bookings: () => call<{ bookings: Booking[] }>("/api/bookings/current"),
-  runtime: () => call<RuntimeStatus>("/api/runtime/status"),
-  bookingAction: (id: string, action: string) =>
-    call<{ success: boolean; message: string }>(`/api/bookings/${encodeURIComponent(id)}/${action}`, {
-      method: "POST",
-    }),
-  nextTarget: () => call<NextExecutionTarget>("/api/runtime/next-target"),
-  createGroup: (name: string, memberPlanIds: string[]) =>
-    call<{ plan: BookingGroup }>("/api/groups", {
-      method: "POST",
-      body: JSON.stringify({ name, memberPlanIds }),
-    }),
-  updateGroup: (id: string, name: string, memberPlanIds: string[]) =>
-    call<{ plan: BookingGroup }>(`/api/groups/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ name, memberPlanIds }),
-    }),
-  roomTypes: () => call<{ options: RoomTypeOption[] }>("/api/catalog/room-types"),
+  cancelQr: (uuid: string) => request("sessionQrCancel", { path: { uuid } }),
+  plans: () => request("plansList"),
+  createPlan: (plan: PlanUpsertRequest) => request("plansCreate", { body: plan }),
+  setEnabled: (id: string, enabled: boolean) => {
+    const action: PlanToggleAction = enabled ? "enable" : "disable"
+    return request("plansToggle", { path: { id, action } })
+  },
+  deletePlan: (id: string) => request("plansDelete", { path: { id } }),
+  updatePlan: (id: string, patch: PlanUpsertRequest) => request("plansUpdate", { path: { id }, body: patch }),
+  bookings: () => request("bookingsCurrent"),
+  runtime: () => request("runtimeStatus"),
+  bookingAction: (id: string, action: BookingAction) => request("bookingsAction", { path: { id, action } }),
+  nextTarget: () => request("runtimeNextTarget"),
+  createGroup: (name: GroupUpsertRequest["name"], memberPlanIds: GroupUpsertRequest["memberPlanIds"]) =>
+    request("groupsCreate", { body: { name, memberPlanIds } }),
+  updateGroup: (
+    id: string,
+    name: GroupUpsertRequest["name"],
+    memberPlanIds: GroupUpsertRequest["memberPlanIds"],
+  ) => request("groupsUpdate", { path: { id }, body: { name, memberPlanIds } }),
+  roomTypes: () => request("catalogRoomTypes"),
   floors: (roomQuery: string, roomType?: string) =>
-    call<{ options: FloorOption[]; range?: BookingRange }>(
-      `/api/catalog/floors?roomQuery=${encodeURIComponent(roomQuery)}&roomType=${encodeURIComponent(roomType || "")}`,
-    ),
+    request("catalogFloors", { query: { roomQuery, roomType } }),
   durations: (roomQuery: string, startHour: number, roomType?: string) =>
-    call<DurationOptions>(
-      `/api/catalog/durations?roomQuery=${encodeURIComponent(roomQuery)}&roomType=${encodeURIComponent(roomType || "")}&startHour=${startHour}`,
-    ),
-  audit: (limit = 20) => call<{ events: AuditEvent[] }>(`/api/audit?limit=${limit}`),
-  checkinStatus: () => call<CheckInStatus>("/api/checkin", undefined, validateCheckin),
+    request("catalogDurations", { query: { roomQuery, startHour, roomType } }),
+  audit: (limit = 20) => request("auditList", { query: { limit } }),
+  checkinStatus: () => request("checkinStatus"),
   setCheckin: (enabled: boolean, agreed = false) =>
-    call<CheckInStatus>(
-      `/api/checkin/${enabled ? "enable" : "disable"}`,
-      { method: "POST", body: JSON.stringify({ agreed }) },
-      validateCheckin,
-    ),
+    enabled ? request("checkinEnable", { body: { agreed } }) : request("checkinDisable"),
 }
-
-type BookingGroup = Extract<PlanListItem, { kind: "group" }>

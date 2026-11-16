@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "./api"
 import { useAppStore } from "./store"
-import type { PlanListItem } from "../../shared/types"
+import type { BookingAction, PlanListItem } from "../../shared/types"
 
 const useAuthenticated = () => useAppStore((state) => state.session?.authenticated ?? false)
 
@@ -139,7 +139,7 @@ export function usePlanMutations() {
 export function useBookingAction() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, action }: { id: string; action: string }) => api.bookingAction(id, action),
+    mutationFn: ({ id, action }: { id: string; action: BookingAction }) => api.bookingAction(id, action),
     onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.bookings }),
   })
 }

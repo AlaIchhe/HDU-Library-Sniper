@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"hdu-library-sniper/internal/api"
 	"hdu-library-sniper/internal/core"
 	"hdu-library-sniper/internal/hdu"
 )
@@ -17,11 +18,6 @@ import (
 const catalogStaleAfter = 30 * 24 * time.Hour
 
 var errNoFloorsAvailable = errors.New("该房间类型当前没有可预约楼层（可能尚未开放预约，请尝试其他房间类型）")
-
-type floorsPayload struct {
-	Options []core.FloorOption `json:"options"`
-	Range   core.BookingRange  `json:"range"`
-}
 
 type persistedCatalog struct {
 	FetchedAt int64           `json:"fetchedAt"`
@@ -179,7 +175,7 @@ func (s *Server) handleRoomTypes(w http.ResponseWriter, r *http.Request) {
 		writeHDUError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"options": core.NonNil(opts)})
+	writeJSON(w, http.StatusOK, api.RoomTypesResponse{Options: core.NonNil(opts)})
 }
 
 func (s *Server) handleFloors(w http.ResponseWriter, r *http.Request) {
@@ -195,11 +191,11 @@ func (s *Server) handleFloors(w http.ResponseWriter, r *http.Request) {
 		s,
 		r.Context(),
 		"catalog:floors:"+roomQuery,
-		func(ctx context.Context) (floorsPayload, error) {
+		func(ctx context.Context) (api.FloorsResponse, error) {
 			s.Auth.Client.ClearRoomMeta(roomQuery)
 			br, err := s.Auth.Client.BookingRange(ctx, roomQuery)
 			if err != nil {
-				return floorsPayload{}, err
+				return api.FloorsResponse{}, err
 			}
 			nowLocal := time.Now().In(core.Shanghai)
 			targetDate := nowLocal.AddDate(0, 0, core.BookingDayOffsetFor(roomType))
@@ -207,7 +203,7 @@ func (s *Server) handleFloors(w http.ResponseWriter, r *http.Request) {
 
 			rawFloors, err := s.Auth.Client.Floors(ctx, roomQuery, lookup, 1)
 			if err != nil {
-				return floorsPayload{}, err
+				return api.FloorsResponse{}, err
 			}
 			opts := make([]core.FloorOption, 0, len(rawFloors))
 			for _, rf := range rawFloors {
@@ -216,10 +212,10 @@ func (s *Server) handleFloors(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if len(opts) == 0 {
-				return floorsPayload{}, errNoFloorsAvailable
+				return api.FloorsResponse{}, errNoFloorsAvailable
 			}
 			savePersistedCatalog(s, "catalog:range:"+roomQuery, br, time.Now().Unix())
-			return floorsPayload{Options: opts, Range: br}, nil
+			return api.FloorsResponse{Options: opts, Range: br}, nil
 		},
 	)
 	if err != nil {

@@ -1,27 +1,12 @@
 import { expect, test } from "@playwright/test";
+import { mockAuthenticatedApp } from "./fixtures";
 
 // 回归测试：楼层加载失败时（如部分房间类型暂未开放），
 // 点击"保存方案"必须能看到楼层校验错误，而不是弹窗毫无反应。
 test.skip(({ viewport }) => (viewport?.width ?? 0) < 1024, "表单校验逻辑与视口无关，仅在桌面视口运行");
 
 test("shows floor validation error when floors fail to load", async ({ page }) => {
-  // 兜底 mock：其余只读接口一律返回空数据
-  await page.route("**/api/**", async (route) => {
-    if (route.request().method() === "GET") await route.fulfill({ json: {} });
-    else await route.fulfill({ json: {} });
-  });
-  await page.route("**/api/session", async (route) =>
-    route.fulfill({ json: { authenticated: true, uid: "304174", name: "23320116", refreshing: false } }),
-  );
-  await page.route("**/api/plans", async (route) =>
-    route.request().method() === "GET" ? route.fulfill({ json: { plans: [] } }) : route.fulfill({ json: {} }),
-  );
-  await page.route("**/api/catalog/room-types", async (route) =>
-    route.fulfill({ json: { options: [{ id: "q=76", name: "阅览室", query: "q=76" }] } }),
-  );
-  await page.route("**/api/catalog/floors**", async (route) =>
-    route.fulfill({ status: 502, json: { detail: "该房间类型当前没有可预约楼层" } }),
-  );
+  await mockAuthenticatedApp(page, { failFloors: true });
 
   await page.goto("/");
   // 侧边栏折叠时其内部链接在视口外，isVisible 仍为 true；必须按几何位置判断并先展开

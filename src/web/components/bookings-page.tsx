@@ -18,7 +18,7 @@ import {
 } from "./data-table"
 import { PageHeader, PageShell, PageState, RISE_CLASS } from "./page-layout"
 import { cn } from "@/lib/utils"
-import type { Booking } from "../../shared/types"
+import type { Booking, BookingAction } from "../../shared/types"
 import { useBookingAction, useBookings } from "../data/queries"
 import { useRefreshSignal } from "../data/store"
 import { NoData } from "../shared"
@@ -27,15 +27,20 @@ const COLUMNS = "sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.9fr)_min
 
 // 顺序即按钮渲染顺序；签到是唯一的主操作
 const ACTIONS = [
-  { key: "check-in", label: "签到", available: (b: Booking) => b.canCheckIn, primary: true },
+  { key: "checkin", label: "签到", available: (b: Booking) => b.canCheckIn, primary: true },
   { key: "cancel", label: "取消", available: (b: Booking) => b.canCancel },
   { key: "leave", label: "暂离", available: (b: Booking) => b.canLeave },
-  { key: "renew", label: "续座", available: (b: Booking) => b.canRenew },
-  { key: "sign-out", label: "签退", available: (b: Booking) => b.canSignOut },
-] as const
+  { key: "comeback", label: "续座", available: (b: Booking) => b.canRenew },
+  { key: "signout", label: "签退", available: (b: Booking) => b.canSignOut },
+] as const satisfies ReadonlyArray<{
+  key: BookingAction
+  label: string
+  available: (b: Booking) => boolean
+  primary?: true
+}>
 
 type Tone = "attention" | "active" | "idle"
-type PendingAction = { id: string; action: string }
+type PendingAction = { id: string; action: BookingAction }
 
 const toneOf = (booking: Booking): Tone =>
   booking.canCheckIn ? "attention" : booking.state === "in_use" ? "active" : "idle"
@@ -47,7 +52,7 @@ export function BookingsPage() {
   // ⌘K 面板 / `r` 快捷键请求刷新时重拉预约
   useRefreshSignal(() => void bookings.refetch())
 
-  async function run(booking: Booking, name: string) {
+  async function run(booking: Booking, name: BookingAction) {
     try {
       await action.mutateAsync({ id: booking.bookingId, action: name })
       toastManager.add({ type: "success", title: "预约操作成功" })
@@ -89,7 +94,7 @@ function BookingsView({
   busy: boolean
   pending?: PendingAction
   onRefresh: () => void
-  onAction: (booking: Booking, action: string) => void
+  onAction: (booking: Booking, action: BookingAction) => void
 }) {
   // 每次进入拉取状态就多转一圈，由弹簧自然停住，而不是匀速空转
   const [turns, setTurns] = useState(0)
@@ -166,7 +171,7 @@ function BookingRow({
   index: number
   busy: boolean
   pending?: PendingAction
-  onAction: (booking: Booking, action: string) => void
+  onAction: (booking: Booking, action: BookingAction) => void
 }) {
   const actions = ACTIONS.filter((a) => a.available(booking))
   const primaryActions = actions.filter((a) => "primary" in a)

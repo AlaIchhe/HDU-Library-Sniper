@@ -7,6 +7,8 @@
     "dev": "mygo dev",
     "build": "mygo build",
     "generate": "mygo generate",
+    "contract:generate": "go run ./cmd/gen-contract",
+    "contract:check": "go run ./cmd/gen-contract --check",
     "dev:web": "vite",
     "build:web": "vite build",
     "typecheck": "tsc --noEmit",

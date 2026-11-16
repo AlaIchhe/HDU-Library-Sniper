@@ -17,7 +17,7 @@ const (
 // BookingPlan is a single seat reservation rule with fallback seats and weekday schedule.
 type BookingPlan struct {
 	ID            string   `json:"id"`
-	Kind          string   `json:"kind"`
+	Kind          string   `json:"kind" contract:"\"single\""`
 	RoomType      string   `json:"roomType"`
 	RoomQuery     string   `json:"roomQuery"`
 	FloorID       int64    `json:"floorId"`
@@ -26,7 +26,7 @@ type BookingPlan struct {
 	FallbackSeats []string `json:"fallbackSeats"`
 	StartHour     int64    `json:"startHour"`
 	DurationHours int64    `json:"durationHours"`
-	Weekdays      []int    `json:"weekdays"`
+	Weekdays      []int    `json:"weekdays" contract:"Weekday[]"`
 	Enabled       bool     `json:"enabled"`
 	CreatedAt     string   `json:"createdAt"`
 	UpdatedAt     string   `json:"updatedAt"`
@@ -35,11 +35,11 @@ type BookingPlan struct {
 // BookingGroup executes a sequence of member plans in order.
 type BookingGroup struct {
 	ID            string        `json:"id"`
-	Kind          string        `json:"kind"`
+	Kind          string        `json:"kind" contract:"\"group\""`
 	Name          string        `json:"name"`
 	MemberPlanIDs []string      `json:"memberPlanIds"`
 	Members       []BookingPlan `json:"members,omitempty"`
-	Weekdays      []int         `json:"weekdays"`
+	Weekdays      []int         `json:"weekdays" contract:"Weekday[]"`
 	Enabled       bool          `json:"enabled"`
 	CreatedAt     string        `json:"createdAt"`
 	UpdatedAt     string        `json:"updatedAt"`
@@ -107,7 +107,7 @@ type QrLoginStart struct {
 
 // QrLoginStatus represents one poll result for an active QR login session.
 type QrLoginStatus struct {
-	Status  string         `json:"status"`
+	Status  string         `json:"status" contract:"QrLoginPhase"`
 	Message string         `json:"message,omitempty"`
 	Session *SessionStatus `json:"session,omitempty"`
 }
@@ -120,7 +120,7 @@ type Booking struct {
 	StartText    string `json:"startText"`
 	DurationText string `json:"durationText"`
 	Status       string `json:"status"`
-	State        string `json:"state"`
+	State        string `json:"state" contract:"BookingState"`
 	StatusLabel  string `json:"statusLabel"`
 	CanCancel    bool   `json:"canCancel"`
 	CanCheckIn   bool   `json:"canCheckIn"`
@@ -179,7 +179,7 @@ type CheckInStatus struct {
 }
 
 type NextExecutionTarget struct {
-	Kind      string `json:"kind"`
+	Kind      string `json:"kind" contract:"NextTargetKind"`
 	Label     string `json:"label"`
 	At        string `json:"at,omitempty"`
 	PlanID    string `json:"planId,omitempty"`

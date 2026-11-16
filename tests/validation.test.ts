@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { API_ROUTES, API_SCHEMAS } from "../src/shared/api.generated";
 import { api } from "../src/web/data/api";
 import { groupResolver, loginResolver, planResolver } from "../src/web/form-resolvers";
 
@@ -90,5 +91,12 @@ describe("API response shape validation", () => {
       vi.fn(async () => new Response(JSON.stringify({ enabled: true, consentVersion: 1 }), { status: 200 })),
     );
     await expect(api.checkinStatus()).rejects.toThrow("后台服务返回格式错误");
+  });
+
+  test("every generated route binds to a declared response schema", () => {
+    for (const route of Object.values(API_ROUTES)) {
+      expect(route.pattern.startsWith("/api/")).toBe(true);
+      expect(API_SCHEMAS[route.schema]).toBeDefined();
+    }
   });
 });

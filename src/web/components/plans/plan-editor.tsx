@@ -53,7 +53,6 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
 
   async function submit(values: PlanFormValues) {
     const payload = {
-      kind: "single" as const,
       roomType: values.roomType,
       roomQuery: values.roomQuery,
       floorId: values.floorId,
