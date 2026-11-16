@@ -7,6 +7,7 @@ import { QRCodeSVG } from "qrcode.react"
 import { AnimateIcon, Info, LibraryBig, LogIn, QrCode, RefreshCw, TriangleAlert } from "@/ui/icons"
 
 import { Alert, AlertDescription } from "@/ui/alert"
+import { AntigravityParticles } from "@/ui/antigravity-particles"
 import { Button } from "@/ui/button"
 import { Card } from "@/ui/card"
 import {
@@ -91,6 +92,7 @@ function OpenidGuide({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
 function LoginPage() {
   const navigate = useNavigate()
   const setSession = useAppStore((state) => state.setSession)
+  const theme = useAppStore((state) => state.theme)
   const form = useForm<LoginFormValues>({
     resolver: loginResolver,
     defaultValues: { studentId: "", password: "" },
@@ -248,6 +250,7 @@ function LoginPage() {
 
   return (
     <main className="relative grid min-h-svh place-items-center overflow-hidden p-6">
+      <AntigravityParticles theme={theme} className="z-0" />
       <Card className="login-card relative z-10 w-full max-w-[26rem] overflow-hidden p-7 sm:p-8">
         <header className="flex items-center justify-between gap-3">
           <AnimateIcon animateOnHover asChild>
