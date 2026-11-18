@@ -10,6 +10,8 @@ type BookingAction string
 type BookingState string
 type NextTargetKind string
 type QrLoginPhase string
+type AppEventKind string
+type InvalidateTarget string
 type Weekday int
 
 const (
@@ -38,6 +40,17 @@ const (
 	QrLoginSuccess QrLoginPhase = "success"
 	QrLoginExpired QrLoginPhase = "expired"
 	QrLoginError   QrLoginPhase = "error"
+
+	AppEventSession    AppEventKind = "session"
+	AppEventRuntime    AppEventKind = "runtime"
+	AppEventInvalidate AppEventKind = "invalidate"
+	AppEventAudit      AppEventKind = "audit"
+
+	InvalidatePlans      InvalidateTarget = "plans"
+	InvalidateBookings   InvalidateTarget = "bookings"
+	InvalidateNextTarget InvalidateTarget = "nextTarget"
+	InvalidateCheckIn    InvalidateTarget = "checkin"
+	InvalidateRuntime    InvalidateTarget = "runtime"
 )
 
 type ErrorResponse struct {
@@ -74,6 +87,26 @@ type LoginResponse struct {
 
 type QrCancelResponse struct {
 	Cancelled bool `json:"cancelled"`
+}
+
+type QrStatusEvent struct {
+	UUID    string              `json:"uuid"`
+	Status  QrLoginPhase        `json:"status"`
+	Message string              `json:"message,omitempty"`
+	Session *core.SessionStatus `json:"session,omitempty"`
+}
+
+type AuditNotification struct {
+	Event   string         `json:"event"`
+	Payload map[string]any `json:"payload"`
+}
+
+type AppEvent struct {
+	Kind       AppEventKind        `json:"kind"`
+	Session    *core.SessionStatus `json:"session,omitempty"`
+	Runtime    *core.RuntimeStatus `json:"runtime,omitempty"`
+	Invalidate []InvalidateTarget  `json:"invalidate,omitempty"`
+	Audit      *AuditNotification  `json:"audit,omitempty"`
 }
 
 type PlanUpsertRequest struct {

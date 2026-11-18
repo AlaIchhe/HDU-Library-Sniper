@@ -28,6 +28,8 @@ var enums = []enumDef{
 	{name: "BookingState", values: `"pending" | "check_in" | "in_use" | "away"`},
 	{name: "NextTargetKind", values: `"booking" | "check-in" | "none"`},
 	{name: "QrLoginPhase", values: `"pending" | "success" | "expired" | "error"`},
+	{name: "AppEventKind", values: `"session" | "runtime" | "invalidate" | "audit"`},
+	{name: "InvalidateTarget", values: `"plans" | "bookings" | "nextTarget" | "checkin" | "runtime"`},
 }
 
 func main() {
@@ -262,7 +264,7 @@ func tsType(t reflect.Type, hint string) string {
 	}
 	if t.PkgPath() == "hdu-library-sniper/internal/api" {
 		switch t.Name() {
-		case "BookingAction", "PlanToggleAction", "BookingState", "NextTargetKind", "QrLoginPhase", "Weekday":
+		case "BookingAction", "PlanToggleAction", "BookingState", "NextTargetKind", "QrLoginPhase", "AppEventKind", "InvalidateTarget", "Weekday":
 			return t.Name()
 		}
 	}

@@ -62,6 +62,7 @@ func (s *Server) handleCreatePlan(w http.ResponseWriter, r *http.Request) {
 	if plan.Enabled {
 		_, _ = s.Store.SetOnlyEnabled(plan.ID, true)
 	}
+	s.publishInvalidate(api.InvalidatePlans, api.InvalidateNextTarget)
 	writeJSON(w, http.StatusCreated, api.SinglePlanResponse{Plan: plan})
 }
 
@@ -99,6 +100,7 @@ func (s *Server) handleUpdatePlan(w http.ResponseWriter, r *http.Request) {
 	if updated.Enabled && !cur.Enabled {
 		_, _ = s.Store.SetOnlyEnabled(updated.ID, true)
 	}
+	s.publishInvalidate(api.InvalidatePlans, api.InvalidateNextTarget)
 	writeJSON(w, http.StatusOK, api.SinglePlanResponse{Plan: updated})
 }
 
@@ -122,6 +124,7 @@ func (s *Server) handleDeletePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "方案不存在")
 		return
 	}
+	s.publishInvalidate(api.InvalidatePlans, api.InvalidateNextTarget)
 	writeJSON(w, http.StatusOK, api.SuccessResponse{Success: true})
 }
 
@@ -151,6 +154,7 @@ func (s *Server) handleTogglePlan(w http.ResponseWriter, r *http.Request) {
 	if updated == nil {
 		updated = item
 	}
+	s.publishInvalidate(api.InvalidatePlans, api.InvalidateNextTarget)
 	writeJSON(w, http.StatusOK, api.TogglePlanResponse{
 		Plan:            *updated,
 		DisabledPlanIDs: core.NonNil(disabled),
@@ -184,6 +188,7 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.publishInvalidate(api.InvalidatePlans, api.InvalidateNextTarget)
 	writeJSON(w, http.StatusCreated, api.GroupResponse{Plan: *g})
 }
 
@@ -236,6 +241,7 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.publishInvalidate(api.InvalidatePlans, api.InvalidateNextTarget)
 	writeJSON(w, http.StatusOK, api.GroupResponse{Plan: *g})
 }
 
@@ -249,6 +255,7 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "组合方案不存在")
 		return
 	}
+	s.publishInvalidate(api.InvalidatePlans, api.InvalidateNextTarget)
 	writeJSON(w, http.StatusOK, api.SuccessResponse{Success: true})
 }
 

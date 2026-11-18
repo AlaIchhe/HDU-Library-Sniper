@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"hdu-library-sniper/internal/core"
@@ -19,16 +20,18 @@ import (
 )
 
 const (
-	qrTTL      = 90 * time.Second
-	qrPollIdle = 15 * time.Second
-	qrPollTick = 1200 * time.Millisecond
+	qrTTL                = 90 * time.Second
+	defaultQrStreamGrace = 5 * time.Second
+	defaultQrPollTick    = 1200 * time.Millisecond
 )
 
 type qrSession struct {
-	createdAt    time.Time
-	lastPolledAt time.Time
-	status       core.QrLoginStatus
-	cancel       context.CancelFunc
+	createdAt     time.Time
+	lastPolledAt  time.Time
+	watchers      int
+	watcherLeftAt time.Time
+	status        core.QrLoginStatus
+	cancel        context.CancelFunc
 }
 
 var (
@@ -150,13 +153,25 @@ func (s *Service) CreateQrLogin(ctx context.Context) (*core.QrLoginStart, error)
 	s.mu.Unlock()
 
 	releaseOnErr = false
-	go s.runQrScanLoop(loopCtx, uuid)
+	s.qrWg.Add(1)
+	go s.runQrScanLoop(loopCtx, cancel, uuid)
 
 	return &core.QrLoginStart{
 		UUID:       uuid,
 		Image:      dataURL,
 		TTLSeconds: int64(qrTTL.Seconds()),
 	}, nil
+}
+
+// QrStatus returns the current snapshot of a QR login session without modifying watcher state.
+func (s *Service) QrStatus(uuid string) core.QrLoginStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	qs, ok := s.qrSessions[uuid]
+	if !ok {
+		return core.QrLoginStatus{Status: "error", Message: "扫码会话不存在或已取消"}
+	}
+	return qs.status
 }
 
 func (s *Service) PollQrLogin(uuid string) core.QrLoginStatus {
@@ -170,15 +185,48 @@ func (s *Service) PollQrLogin(uuid string) core.QrLoginStatus {
 	return qs.status
 }
 
+// BeginQrWatch tracks an active SSE subscriber for uuid so disconnected browser tabs free the QR slot.
+func (s *Service) BeginQrWatch(uuid string) func() {
+	s.mu.Lock()
+	if qs, ok := s.qrSessions[uuid]; ok {
+		qs.watchers++
+		qs.watcherLeftAt = time.Time{}
+	}
+	s.mu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.mu.Lock()
+			if qs, ok := s.qrSessions[uuid]; ok {
+				if qs.watchers > 0 {
+					qs.watchers--
+				}
+				if qs.watchers == 0 {
+					qs.watcherLeftAt = time.Now()
+				}
+			}
+			s.mu.Unlock()
+		})
+	}
+}
+
 func (s *Service) CancelQrLogin(uuid string) bool {
 	s.mu.Lock()
 	qs, ok := s.qrSessions[uuid]
+	var notify bool
 	if ok {
+		notify = qs.status.Status == "pending"
 		delete(s.qrSessions, uuid)
 	}
 	s.mu.Unlock()
-	if ok && qs.cancel != nil {
-		qs.cancel()
+	if ok {
+		if qs.cancel != nil {
+			qs.cancel()
+		}
+		if notify {
+			s.notifyQr(uuid, core.QrLoginStatus{Status: "error", Message: "扫码会话已取消"})
+		}
 	}
 	return ok
 }
@@ -194,19 +242,33 @@ func (s *Service) pruneQrSessionsLocked(now time.Time) {
 	}
 }
 
-func (s *Service) runQrScanLoop(ctx context.Context, uuid string) {
-	defer func() { <-s.qrSem }()
+func (s *Service) runQrScanLoop(ctx context.Context, cancel context.CancelFunc, uuid string) {
+	defer func() {
+		if cancel != nil {
+			cancel()
+		}
+		<-s.qrSem
+		s.qrWg.Done()
+	}()
+	streamGrace := s.qrStreamGrace
+	if streamGrace <= 0 {
+		streamGrace = defaultQrStreamGrace
+	}
+	pollTick := s.qrPollTick
+	if pollTick <= 0 {
+		pollTick = defaultQrPollTick
+	}
 	deadline := time.Now().Add(qrTTL)
 	for time.Now().Before(deadline) {
 		s.mu.Lock()
 		qs, ok := s.qrSessions[uuid]
-		var idle bool
-		if ok && time.Since(qs.lastPolledAt) > qrPollIdle {
-			idle = true
+		var abandoned bool
+		if ok && qs.watchers == 0 && !qs.watcherLeftAt.IsZero() && time.Since(qs.watcherLeftAt) > streamGrace {
+			abandoned = true
 			delete(s.qrSessions, uuid)
 		}
 		s.mu.Unlock()
-		if !ok || idle {
+		if !ok || abandoned {
 			return
 		}
 
@@ -231,7 +293,7 @@ func (s *Service) runQrScanLoop(ctx context.Context, uuid string) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(qrPollTick):
+		case <-time.After(pollTick):
 		}
 	}
 	s.setQrStatus(uuid, core.QrLoginStatus{Status: "expired", Message: "二维码已过期"})
@@ -239,9 +301,13 @@ func (s *Service) runQrScanLoop(ctx context.Context, uuid string) {
 
 func (s *Service) setQrStatus(uuid string, st core.QrLoginStatus) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if qs, ok := s.qrSessions[uuid]; ok {
+	qs, ok := s.qrSessions[uuid]
+	if ok {
 		qs.status = st
+	}
+	s.mu.Unlock()
+	if ok {
+		s.notifyQr(uuid, st)
 	}
 }
 
@@ -299,8 +365,13 @@ func (s *Service) completeQrLogin(ctx context.Context, token string) error {
 	}
 	s.mu.Lock()
 	s.authenticated = true
+	s.refreshing = false
 	s.lastError = ""
 	s.creds = &Credentials{}
 	s.mu.Unlock()
-	return s.persistSession()
+	if err := s.persistSession(); err != nil {
+		return err
+	}
+	s.notifySession()
+	return nil
 }

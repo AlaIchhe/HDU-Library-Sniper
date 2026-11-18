@@ -51,6 +51,9 @@ func main() {
 
 	go func() {
 		<-ctx.Done()
+		if rt.Events != nil {
+			rt.Events.Close()
+		}
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(shutCtx)

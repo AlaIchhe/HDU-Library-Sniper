@@ -258,3 +258,66 @@ func TestSyncCheckInsAuditsTerminalFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestSchedulerChangeCallbacksAndClearHelpers(t *testing.T) {
+	st, err := store.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+
+	authSvc := auth.NewService(st, nil)
+	sched := New(st, authSvc, booking.NewExecutor(st))
+
+	type changeEvent struct {
+		state   string
+		targets []string
+	}
+	var got []changeEvent
+	sched.SetOnChange(func(rt core.RuntimeStatus, targets []string) {
+		got = append(got, changeEvent{state: rt.State, targets: targets})
+	})
+
+	sched.SetAutoCheckIn(true, true)
+	now := time.Now()
+	sched.ObserveBookingsAt([]map[string]any{
+		{
+			"id":            "b1",
+			"time":          now.Add(2 * time.Minute).Unix(),
+			"limitSignBack": 900,
+			"status":        "0",
+		},
+	}, now)
+	// Identical ObserveBookingsAt call must not emit duplicate change.
+	countBeforeDup := len(got)
+	sched.ObserveBookingsAt([]map[string]any{
+		{
+			"id":            "b1",
+			"time":          now.Add(2 * time.Minute).Unix(),
+			"limitSignBack": 900,
+			"status":        "0",
+		},
+	}, now)
+	if len(got) != countBeforeDup {
+		t.Fatalf("duplicate ObserveBookingsAt emitted change: %+v", got)
+	}
+
+	sched.setState("auth_required")
+	sched.ClearPending()
+	sched.ClearAuthRequired()
+	// Calling ClearAuthRequired when already idle is a no-op.
+	sched.ClearAuthRequired()
+
+	if st := sched.Status(); st.State != "idle" {
+		t.Fatalf("state after ClearAuthRequired = %q", st.State)
+	}
+	if _, _, ok := sched.NextCheckIn(); ok {
+		t.Fatal("expected pending cleared after ClearPending")
+	}
+	if len(got) != 5 {
+		t.Fatalf("expected 5 change events, got %d: %+v", len(got), got)
+	}
+	if got[0].targets[0] != "checkin" || got[1].targets[0] != "nextTarget" || got[2].state != "auth_required" || got[3].targets[0] != "nextTarget" || got[4].state != "idle" {
+		t.Fatalf("unexpected change sequence: %+v", got)
+	}
+}

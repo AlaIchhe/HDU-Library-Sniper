@@ -16,12 +16,19 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
 
+	"hdu-library-sniper/internal/api"
 	"hdu-library-sniper/internal/app"
 	"hdu-library-sniper/internal/core"
+	"hdu-library-sniper/internal/events"
 )
 
 //go:embed resources/icon.png
 var appIconPNG []byte
+
+var (
+	qrStatusEvent = mygo.NewEvent[api.QrStatusEvent]("qr_status")
+	appEvent      = mygo.NewEvent[api.AppEvent]("app_event")
+)
 
 // APIResponse mirrors the HTTP status and response body returned over desktop IPC.
 type APIResponse struct {
@@ -101,10 +108,11 @@ func main() {
 	defer cancel()
 
 	var (
-		mu       sync.Mutex
-		rt       *app.Runtime
-		mainWin  *mygo.Window
-		quitting atomic.Bool
+		mu          sync.Mutex
+		rt          *app.Runtime
+		unsubEvents func()
+		mainWin     *mygo.Window
+		quitting    atomic.Bool
 	)
 
 	showWindow := func() {
@@ -154,8 +162,13 @@ func main() {
 	pg.OnQuit(func() {
 		cancel()
 		mu.Lock()
+		unsub := unsubEvents
+		unsubEvents = nil
 		cur := rt
 		mu.Unlock()
+		if unsub != nil {
+			unsub()
+		}
 		if cur != nil {
 			_ = cur.Close()
 		}
@@ -185,8 +198,33 @@ func main() {
 			desktop.setReady(nil, err)
 			log.Printf("backend startup error: %v", err)
 		} else {
+			// A visible, focused window already shows the toast; only notify when
+			// the app is hidden, minimized or behind another window.
+			windowInFront := func() bool {
+				mu.Lock()
+				win := mainWin
+				mu.Unlock()
+				return win != nil && !win.IsDestroyed() && win.IsVisible() && win.IsFocused() && !win.IsMinimized()
+			}
+			unsub := opened.Events.OnPublish(func(msg events.Message) {
+				switch msg.Name {
+				case events.TopicQrStatus:
+					if ev, ok := msg.Payload.(api.QrStatusEvent); ok {
+						_ = qrStatusEvent.Broadcast(ev)
+					}
+				case events.TopicAppEvent:
+					if ev, ok := msg.Payload.(api.AppEvent); ok {
+						if ev.Kind == api.AppEventAudit && ev.Audit != nil {
+							go notifyAuditEvent(ev.Audit.Event, ev.Audit.Payload, windowInFront)
+						}
+						_ = appEvent.Broadcast(ev)
+					}
+				}
+			})
+
 			mu.Lock()
 			rt = opened
+			unsubEvents = unsub
 			mu.Unlock()
 
 			if pg.IsPackaged() {
@@ -196,7 +234,6 @@ func main() {
 				}
 			}
 
-			opened.Store.SetOnAudit(notifyAuditEvent)
 			opened.Start(ctx)
 			desktop.setReady(opened.Handler, nil)
 		}
@@ -237,7 +274,13 @@ func main() {
 	}
 }
 
-func notifyAuditEvent(event string, payload map[string]any) {
+// notifyAuditEvent raises a system notification for the same audit events the
+// WebView shows as in-app toasts. When the window is already in front the toast
+// is visible on its own, so the notification would only duplicate it.
+func notifyAuditEvent(event string, payload map[string]any, windowInFront func() bool) {
+	if windowInFront != nil && windowInFront() {
+		return
+	}
 	var title, body string
 	switch event {
 	case "booking_run_finished":
@@ -249,8 +292,10 @@ func notifyAuditEvent(event string, payload map[string]any) {
 		}
 		body = msg
 	case "checkin_succeeded":
-		title = "自动签到成功"
-		body = "预约 " + core.ToString(payload["bookingId"]) + " 已完成签到"
+		if core.ToString(payload["source"]) != "manual" {
+			title = "自动签到成功"
+			body = "预约 " + core.ToString(payload["bookingId"]) + " 已完成签到"
+		}
 	case "checkin_missed":
 		title = "自动签到超时"
 		body = core.ToString(payload["reason"])

@@ -9,6 +9,12 @@ import (
 	"hdu-library-sniper/internal/api"
 )
 
+// routeKey mirrors the Go 1.22 net/http ServeMux registration pattern
+// ("METHOD /path"), used here to detect endpoints declared twice.
+func routeKey(e api.EndpointSpec) string {
+	return e.Method + " " + e.Path
+}
+
 func TestAPIEndpointContractCoverage(t *testing.T) {
 	_, h := testRouter(t)
 
@@ -24,7 +30,7 @@ func TestAPIEndpointContractCoverage(t *testing.T) {
 		}
 		seenNames[ep.Name] = true
 
-		key := ep.Pattern()
+		key := routeKey(ep)
 		if seenRoutes[key] {
 			t.Fatalf("duplicate route %q", key)
 		}

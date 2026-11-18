@@ -10,6 +10,7 @@ import (
 	"hdu-library-sniper/internal/api"
 	"hdu-library-sniper/internal/auth"
 	"hdu-library-sniper/internal/booking"
+	"hdu-library-sniper/internal/events"
 	"hdu-library-sniper/internal/scheduler"
 	"hdu-library-sniper/internal/store"
 )
@@ -20,6 +21,7 @@ type Server struct {
 	Auth      *auth.Service
 	Booking   *booking.Executor
 	Scheduler *scheduler.Scheduler
+	Events    *events.Bus
 	Frontend  fs.FS
 	limiter   *RateLimiter
 	catalog   *catalogFlights
@@ -31,6 +33,7 @@ func New(st *store.Store, authSvc *auth.Service, exec *booking.Executor, sched *
 		Auth:      authSvc,
 		Booking:   exec,
 		Scheduler: sched,
+		Events:    events.NewBus(),
 		Frontend:  frontend,
 		limiter:   NewRateLimiter(),
 		catalog:   newCatalogFlights(),
@@ -49,10 +52,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+api.PathSessionOpenID, s.handleSessionOpenID)
 	mux.HandleFunc("POST "+api.PathSessionQR, s.handleSessionCreateQR)
 	mux.HandleFunc("GET "+api.PathSessionQRStatus, s.handleSessionQRStatus)
+	mux.HandleFunc("GET "+api.PathSessionQREvents, s.handleSessionQREvents)
 	mux.HandleFunc("POST "+api.PathSessionQRCancel, s.handleSessionQRCancel)
 	mux.HandleFunc("POST "+api.PathSessionLogout, s.handleSessionLogout)
 
 	// Protected workspace routes
+	mux.HandleFunc("GET "+api.PathEvents, s.requireAuth(s.handleEvents))
 	mux.HandleFunc("GET "+api.PathAudit, s.requireAuth(s.handleListAudit))
 	mux.HandleFunc("GET "+api.PathPlans, s.requireAuth(s.handleListPlans))
 	mux.HandleFunc("POST "+api.PathPlans, s.requireAuth(s.handleCreatePlan))

@@ -16,6 +16,7 @@ func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	res := s.Auth.LoginPassword(r.Context(), body.StudentID, body.Password)
 	if res.Success {
+		s.Scheduler.ClearAuthRequired()
 		s.Scheduler.SyncAsync()
 	}
 	writeJSON(w, http.StatusOK, api.LoginResponse{
@@ -30,6 +31,7 @@ func (s *Server) handleSessionOpenID(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	res := s.Auth.LoginOpenID(r.Context(), body.OpenID)
 	if res.Success {
+		s.Scheduler.ClearAuthRequired()
 		s.Scheduler.SyncAsync()
 	}
 	writeJSON(w, http.StatusOK, api.LoginResponse{
@@ -56,6 +58,7 @@ func (s *Server) handleSessionQRStatus(w http.ResponseWriter, r *http.Request) {
 	uuid := r.PathValue("uuid")
 	st := s.Auth.PollQrLogin(uuid)
 	if st.Status == string(api.QrLoginSuccess) {
+		s.Scheduler.ClearAuthRequired()
 		s.Scheduler.SyncAsync()
 	}
 	writeJSON(w, http.StatusOK, st)
@@ -68,5 +71,7 @@ func (s *Server) handleSessionQRCancel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSessionLogout(w http.ResponseWriter, r *http.Request) {
 	_ = s.Auth.Logout()
+	s.Scheduler.ClearPending()
+	s.Scheduler.ClearAuthRequired()
 	writeJSON(w, http.StatusOK, api.SuccessResponse{Success: true})
 }

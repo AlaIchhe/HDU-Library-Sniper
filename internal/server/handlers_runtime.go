@@ -46,6 +46,7 @@ func (s *Server) handleBookingAction(w http.ResponseWriter, r *http.Request) {
 	} else if action == hdu.ActionCancel {
 		s.Scheduler.Forget(id)
 	}
+	s.publishInvalidate(api.InvalidateBookings)
 	writeJSON(w, http.StatusOK, api.ActionResponse{Success: true, Message: "操作成功"})
 }
 

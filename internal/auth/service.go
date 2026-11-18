@@ -54,17 +54,22 @@ type Service struct {
 	Client    *hdu.LibraryClient
 	Endpoints Endpoints
 
-	loginGate sync.Mutex
-	qrSem     chan struct{}
+	loginGate     sync.Mutex
+	qrSem         chan struct{}
+	qrWg          sync.WaitGroup
+	qrStreamGrace time.Duration
+	qrPollTick    time.Duration
 
-	mu            sync.Mutex
-	authenticated bool
-	refreshing    bool
-	lastError     string
-	creds         *Credentials
-	qrSessions    map[string]*qrSession
-	failStreak    int
-	blockedUntil  time.Time
+	mu              sync.Mutex
+	authenticated   bool
+	refreshing      bool
+	lastError       string
+	creds           *Credentials
+	qrSessions      map[string]*qrSession
+	failStreak      int
+	blockedUntil    time.Time
+	onSessionChange func(core.SessionStatus)
+	onQrChange      func(string, core.QrLoginStatus)
 }
 
 func NewService(st *store.Store, secrets *SecretStore) *Service {
@@ -77,15 +82,49 @@ func NewServiceWithEndpoints(st *store.Store, secrets *SecretStore, ep Endpoints
 	}
 	client := hdu.NewClientWithBaseURL(ep.Library)
 	svc := &Service{
-		Store:      st,
-		Secrets:    secrets,
-		Client:     client,
-		Endpoints:  ep,
-		qrSem:      make(chan struct{}, 2),
-		qrSessions: make(map[string]*qrSession),
+		Store:         st,
+		Secrets:       secrets,
+		Client:        client,
+		Endpoints:     ep,
+		qrSem:         make(chan struct{}, 2),
+		qrStreamGrace: defaultQrStreamGrace,
+		qrPollTick:    defaultQrPollTick,
+		qrSessions:    make(map[string]*qrSession),
 	}
 	client.SetHooks(svc.Refresh, svc.MarkLost)
 	return svc
+}
+
+// SetOnSessionChange registers a listener invoked whenever authentication state transitions.
+func (s *Service) SetOnSessionChange(fn func(core.SessionStatus)) {
+	s.mu.Lock()
+	s.onSessionChange = fn
+	s.mu.Unlock()
+}
+
+// SetOnQrChange registers a listener invoked whenever a QR login session updates status.
+func (s *Service) SetOnQrChange(fn func(string, core.QrLoginStatus)) {
+	s.mu.Lock()
+	s.onQrChange = fn
+	s.mu.Unlock()
+}
+
+func (s *Service) notifySession() {
+	s.mu.Lock()
+	fn := s.onSessionChange
+	s.mu.Unlock()
+	if fn != nil {
+		fn(s.Status())
+	}
+}
+
+func (s *Service) notifyQr(uuid string, st core.QrLoginStatus) {
+	s.mu.Lock()
+	fn := s.onQrChange
+	s.mu.Unlock()
+	if fn != nil {
+		fn(uuid, st)
+	}
 }
 
 func (s *Service) Authenticated() bool {
@@ -148,12 +187,18 @@ func (s *Service) noteLogin(success bool) {
 }
 
 func (s *Service) MarkLost() {
+	const lostMsg = "图书馆登录状态已失效"
 	s.mu.Lock()
+	changed := s.authenticated || s.lastError != lostMsg
 	s.authenticated = false
-	s.lastError = "图书馆登录状态已失效"
+	s.refreshing = false
+	s.lastError = lostMsg
 	s.mu.Unlock()
 	s.Client.Jar().Clear()
 	s.Client.SetIdentity("", "")
+	if changed {
+		s.notifySession()
+	}
 }
 
 func (s *Service) Restore(ctx context.Context) bool {
@@ -175,9 +220,11 @@ func (s *Service) Restore(ctx context.Context) bool {
 	if s.Client.ValidateOnce(ctx) {
 		s.mu.Lock()
 		s.authenticated = true
+		s.refreshing = false
 		s.lastError = ""
 		s.mu.Unlock()
 		_ = s.persistSession()
+		s.notifySession()
 		return true
 	}
 	return s.Refresh(ctx)
@@ -189,6 +236,7 @@ func (s *Service) Refresh(ctx context.Context) bool {
 
 	s.mu.Lock()
 	creds := s.creds
+	wasAuth := s.authenticated
 	s.refreshing = true
 	s.mu.Unlock()
 	defer func() {
@@ -213,11 +261,25 @@ func (s *Service) Refresh(ctx context.Context) bool {
 			s.lastError = res.Message
 		}
 		s.authenticated = false
+		s.refreshing = false
 		s.mu.Unlock()
+		if wasAuth {
+			s.notifySession()
+		}
 		return false
 	}
 	if creds.OpenID != "" {
 		res := s.loginOpenIDLocked(ctx, creds.OpenID)
+		if !res.Success {
+			s.mu.Lock()
+			s.authenticated = false
+			s.refreshing = false
+			s.lastError = res.Message
+			s.mu.Unlock()
+			if wasAuth {
+				s.notifySession()
+			}
+		}
 		return res.Success
 	}
 	s.MarkLost()
@@ -228,6 +290,13 @@ func (s *Service) Logout() error {
 	s.mu.Lock()
 	sessions := s.qrSessions
 	s.qrSessions = make(map[string]*qrSession)
+	pendingIDs := make([]string, 0, len(sessions))
+	for uuid, qs := range sessions {
+		if qs.status.Status == "pending" {
+			pendingIDs = append(pendingIDs, uuid)
+		}
+	}
+	wasAuth := s.authenticated
 	s.authenticated = false
 	s.refreshing = false
 	s.lastError = ""
@@ -239,10 +308,17 @@ func (s *Service) Logout() error {
 			qs.cancel()
 		}
 	}
+	for _, uuid := range pendingIDs {
+		s.notifyQr(uuid, core.QrLoginStatus{Status: "error", Message: "扫码会话已取消"})
+	}
 	s.Client.Jar().Clear()
 	s.Client.SetIdentity("", "")
 	s.Client.ClearRoomMeta()
-	return s.Store.ClearSession()
+	err := s.Store.ClearSession()
+	if wasAuth {
+		s.notifySession()
+	}
+	return err
 }
 
 func (s *Service) persistSession() error {

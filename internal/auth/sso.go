@@ -155,9 +155,11 @@ func (s *Service) finishPasswordLogin(ctx context.Context, jar *hdu.CookieJar) (
 	}
 	s.mu.Lock()
 	s.authenticated = true
+	s.refreshing = false
 	s.lastError = ""
 	s.mu.Unlock()
 	_ = s.persistSession()
+	s.notifySession()
 	return LoginResult{
 		Success: true,
 		Message: "登录成功",
@@ -251,8 +253,10 @@ func (s *Service) loginOpenIDLocked(ctx context.Context, openid string) LoginRes
 
 	s.mu.Lock()
 	s.authenticated = true
+	s.refreshing = false
 	s.lastError = ""
 	s.mu.Unlock()
 	_ = s.persistSession()
+	s.notifySession()
 	return LoginResult{Success: true, Message: "登录成功", Session: s.Status()}
 }

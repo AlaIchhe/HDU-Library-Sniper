@@ -26,18 +26,15 @@ type EndpointSpec struct {
 	ResponseType reflect.Type
 }
 
-// Pattern returns the Go 1.22 net/http ServeMux registration pattern ("METHOD /path").
-func (e EndpointSpec) Pattern() string {
-	return e.Method + " " + e.Path
-}
-
 const (
 	PathHealth            = "/api/health"
+	PathEvents            = "/api/events"
 	PathSessionStatus     = "/api/session"
 	PathSessionLogin      = "/api/session/login"
 	PathSessionOpenID     = "/api/session/openid"
 	PathSessionQR         = "/api/session/qr"
 	PathSessionQRStatus   = "/api/session/qr/{uuid}/status"
+	PathSessionQREvents   = "/api/session/qr/{uuid}/events"
 	PathSessionQRCancel   = "/api/session/qr/{uuid}/cancel"
 	PathSessionLogout     = "/api/session/logout"
 	PathAudit             = "/api/audit"
@@ -62,11 +59,13 @@ const (
 // Endpoints enumerates every HTTP/IPC API endpoint exposed by the server.
 var Endpoints = []EndpointSpec{
 	{Name: "health", Method: http.MethodGet, Path: PathHealth, Public: true, ResponseType: reflect.TypeFor[HealthResponse]()},
+	{Name: "events", Method: http.MethodGet, Path: PathEvents, ResponseType: reflect.TypeFor[AppEvent]()},
 	{Name: "sessionStatus", Method: http.MethodGet, Path: PathSessionStatus, Public: true, ResponseType: reflect.TypeFor[core.SessionStatus]()},
 	{Name: "sessionLogin", Method: http.MethodPost, Path: PathSessionLogin, Public: true, RequestType: reflect.TypeFor[LoginPasswordRequest](), ResponseType: reflect.TypeFor[LoginResponse]()},
 	{Name: "sessionOpenId", Method: http.MethodPost, Path: PathSessionOpenID, Public: true, RequestType: reflect.TypeFor[LoginOpenIDRequest](), ResponseType: reflect.TypeFor[LoginResponse]()},
 	{Name: "sessionQrStart", Method: http.MethodPost, Path: PathSessionQR, Public: true, ResponseType: reflect.TypeFor[core.QrLoginStart]()},
 	{Name: "sessionQrStatus", Method: http.MethodGet, Path: PathSessionQRStatus, Public: true, PathParams: []ParamSpec{{Name: "uuid", TypeExpr: "string", Required: true}}, ResponseType: reflect.TypeFor[core.QrLoginStatus]()},
+	{Name: "sessionQrEvents", Method: http.MethodGet, Path: PathSessionQREvents, Public: true, PathParams: []ParamSpec{{Name: "uuid", TypeExpr: "string", Required: true}}, ResponseType: reflect.TypeFor[QrStatusEvent]()},
 	{Name: "sessionQrCancel", Method: http.MethodPost, Path: PathSessionQRCancel, Public: true, PathParams: []ParamSpec{{Name: "uuid", TypeExpr: "string", Required: true}}, ResponseType: reflect.TypeFor[QrCancelResponse]()},
 	{Name: "sessionLogout", Method: http.MethodPost, Path: PathSessionLogout, Public: true, ResponseType: reflect.TypeFor[SuccessResponse]()},
 

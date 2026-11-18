@@ -6,10 +6,20 @@ export type BookingAction = "cancel" | "checkin" | "comeback" | "signout" | "lea
 export type BookingState = "pending" | "check_in" | "in_use" | "away";
 export type NextTargetKind = "booking" | "check-in" | "none";
 export type QrLoginPhase = "pending" | "success" | "expired" | "error";
+export type AppEventKind = "session" | "runtime" | "invalidate" | "audit";
+export type InvalidateTarget = "plans" | "bookings" | "nextTarget" | "checkin" | "runtime";
 
 export type ActionResponse = {
   success: boolean;
   message: string;
+};
+
+export type AppEvent = {
+  kind: AppEventKind;
+  session?: SessionStatus;
+  runtime?: RuntimeStatus;
+  invalidate?: InvalidateTarget[];
+  audit?: AuditNotification;
 };
 
 export type AuditEvent = {
@@ -21,6 +31,11 @@ export type AuditEvent = {
 
 export type AuditListResponse = {
   events: AuditEvent[];
+};
+
+export type AuditNotification = {
+  event: string;
+  payload: Record<string, unknown>;
 };
 
 export type Booking = {
@@ -193,6 +208,13 @@ export type QrLoginStatus = {
   session?: SessionStatus;
 };
 
+export type QrStatusEvent = {
+  uuid: string;
+  status: QrLoginPhase;
+  message?: string;
+  session?: SessionStatus;
+};
+
 export type RoomTypeOption = {
   id: string;
   name: string;
@@ -240,6 +262,11 @@ export type APIEndpoints = {
     pattern: "/api/health";
     response: HealthResponse;
   };
+  events: {
+    method: "GET";
+    pattern: "/api/events";
+    response: AppEvent;
+  };
   sessionStatus: {
     method: "GET";
     pattern: "/api/session";
@@ -269,6 +296,14 @@ export type APIEndpoints = {
       uuid: string;
     };
     response: QrLoginStatus;
+  };
+  sessionQrEvents: {
+    method: "GET";
+    pattern: "/api/session/qr/{uuid}/events";
+    pathParams: {
+      uuid: string;
+    };
+    response: QrStatusEvent;
   };
   sessionQrCancel: {
     method: "POST";
@@ -443,6 +478,13 @@ export const API_SCHEMAS = {
     success: "b",
     message: "s",
   },
+  AppEvent: {
+    kind: "s",
+    session: "o?",
+    runtime: "o?",
+    invalidate: "a?",
+    audit: "o?",
+  },
   AuditListResponse: {
     events: "a",
   },
@@ -503,6 +545,12 @@ export const API_SCHEMAS = {
     message: "s?",
     session: "o?",
   },
+  QrStatusEvent: {
+    uuid: "s",
+    status: "s",
+    message: "s?",
+    session: "o?",
+  },
   RoomTypesResponse: {
     options: "a",
   },
@@ -538,6 +586,11 @@ export const API_ROUTES = {
     pattern: "/api/health",
     schema: "HealthResponse",
   },
+  events: {
+    method: "GET",
+    pattern: "/api/events",
+    schema: "AppEvent",
+  },
   sessionStatus: {
     method: "GET",
     pattern: "/api/session",
@@ -562,6 +615,11 @@ export const API_ROUTES = {
     method: "GET",
     pattern: "/api/session/qr/{uuid}/status",
     schema: "QrLoginStatus",
+  },
+  sessionQrEvents: {
+    method: "GET",
+    pattern: "/api/session/qr/{uuid}/events",
+    schema: "QrStatusEvent",
   },
   sessionQrCancel: {
     method: "POST",

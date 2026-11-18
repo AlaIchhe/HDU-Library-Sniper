@@ -57,6 +57,7 @@ type Scheduler struct {
 	lastRunAt   string
 	lastMessage string
 	pending     map[string]*pendingCheckIn
+	onChange    func(core.RuntimeStatus, []string)
 }
 
 func New(st *store.Store, authSvc *auth.Service, exec *booking.Executor) *Scheduler {
@@ -69,6 +70,22 @@ func New(st *store.Store, authSvc *auth.Service, exec *booking.Executor) *Schedu
 		scheduler: "running",
 		state:     "idle",
 		pending:   make(map[string]*pendingCheckIn),
+	}
+}
+
+// SetOnChange registers a listener invoked when runtime status or scheduled targets change.
+func (s *Scheduler) SetOnChange(fn func(core.RuntimeStatus, []string)) {
+	s.mu.Lock()
+	s.onChange = fn
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) notifyChange(invalidate ...string) {
+	s.mu.Lock()
+	fn := s.onChange
+	s.mu.Unlock()
+	if fn != nil {
+		fn(s.Status(), invalidate)
 	}
 }
 
@@ -105,6 +122,7 @@ func (s *Scheduler) SetAutoCheckIn(enabled, agreed bool) {
 		s.pending = make(map[string]*pendingCheckIn)
 		s.mu.Unlock()
 	}
+	s.notifyChange("checkin", "nextTarget")
 }
 
 func (s *Scheduler) CheckInStatus() core.CheckInStatus {
@@ -211,15 +229,12 @@ func (s *Scheduler) ObserveBookings(bookings []map[string]any) {
 
 func (s *Scheduler) ObserveBookingsAt(bookings []map[string]any, now time.Time) {
 	if !s.AutoCheckInEnabled() {
-		s.mu.Lock()
-		s.pending = make(map[string]*pendingCheckIn)
-		s.mu.Unlock()
+		s.clearPending()
 		return
 	}
 	nowMs := now.UnixMilli()
+	changed := false
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	seen := make(map[string]bool)
 	for _, b := range bookings {
 		id := strings.TrimSpace(core.ToString(b["id"]))
@@ -237,10 +252,14 @@ func (s *Scheduler) ObserveBookingsAt(bookings []map[string]any, now time.Time) 
 			nextAt = nowMs + 500
 		}
 		if existing, ok := s.pending[id]; ok {
-			existing.beginMs = beginMs
-			existing.deadlineMs = deadlineMs
+			if existing.beginMs != beginMs || existing.deadlineMs != deadlineMs {
+				existing.beginMs = beginMs
+				existing.deadlineMs = deadlineMs
+				changed = true
+			}
 			if nextAt < existing.nextAtMs {
 				existing.nextAtMs = nextAt
+				changed = true
 			}
 		} else {
 			s.pending[id] = &pendingCheckIn{
@@ -249,12 +268,18 @@ func (s *Scheduler) ObserveBookingsAt(bookings []map[string]any, now time.Time) 
 				deadlineMs: deadlineMs,
 				nextAtMs:   nextAt,
 			}
+			changed = true
 		}
 	}
 	for id := range s.pending {
 		if !seen[id] {
 			delete(s.pending, id)
+			changed = true
 		}
+	}
+	s.mu.Unlock()
+	if changed {
+		s.notifyChange("nextTarget")
 	}
 }
 
@@ -268,13 +293,18 @@ func (s *Scheduler) NoteCheckedIn(bookingID string) {
 			"bookingId": bookingID,
 			"source":    "manual",
 		})
+		s.notifyChange("nextTarget")
 	}
 }
 
 func (s *Scheduler) Forget(bookingID string) {
 	s.mu.Lock()
+	_, existed := s.pending[bookingID]
 	delete(s.pending, bookingID)
 	s.mu.Unlock()
+	if existed {
+		s.notifyChange("nextTarget")
+	}
 }
 
 // SyncAsync triggers check-in synchronization in the background under the scheduler's
@@ -303,10 +333,32 @@ func (s *Scheduler) SyncCheckIns(ctx context.Context) {
 	}
 }
 
+// ClearPending drops all queued auto check-ins and notifies listeners if any existed.
+func (s *Scheduler) ClearPending() {
+	s.clearPending()
+}
+
+// ClearAuthRequired resets scheduler state from "auth_required" to "idle" after authentication updates.
+func (s *Scheduler) ClearAuthRequired() {
+	s.mu.Lock()
+	changed := s.state == "auth_required"
+	if changed {
+		s.state = "idle"
+	}
+	s.mu.Unlock()
+	if changed {
+		s.notifyChange()
+	}
+}
+
 func (s *Scheduler) clearPending() {
 	s.mu.Lock()
+	had := len(s.pending) > 0
 	s.pending = make(map[string]*pendingCheckIn)
 	s.mu.Unlock()
+	if had {
+		s.notifyChange("nextTarget")
+	}
 }
 
 func (s *Scheduler) auditSyncFailure(msg string) {
@@ -486,9 +538,7 @@ func (s *Scheduler) checkinLoop(ctx context.Context) {
 
 func (s *Scheduler) checkinTick(ctx context.Context) {
 	if !s.AutoCheckInEnabled() {
-		s.mu.Lock()
-		s.pending = make(map[string]*pendingCheckIn)
-		s.mu.Unlock()
+		s.clearPending()
 		return
 	}
 	nowMs := time.Now().UnixMilli()
@@ -594,10 +644,14 @@ func (s *Scheduler) reconcileNonPending(ctx context.Context, bookingID, msg stri
 
 func (s *Scheduler) updateNextAt(bookingID string, nextAtMs int64) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if p, ok := s.pending[bookingID]; ok {
+	p, ok := s.pending[bookingID]
+	if ok {
 		p.attempts++
 		p.nextAtMs = nextAtMs
+	}
+	s.mu.Unlock()
+	if ok {
+		s.notifyChange("nextTarget")
 	}
 }
 
@@ -628,14 +682,19 @@ func (s *Scheduler) hasEnabledPlan() bool {
 
 func (s *Scheduler) setState(state string) {
 	s.mu.Lock()
+	changed := s.state != state
 	s.state = state
 	s.mu.Unlock()
+	if changed {
+		s.notifyChange()
+	}
 }
 
 func (s *Scheduler) touchLastRunAt() {
 	s.mu.Lock()
 	s.lastRunAt = core.FormatISO(time.Now())
 	s.mu.Unlock()
+	s.notifyChange()
 }
 
 func (s *Scheduler) setMessage(msg string) {
@@ -643,6 +702,7 @@ func (s *Scheduler) setMessage(msg string) {
 	s.lastRunAt = core.FormatISO(time.Now())
 	s.lastMessage = msg
 	s.mu.Unlock()
+	s.notifyChange()
 }
 
 func sleepWithContext(ctx context.Context, d time.Duration) bool {
