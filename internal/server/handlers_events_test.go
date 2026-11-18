@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -449,4 +450,230 @@ func TestHandleSessionQREventsCancelClosesStream(t *testing.T) {
 	if _, err := readNextSSEFrame(t, reader, 2*time.Second); err != io.EOF {
 		t.Fatalf("expected EOF after cancel, got %v", err)
 	}
+}
+
+// The bus filters by topic, so a qr_status event must never surface on /api/events
+// even while a QR login is in flight on the same backend instance.
+func TestHandleEventsIgnoresQrTopic(t *testing.T) {
+	srv, _ := testRouter(t)
+	stubAuthUpstream(t, srv)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	loginAsTestUser(t, srv, ts.URL)
+
+	sseResp, err := http.Get(ts.URL + api.PathEvents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sseResp.Body.Close()
+	reader := bufio.NewReader(sseResp.Body)
+	// Drain the seeded session and runtime frames.
+	if _, err := readNextSSEFrame(t, reader, 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readNextSSEFrame(t, reader, 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	// A QR event must not reach the app-event stream.
+	srv.Events.Publish(events.TopicQrStatus, api.QrStatusEvent{UUID: "u1", Status: api.QrLoginPending})
+	// A following app event proves the stream is still alive rather than stalled.
+	srv.Events.Publish(events.TopicAppEvent, api.AppEvent{Kind: api.AppEventRuntime})
+
+	frame, err := readNextSSEFrame(t, reader, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.event != events.TopicAppEvent {
+		t.Fatalf("stream surfaced %q, want only %q", frame.event, events.TopicAppEvent)
+	}
+	var ev api.AppEvent
+	if err := json.Unmarshal([]byte(frame.data), &ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.Kind != api.AppEventRuntime {
+		t.Fatalf("got kind %q, want the app event behind the QR one", ev.Kind)
+	}
+}
+
+// A QR stream for uuid A must stay silent when uuid B transitions.
+func TestHandleSessionQREventsScopesToUUID(t *testing.T) {
+	srv, _ := testRouter(t)
+	stubQrUpstream(t, srv)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	srv.Auth.SetOnQrChange(func(uuid string, st core.QrLoginStatus) {
+		srv.Events.Publish(events.TopicQrStatus, api.QrStatusEvent{
+			UUID:   uuid,
+			Status: api.QrLoginPhase(st.Status),
+		})
+	})
+
+	startA := startQrLogin(t, ts.URL)
+	startB := startQrLogin(t, ts.URL)
+
+	respA, err := http.Get(ts.URL + "/api/session/qr/" + startA + "/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer respA.Body.Close()
+	readerA := bufio.NewReader(respA.Body)
+	if _, err := readNextSSEFrame(t, readerA, 2*time.Second); err != nil {
+		t.Fatalf("initial frame for A: %v", err)
+	}
+
+	// Publishing another session's transition must not reach A's stream.
+	srv.Events.Publish(events.TopicQrStatus, api.QrStatusEvent{UUID: startB, Status: api.QrLoginExpired})
+	srv.Events.Publish(events.TopicQrStatus, api.QrStatusEvent{UUID: startA, Status: api.QrLoginError, Message: "boom"})
+
+	frame, err := readNextSSEFrame(t, readerA, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev api.QrStatusEvent
+	if err := json.Unmarshal([]byte(frame.data), &ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.UUID != startA {
+		t.Fatalf("stream for %s surfaced event for %s", startA, ev.UUID)
+	}
+	if ev.Message != "boom" {
+		t.Fatalf("got message %q, want the A-specific one", ev.Message)
+	}
+}
+
+// A client that hangs up mid-write must unwind the handler rather than spin.
+func TestHandleEventsReturnsOnWriteFailure(t *testing.T) {
+	srv, _ := testRouter(t)
+	stubAuthUpstream(t, srv)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	loginAsTestUser(t, srv, ts.URL)
+
+	sseResp, err := http.Get(ts.URL + api.PathEvents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(sseResp.Body)
+	if _, err := readNextSSEFrame(t, reader, 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	// Hang up; the handler must notice on its next write instead of looping.
+	_ = sseResp.Body.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 50 {
+			srv.Events.Publish(events.TopicAppEvent, api.AppEvent{Kind: api.AppEventRuntime})
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("publishing blocked after client hang-up")
+	}
+}
+
+// stubAuthUpstream points the server's auth service at an upstream that accepts
+// openid "abcdef_123" as a logged-in user, matching the other SSE tests.
+func stubAuthUpstream(t *testing.T, srv *Server) {
+	t.Helper()
+	hduMock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/content/index/startUp/openid/abcdef_123/":
+			w.WriteHeader(http.StatusOK)
+		case "/User/Center/baseInfo":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"DATA": map[string]any{"is_login": true, "uid": "304174", "user_info": map[string]any{"name": "陈同学"}},
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"CODE": "ok", "MESSAGE": "ok"})
+		}
+	}))
+	t.Cleanup(hduMock.Close)
+	srv.Auth = auth.NewServiceWithEndpoints(srv.Store, nil, auth.Endpoints{Library: hduMock.URL})
+}
+
+// loginAsTestUser authenticates against the stubbed upstream and asserts it worked.
+func loginAsTestUser(t *testing.T, srv *Server, baseURL string) {
+	t.Helper()
+	body, _ := json.Marshal(api.LoginOpenIDRequest{OpenID: "abcdef_123"})
+	resp, err := http.Post(baseURL+api.PathSessionOpenID, "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("login status = %d", resp.StatusCode)
+	}
+	if st := srv.Auth.Status(); !st.Authenticated {
+		t.Fatalf("login did not authenticate: %+v", st)
+	}
+}
+
+// startQrLogin starts a QR login against the stub upstream and returns its uuid.
+func startQrLogin(t *testing.T, baseURL string) string {
+	t.Helper()
+	resp, err := http.Post(baseURL+api.PathSessionQR, "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var start core.QrLoginStart
+	if err := json.NewDecoder(resp.Body).Decode(&start); err != nil {
+		t.Fatal(err)
+	}
+	if start.UUID == "" {
+		t.Fatal("empty uuid from QR start")
+	}
+	return start.UUID
+}
+
+// stubQrUpstream points the auth service at an upstream that can start a QR
+// login, so /api/session/qr returns a usable uuid.
+func stubQrUpstream(t *testing.T, srv *Server) {
+	t.Helper()
+	var seq atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/sso/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			http.Redirect(w, r, "/User/Center/baseInfo", http.StatusFound)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/sso/public/utils/loginNew.js", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`"Csrf-Key":"k1","Csrf-Value":"v1"`))
+	})
+	mux.HandleFunc("/sso/api/protected/qrlogin/loginid", func(w http.ResponseWriter, r *http.Request) {
+		n := seq.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": fmt.Sprintf("qr-%d", n)})
+	})
+	mux.HandleFunc("/sso/api/public/qrlogin/qrgen/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("png"))
+	})
+	mux.HandleFunc("/sso/api/protected/qrlogin/scan/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": ""})
+	})
+	mux.HandleFunc("/User/Center/baseInfo", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"DATA": map[string]any{"is_login": true, "uid": "304174", "user_info": map[string]any{"name": "陈同学"}},
+		})
+	})
+	upstream := httptest.NewServer(mux)
+	t.Cleanup(upstream.Close)
+
+	srv.Auth = auth.NewServiceWithEndpoints(srv.Store, nil, auth.Endpoints{
+		Library:       upstream.URL,
+		SSO:           upstream.URL + "/sso",
+		SSOLoginPage:  upstream.URL + "/sso/login?service=test",
+		SSOCsrfScript: upstream.URL + "/sso/public/utils/loginNew.js",
+	})
 }

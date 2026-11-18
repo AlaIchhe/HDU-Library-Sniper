@@ -95,3 +95,70 @@ func TestBusCloseAndNilSafety(t *testing.T) {
 		t.Fatal("closed bus Done() must be closed")
 	}
 }
+
+func TestBusSubscribeFiltersTopics(t *testing.T) {
+	bus := NewBus()
+	defer bus.Close()
+
+	appOnly, unsubApp := bus.Subscribe(TopicAppEvent)
+	defer unsubApp()
+	qrOnly, unsubQr := bus.Subscribe(TopicQrStatus)
+	defer unsubQr()
+	all, unsubAll := bus.Subscribe()
+	defer unsubAll()
+
+	bus.Publish(TopicAppEvent, "app")
+	bus.Publish(TopicQrStatus, "qr")
+
+	// Each filtered subscriber sees exactly its own topic.
+	if got := <-appOnly; got.Name != TopicAppEvent {
+		t.Fatalf("app subscriber got %q", got.Name)
+	}
+	if got := <-qrOnly; got.Name != TopicQrStatus {
+		t.Fatalf("qr subscriber got %q", got.Name)
+	}
+	select {
+	case msg := <-appOnly:
+		t.Fatalf("app subscriber must not receive %q", msg.Name)
+	default:
+	}
+	select {
+	case msg := <-qrOnly:
+		t.Fatalf("qr subscriber must not receive %q", msg.Name)
+	default:
+	}
+
+	// An unrestricted subscriber still receives every topic.
+	seen := map[string]bool{}
+	for range 2 {
+		seen[(<-all).Name] = true
+	}
+	if !seen[TopicAppEvent] || !seen[TopicQrStatus] {
+		t.Fatalf("unrestricted subscriber saw %v", seen)
+	}
+}
+
+func TestBusSubscribeFiltersUnknownTopic(t *testing.T) {
+	bus := NewBus()
+	defer bus.Close()
+
+	ch, unsub := bus.Subscribe("no_such_topic")
+	defer unsub()
+
+	bus.Publish(TopicAppEvent, "app")
+	bus.Publish("no_such_topic", "hello")
+
+	select {
+	case msg := <-ch:
+		if msg.Name != "no_such_topic" {
+			t.Fatalf("got %q, want only the subscribed topic", msg.Name)
+		}
+	default:
+		t.Fatal("expected the subscribed topic to arrive")
+	}
+	select {
+	case msg := <-ch:
+		t.Fatalf("unexpected extra message %q", msg.Name)
+	default:
+	}
+}

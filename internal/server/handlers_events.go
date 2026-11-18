@@ -10,7 +10,9 @@ import (
 	"hdu-library-sniper/internal/events"
 )
 
-const sseHeartbeatInterval = 25 * time.Second
+// sseHeartbeatInterval keeps proxies from closing an idle stream. It is a var so
+// tests can shorten it instead of waiting out a 25 second tick.
+var sseHeartbeatInterval = 25 * time.Second
 
 func (s *Server) publishInvalidate(targets ...api.InvalidateTarget) {
 	if s.Events == nil || len(targets) == 0 {
@@ -52,7 +54,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "events unavailable")
 		return
 	}
-	ch, unsub := s.Events.Subscribe()
+	ch, unsub := s.Events.Subscribe(events.TopicAppEvent)
 	defer unsub()
 
 	rc := prepareSSE(w)
@@ -94,9 +96,6 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case msg := <-ch:
-			if msg.Name != events.TopicAppEvent {
-				continue
-			}
 			if err := writeSSEEvent(w, rc, events.TopicAppEvent, msg.RawJSON); err != nil {
 				return
 			}
@@ -113,7 +112,7 @@ func (s *Server) handleSessionQREvents(w http.ResponseWriter, r *http.Request) {
 	var done <-chan struct{}
 	if s.Events != nil {
 		var unsub func()
-		ch, unsub = s.Events.Subscribe()
+		ch, unsub = s.Events.Subscribe(events.TopicQrStatus)
 		defer unsub()
 		done = s.Events.Done()
 	}
@@ -153,9 +152,7 @@ func (s *Server) handleSessionQREvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case msg := <-ch:
-			if msg.Name != events.TopicQrStatus {
-				continue
-			}
+			// The bus filters by topic; the uuid scopes us to this browser tab's QR session.
 			ev, ok := msg.Payload.(api.QrStatusEvent)
 			if !ok {
 				if err := json.Unmarshal(msg.RawJSON, &ev); err != nil {

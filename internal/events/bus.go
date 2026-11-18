@@ -30,15 +30,29 @@ type Message struct {
 type Bus struct {
 	mu        sync.RWMutex
 	nextID    uint64
-	subs      map[uint64]chan Message
+	subs      map[uint64]*subscription
 	listeners map[uint64]func(Message)
 	done      chan struct{}
 	closeOnce sync.Once
 }
 
+// subscription is one subscriber's channel plus the topics it asked for.
+type subscription struct {
+	ch     chan Message
+	topics map[string]struct{} // empty means every topic
+}
+
+func (s *subscription) wants(name string) bool {
+	if len(s.topics) == 0 {
+		return true
+	}
+	_, ok := s.topics[name]
+	return ok
+}
+
 func NewBus() *Bus {
 	return &Bus{
-		subs:      make(map[uint64]chan Message),
+		subs:      make(map[uint64]*subscription),
 		listeners: make(map[uint64]func(Message)),
 		done:      make(chan struct{}),
 	}
@@ -78,9 +92,11 @@ func (b *Bus) Publish(name string, payload any) {
 	}
 
 	b.mu.RLock()
-	subs := make([]chan Message, 0, len(b.subs))
-	for _, ch := range b.subs {
-		subs = append(subs, ch)
+	subs := make([]*subscription, 0, len(b.subs))
+	for _, sub := range b.subs {
+		if sub.wants(name) {
+			subs = append(subs, sub)
+		}
 	}
 	listeners := make([]func(Message), 0, len(b.listeners))
 	for _, fn := range b.listeners {
@@ -88,7 +104,8 @@ func (b *Bus) Publish(name string, payload any) {
 	}
 	b.mu.RUnlock()
 
-	for _, ch := range subs {
+	for _, sub := range subs {
+		ch := sub.ch
 		select {
 		case ch <- msg:
 		default:
@@ -109,12 +126,20 @@ func (b *Bus) Publish(name string, payload any) {
 }
 
 // Subscribe returns a buffered event stream channel and an idempotent unsubscribe callback.
-func (b *Bus) Subscribe() (<-chan Message, func()) {
+// Passing topics restricts delivery to those topics; passing none subscribes to every topic.
+func (b *Bus) Subscribe(topics ...string) (<-chan Message, func()) {
 	ch := make(chan Message, subscriberBuffer)
+	sub := &subscription{ch: ch}
+	if len(topics) > 0 {
+		sub.topics = make(map[string]struct{}, len(topics))
+		for _, name := range topics {
+			sub.topics[name] = struct{}{}
+		}
+	}
 	b.mu.Lock()
 	b.nextID++
 	id := b.nextID
-	b.subs[id] = ch
+	b.subs[id] = sub
 	b.mu.Unlock()
 
 	var once sync.Once
