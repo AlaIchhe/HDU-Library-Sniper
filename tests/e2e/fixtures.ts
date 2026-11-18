@@ -52,6 +52,13 @@ export async function mockAuthenticatedApp(page: Page, initial: MockAppState = {
   let bookings: Booking[] = [...(initial.bookings ?? [])];
 
   await page.route("**/api/**", async (route) => route.fulfill({ json: {} }));
+  await page.route(`**${API_ROUTES.events.pattern}`, async (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/event-stream; charset=utf-8",
+      body: "retry: 60000\n: connected\n\n",
+    }),
+  );
   await page.route(`**${API_ROUTES.sessionStatus.pattern}`, async (route) =>
     route.fulfill({
       json: {

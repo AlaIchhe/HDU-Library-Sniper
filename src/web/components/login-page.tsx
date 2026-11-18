@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { QRCodeSVG } from "qrcode.react"
 
@@ -25,11 +26,12 @@ import { ScrollArea } from "@/ui/scroll-area"
 import { Spinner } from "@/ui/spinner"
 import { cn } from "@/lib/utils"
 import { api } from "../data/api"
-import { useSession } from "../data/queries"
+import { subscribeQrEvents } from "../data/events"
+import { queryKeys, useSession } from "../data/queries"
 import { useAppStore } from "../data/store"
 import { consumeReturnTo } from "../return-to"
 import { Busy, type LoginFormValues, loginResolver, useForm } from "../shared"
-import type { QrLoginStart } from "../../shared/types"
+import type { QrLoginStart, SessionStatus } from "../../shared/types"
 
 const LIBRARY_URL = "https://hdu.huitu.zhishulib.com/"
 const ISSUES_URL = "https://github.com/AlaIchhe/HDU-Library-Sniper/issues"
@@ -91,6 +93,7 @@ function OpenidGuide({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
 
 function LoginPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const setSession = useAppStore((state) => state.setSession)
   const theme = useAppStore((state) => state.theme)
   const form = useForm<LoginFormValues>({
@@ -108,15 +111,35 @@ function LoginPage() {
   const [qrMessage, setQrMessage] = useState("正在获取登录二维码")
   const [guideOpen, setGuideOpen] = useState(false)
   const qrNonce = useRef(0)
+  const activeQrUuid = useRef<string | null>(null)
+
+  const applyAuthenticatedSession = useCallback(
+    async (nextSession: SessionStatus) => {
+      queryClient.setQueryData(queryKeys.session, nextSession)
+      setSession(nextSession)
+      await navigate({ to: consumeReturnTo(), replace: true })
+    },
+    [navigate, queryClient, setSession],
+  )
 
   const loadQr = useCallback(async () => {
     const nonce = ++qrNonce.current
+    const prevUuid = activeQrUuid.current
+    activeQrUuid.current = null
     setQr(null)
     setQrState("loading")
     setQrMessage("正在获取登录二维码")
+    if (prevUuid) {
+      await api.cancelQr(prevUuid).catch(() => undefined)
+      if (nonce !== qrNonce.current) return
+    }
     try {
       const next = await api.qrStart()
-      if (nonce !== qrNonce.current) return
+      if (nonce !== qrNonce.current) {
+        void api.cancelQr(next.uuid).catch(() => undefined)
+        return
+      }
+      activeQrUuid.current = next.uuid
       setQr(next)
       setQrState("ready")
       setQrMessage("请使用钉钉扫码登录")
@@ -127,74 +150,88 @@ function LoginPage() {
     }
   }, [])
 
+  // 页面卸载时若还有未完成的扫码会话，通知后端停掉扫描循环并释放并发槽位。
+  useEffect(() => {
+    return () => {
+      const uuid = activeQrUuid.current
+      if (uuid) {
+        activeQrUuid.current = null
+        void api.cancelQr(uuid).catch(() => undefined)
+      }
+    }
+  }, [])
+
   // 只有进入扫码模式才向 SSO 取码，登录页打开时不再无谓地请求一张没人看的二维码。
   useEffect(() => {
     if (mode !== "qr") return
     void loadQr()
   }, [mode, loadQr])
 
-  // 轮询与到期换码只在扫码模式下运行。离开扫码页时 effect 清理，后台不再发请求。
+  // 扫码状态与到期换码只在扫码模式下运行：Web 走 SSE 推送，桌面端走 MyGo IPC 事件。
   useEffect(() => {
     if (mode !== "qr" || !qr) return
     const currentQr = qr
     let stopped = false
-    let pollTimer: ReturnType<typeof setTimeout> | undefined
-    let expiryTimer: ReturnType<typeof setTimeout> | undefined
 
-    async function tick() {
-      if (stopped) return
-      try {
-        const result = await api.qrStatus(currentQr.uuid)
-        if (stopped) return
+    const unsubscribe = subscribeQrEvents(currentQr.uuid, {
+      onEvent: (result) => {
+        if (stopped || result.uuid !== currentQr.uuid) return
+        if (result.status === "pending") return
+
+        activeQrUuid.current = null
         if (result.status === "success") {
           if (result.session?.authenticated) {
-            setSession(result.session)
-            await navigate({ to: consumeReturnTo(), replace: true })
-          } else {
-            setQrState("error")
-            setQrMessage("扫码已确认，但登录态校验失败")
+            void applyAuthenticatedSession(result.session)
+            return
           }
+          void api
+            .session()
+            .then((sess) => {
+              if (stopped) return
+              if (sess.authenticated) return applyAuthenticatedSession(sess)
+              setQrState("error")
+              setQrMessage("扫码已确认，但登录态校验失败")
+            })
+            .catch(() => {
+              if (stopped) return
+              setQrState("error")
+              setQrMessage("扫码已确认，但登录态校验失败")
+            })
           return
         }
+
         if (result.status === "expired") {
           // SSO 判定该码已失效：自动换新码，不打扰用户。
           void loadQr()
           return
         }
-        if (result.status === "error") {
-          // 服务端短暂异常：不立即判死，稍后重试一轮。
-          await new Promise((resolve) => setTimeout(resolve, 800))
-          if (stopped) return
-          pollTimer = setTimeout(tick, 0)
-          return
-        }
-        // waiting：二维码仍有效，静默继续下一轮。
-        pollTimer = setTimeout(tick, 1000)
-      } catch {
-        if (stopped) return
-        pollTimer = setTimeout(tick, 1500)
-      }
-    }
 
-    pollTimer = setTimeout(tick, 800)
+        setQrState("error")
+        setQrMessage(result.message || "扫码登录失败，请刷新二维码")
+      },
+      onError: (message) => {
+        if (stopped) return
+        setQrState("error")
+        setQrMessage(message)
+      },
+    })
 
     // 到期自动换码：在安全窗口到期前提前刷新。
     const ttl = Math.max(20, currentQr.ttlSeconds || 90)
     const lead = Math.min(10, Math.floor(ttl / 4))
-    expiryTimer = setTimeout(
+    const expiryTimer = setTimeout(
       () => {
-        if (stopped) return
-        void loadQr()
+        if (!stopped) void loadQr()
       },
       Math.max(0, (ttl - lead) * 1000),
     )
 
     return () => {
       stopped = true
-      if (pollTimer) clearTimeout(pollTimer)
-      if (expiryTimer) clearTimeout(expiryTimer)
+      unsubscribe()
+      clearTimeout(expiryTimer)
     }
-  }, [mode, qr, loadQr, navigate, setSession])
+  }, [mode, qr, loadQr, applyAuthenticatedSession])
 
   function selectTab(next: LoginTab) {
     setTab(next)
@@ -207,8 +244,8 @@ function LoginPage() {
     try {
       const result = await api.login(values.studentId, values.password)
       if (!result.success) throw new Error(result.message)
-      setSession(await api.session())
-      await navigate({ to: consumeReturnTo(), replace: true })
+      const nextSession = result.session?.authenticated ? result.session : await api.session()
+      await applyAuthenticatedSession(nextSession)
     } catch (cause) {
       setPasswordError(cause instanceof Error ? cause.message : "登录失败")
     }
@@ -225,8 +262,8 @@ function LoginPage() {
     try {
       const result = await api.openidLogin(value)
       if (!result.success) throw new Error(result.message)
-      setSession(await api.session())
-      await navigate({ to: consumeReturnTo(), replace: true })
+      const nextSession = result.session?.authenticated ? result.session : await api.session()
+      await applyAuthenticatedSession(nextSession)
     } catch (cause) {
       setOpenidError(cause instanceof Error ? cause.message : "OpenID 登录失败")
     } finally {
@@ -238,7 +275,9 @@ function LoginPage() {
     // 离开扫码页时作废在途请求，避免响应回来后又把旧二维码写回状态。
     qrNonce.current += 1
     // 同时通知服务端停止扫码轮询：它和密码登录共用 SSO 会话，继续跑会搅乱登录。
-    if (qr) void api.cancelQr(qr.uuid).catch(() => undefined)
+    const uuid = activeQrUuid.current ?? qr?.uuid
+    activeQrUuid.current = null
+    if (uuid) void api.cancelQr(uuid).catch(() => undefined)
     setQr(null)
     setMode("form")
   }
@@ -461,10 +500,13 @@ export function LoginGate() {
   const navigate = useNavigate()
   // 只跳一次：StrictMode 会重跑 effect，第二次读到的返回目标已经被消费掉了。
   const redirected = useRef(false)
+  const lastSeededAt = useRef(0)
 
   useEffect(() => {
-    if (query.data) setSession(query.data)
-  }, [query.data, setSession])
+    if (!query.data || query.dataUpdatedAt === lastSeededAt.current) return
+    lastSeededAt.current = query.dataUpdatedAt
+    setSession(query.data)
+  }, [query.data, query.dataUpdatedAt, setSession])
 
   useEffect(() => {
     if (redirected.current || !session?.authenticated) return

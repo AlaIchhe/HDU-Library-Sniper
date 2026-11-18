@@ -41,7 +41,7 @@ function assertContract<T>(value: unknown, schema: SchemaSpec): T {
   return value as T
 }
 
-function buildPath(
+export function buildPath(
   pattern: string,
   pathParams?: Record<string, string | number>,
   query?: Record<string, string | number | undefined>,
