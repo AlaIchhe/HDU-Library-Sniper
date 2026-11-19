@@ -369,3 +369,62 @@ func TestQrScanLongPollWaitAndTimeoutKeepSessionAlive(t *testing.T) {
 	}
 	t.Fatalf("扫码长轮询没有走到 success: %+v", svc.PollQrLogin(start.UUID))
 }
+
+// 扫码票据被 CAS 拒绝时，必须给出可诊断的原因，而不是笼统的“会话校验失败”。
+func TestCompleteQrLoginReportsRejectedTicket(t *testing.T) {
+	// 票据被拒时 CAS 会把浏览器留在 SSO 自己的登录页上，不会跳回图书馆域。
+	var sso *httptest.Server
+	sso = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sso/login":
+			_, _ = w.Write([]byte("<html>login</html>"))
+		case "/sso/public/utils/loginNew.js":
+			_, _ = w.Write([]byte(`"Csrf-Key":"k1","Csrf-Value":"v1"`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer sso.Close()
+
+	lib := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer lib.Close()
+
+	st, err := store.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	svc := NewServiceWithEndpoints(st, NewSecretStoreWithKey([]byte("unit-test-key"), "test"), Endpoints{
+		Library:       lib.URL,
+		SSO:           sso.URL + "/sso",
+		SSOLoginPage:  sso.URL + "/sso/login?service=test",
+		SSOCsrfScript: sso.URL + "/sso/public/utils/loginNew.js",
+	})
+	t.Cleanup(func() {
+		_ = svc.Logout()
+		svc.qrWg.Wait()
+	})
+	err = svc.completeQrLogin(context.Background(), "tok-rejected")
+	if err == nil {
+		t.Fatal("expected rejected ticket error")
+	}
+	if !strings.Contains(err.Error(), "未被接受") {
+		t.Fatalf("expected a diagnosable rejection message, got %v", err)
+	}
+	// 诊断信息不应把票据/查询串泄漏出去。
+	if strings.Contains(err.Error(), "tok-rejected") || strings.Contains(err.Error(), "service=") {
+		t.Fatalf("error leaked sensitive request data: %v", err)
+	}
+}
+
+func TestRedactURLStripsQueryAndFragment(t *testing.T) {
+	got := redactURL("https://sso.hdu.edu.cn/login?service=https%3A%2F%2Fx&ticket=ST-1#frag")
+	if got != "https://sso.hdu.edu.cn/login" {
+		t.Fatalf("redactURL = %q", got)
+	}
+	if got := redactURL("::not a url"); got == "" {
+		t.Fatal("expected fallback for unparsable url")
+	}
+}

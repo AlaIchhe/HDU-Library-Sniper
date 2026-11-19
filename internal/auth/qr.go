@@ -382,6 +382,52 @@ func classifyQrScanRound(body map[string]any) (string, error) {
 	return "", nil
 }
 
+// qrLandingRejected 判断 CAS 完成后是否真的回到了图书馆：停在 CAS 登录入口，
+// 或最终落在图书馆域之外，都说明票据没被接受。真实环境里 SSO 与图书馆不同域，
+// 但测试常常共用一个 host，所以只以图书馆域为准。
+func qrLandingRejected(finalURL string, ep Endpoints) bool {
+	if strings.Contains(finalURL, hdu.LoginEntry) {
+		return true
+	}
+	landing, err := url.Parse(finalURL)
+	if err != nil {
+		return true
+	}
+	lib, err := url.Parse(ep.Library)
+	if err != nil {
+		return true
+	}
+	return !strings.EqualFold(landing.Host, lib.Host)
+}
+
+// validateAfterQr 在 CAS 回跳图书馆后做几次短重试：图书馆侧建立会话有一小段
+// 延迟，一次失败就判定登录失败会误伤刚扫码成功的用户。
+func (s *Service) validateAfterQr(ctx context.Context) bool {
+	delays := []time.Duration{0, 250 * time.Millisecond, 600 * time.Millisecond, 1200 * time.Millisecond}
+	for _, d := range delays {
+		if d > 0 {
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(d):
+			}
+		}
+		if s.Client.ValidateOnce(ctx) {
+			return true
+		}
+	}
+	return false
+}
+
+// redactURL 只保留 scheme+host+path，避免把 ticket/查询串写进日志或界面。
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "无效地址"
+	}
+	return u.Scheme + "://" + u.Host + u.Path
+}
+
 func (s *Service) completeQrLogin(ctx context.Context, token string) error {
 	s.loginGate.Lock()
 	defer s.loginGate.Unlock()
@@ -400,12 +446,20 @@ func (s *Service) completeQrLogin(ctx context.Context, token string) error {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("提交扫码票据失败: %w", err)
 	}
+	finalURL := resp.Request.URL.String()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 
-	if !s.Client.ValidateOnce(ctx) {
+	// CAS 完成后必须真的回到图书馆域：停在 SSO 或停在 CAS 入口都说明票据没被接受。
+	// 这里给出可诊断的原因，而不是笼统的“会话校验失败”。
+	if qrLandingRejected(finalURL, s.Endpoints) {
+		return fmt.Errorf("扫码票据未被接受（CAS 最终停在 %s）", redactURL(finalURL))
+	}
+
+	// CAS 回跳后图书馆侧建会话有一小段延迟，给几次短重试再判定失败。
+	if !s.validateAfterQr(ctx) {
 		return errors.New("扫码登录成功但图书馆会话校验失败")
 	}
 	s.mu.Lock()
