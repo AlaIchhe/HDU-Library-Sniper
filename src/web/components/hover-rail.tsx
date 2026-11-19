@@ -85,10 +85,20 @@ export function HoverRail({
     timer.current = window.setTimeout(() => setHovered(next), next ? OPEN_DELAY_MS : CLOSE_DELAY_MS)
   }
 
+  // Esc / 键盘操作等显式收起：任何时候都要生效。
   const collapse = useCallback(() => {
     clearTimer()
     setDismissed(true)
   }, [clearTimer])
+
+  // 点击导航项后是否立即收起。
+  // 触屏 / 键盘点按时把轨道收回去，让出内容宽度；但鼠标点击时指针仍停在
+  // 轨道里，此时收起会让轨道在点击瞬间突然变窄，看起来像抖动或没生效，
+  // 这种情况交给 pointerleave 正常收起。
+  const collapseAfterNavClick = useCallback(() => {
+    if (hovered) return
+    collapse()
+  }, [collapse, hovered])
 
   // 悬停展开时焦点通常不在 rail 内，所以 Esc 要在 window 上监听。
   useEffect(() => {
@@ -144,7 +154,11 @@ export function HoverRail({
         </strong>
       </div>
 
-      <nav aria-label="主导航" className="mt-2 flex flex-1 flex-col gap-1 px-2.5" onClickCapture={collapse}>
+      <nav
+        aria-label="主导航"
+        className="mt-2 flex flex-1 flex-col gap-1 px-2.5"
+        onClickCapture={collapseAfterNavClick}
+      >
         <RailLink to="/plans" label="预约方案" shortcut="G P" active={plansActive} />
         <RailLink to="/bookings" label="当前预约" shortcut="G B" active={bookingsActive} />
       </nav>
