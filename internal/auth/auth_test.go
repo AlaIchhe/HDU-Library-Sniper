@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -426,5 +427,58 @@ func TestRedactURLStripsQueryAndFragment(t *testing.T) {
 	}
 	if got := redactURL("::not a url"); got == "" {
 		t.Fatal("expected fallback for unparsable url")
+	}
+}
+
+// SSO 的扫码确认把票据放在 username 字段里提交（前端源码：
+// input.name="username"; input.value=<scan data>; form.submit()）。
+// 这个用例锁住表单形状，防止再写成 <token>=login 而被 CAS 静默拒绝。
+func TestCompleteQrLoginSubmitsTokenAsUsername(t *testing.T) {
+	lib := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"DATA": map[string]any{"is_login": true, "uid": "304174", "user_info": map[string]any{"name": "陈同学"}},
+		})
+	}))
+	defer lib.Close()
+
+	sso := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/sso/login" && r.Method == http.MethodPost {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if got := r.PostForm.Get("username"); got != "tok-shape" {
+				http.Error(w, "username="+got, http.StatusBadRequest)
+				return
+			}
+			// 形状正确：CAS 接受票据并回到图书馆域。
+			http.Redirect(w, r, lib.URL+"/User/Center/baseInfo", http.StatusFound)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer sso.Close()
+
+	st, err := store.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	svc := NewServiceWithEndpoints(st, NewSecretStoreWithKey([]byte("unit-test-key"), "test"), Endpoints{
+		Library:       lib.URL,
+		SSO:           sso.URL + "/sso",
+		SSOLoginPage:  sso.URL + "/sso/login?service=" + url.QueryEscape(lib.URL+hdu.LoginEntry),
+		SSOCsrfScript: sso.URL + "/sso/public/utils/loginNew.js",
+	})
+	t.Cleanup(func() {
+		_ = svc.Logout()
+		svc.qrWg.Wait()
+	})
+
+	if err := svc.completeQrLogin(context.Background(), "tok-shape"); err != nil {
+		t.Fatalf("completeQrLogin should submit the token as username: %v", err)
+	}
+	if !svc.Authenticated() {
+		t.Fatal("expected authenticated session after QR completion")
 	}
 }

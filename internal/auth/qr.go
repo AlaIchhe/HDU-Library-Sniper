@@ -446,8 +446,12 @@ func (s *Service) completeQrLogin(ctx context.Context, token string) error {
 	s.loginGate.Lock()
 	defer s.loginGate.Unlock()
 
+	// SSO 前端的扫码确认是把票据写进 username 字段再提交登录表单：
+	//   input.name  = "username"
+	//   input.value = <scan 返回的 data>
+	// 把票据当成字段名（token=login）会一直被 CAS 拒绝，停在登录页。
 	form := url.Values{}
-	form.Set(token, "login")
+	form.Set("username", token)
 	client := s.newHTTPClient(s.Client.Jar())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.Endpoints.SSOLoginPage, strings.NewReader(form.Encode()))
 	if err != nil {
