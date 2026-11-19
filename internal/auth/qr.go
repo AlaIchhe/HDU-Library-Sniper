@@ -41,37 +41,49 @@ type qrSession struct {
 	watcherLeftAt time.Time
 	status        core.QrLoginStatus
 	cancel        context.CancelFunc
+	// flowkey 是取码那次页面加载的 CAS 流程令牌（execution）。
+	// 完成扫码登录时必须原样带回，否则 CAS 认不出这是同一次流程。
+	flowkey string
 }
 
 var (
 	reCsrfKey   = []*regexp.Regexp{regexp.MustCompile(`Csrf-Key['"]?\s*[:=,]\s*['"]([^'"]+)['"]`)}
 	reCsrfValue = []*regexp.Regexp{regexp.MustCompile(`Csrf-Value['"]?\s*[:=,]\s*['"]([^'"]+)['"]`)}
+	// CAS 每次页面加载都会生成新的流程令牌，登录 POST 必须带回同一次的 execution，
+	// 否则服务端认不出这是同一次登录流程，会把它原样退回登录页。
+	reLoginFlowkey = []*regexp.Regexp{
+		regexp.MustCompile(`id=["']login-page-flowkey["'][^>]*>([^<]+)<`),
+		regexp.MustCompile(`id=["']login-page-flowkey["'][^>]*value=["']([^"']+)["']`),
+		regexp.MustCompile(`name=["']execution["'][^>]*value=["']([^"']+)["']`),
+	}
 )
 
-func (s *Service) ssoCSRFHeaders(ctx context.Context) (http.Header, string, error) {
+func (s *Service) ssoCSRFHeaders(ctx context.Context) (http.Header, string, string, error) {
 	client := s.newHTTPClient(s.Client.Jar())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.Endpoints.SSOLoginPage, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	req.Header.Set("User-Agent", hdu.UserAgent)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	referer := resp.Request.URL.String()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	pageBytes, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
+	// execution 与这次页面加载绑定，必须连同后面的扫码/登录请求一起带回。
+	flowkey := firstMatch(string(pageBytes), reLoginFlowkey)
 
 	reqJS, err := http.NewRequestWithContext(ctx, http.MethodGet, s.Endpoints.SSOCsrfScript, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	reqJS.Header.Set("User-Agent", hdu.UserAgent)
 	reqJS.Header.Set("Referer", referer)
 	respJS, err := client.Do(reqJS)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	defer respJS.Body.Close()
 	jsBytes, _ := io.ReadAll(respJS.Body)
@@ -86,7 +98,7 @@ func (s *Service) ssoCSRFHeaders(ctx context.Context) (http.Header, string, erro
 	if v := firstMatch(script, reCsrfValue); v != "" {
 		h.Set("Csrf-Value", v)
 	}
-	return h, referer, nil
+	return h, referer, flowkey, nil
 }
 
 func (s *Service) CreateQrLogin(ctx context.Context) (*core.QrLoginStart, error) {
@@ -102,7 +114,7 @@ func (s *Service) CreateQrLogin(ctx context.Context) (*core.QrLoginStart, error)
 		}
 	}()
 
-	headers, _, err := s.ssoCSRFHeaders(ctx)
+	headers, _, flowkey, err := s.ssoCSRFHeaders(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +170,7 @@ func (s *Service) CreateQrLogin(ctx context.Context) (*core.QrLoginStart, error)
 		lastPolledAt: now,
 		status:       core.QrLoginStatus{Status: "pending"},
 		cancel:       cancel,
+		flowkey:      flowkey,
 	}
 	s.mu.Unlock()
 
@@ -240,14 +253,23 @@ func (s *Service) CancelQrLogin(uuid string) bool {
 	return ok
 }
 
+// pruneQrSessionsLocked 清掉已经没用的扫码会话，把并发槽位让出来。
+//
+// 二维码本身只有 qrTTL（90s）的生命周期，扫描循环到点就会自行结束并释放槽位；
+// 但浏览器端可能已经换过好几张码（自动换码 / 手动刷新），留在 map 里的旧会话
+// 会继续占着 qrSessions，并让 /api/session 之类依赖会话表的路径看不到真实状态。
+// 这里用两档阈值：过了 TTL 且没有 watcher 的立即清；其余按 5 分钟兜底。
 func (s *Service) pruneQrSessionsLocked(now time.Time) {
 	for id, qs := range s.qrSessions {
-		if now.Sub(qs.createdAt) > 5*time.Minute {
-			if qs.cancel != nil {
-				qs.cancel()
-			}
-			delete(s.qrSessions, id)
+		expired := now.Sub(qs.createdAt) > qrTTL
+		stale := now.Sub(qs.createdAt) > 5*time.Minute
+		if !stale && !(expired && qs.watchers == 0) {
+			continue
 		}
+		if qs.cancel != nil {
+			qs.cancel()
+		}
+		delete(s.qrSessions, id)
 	}
 }
 
@@ -272,11 +294,17 @@ func (s *Service) runQrScanLoop(ctx context.Context, cancel context.CancelFunc, 
 		s.mu.Lock()
 		qs, ok := s.qrSessions[uuid]
 		var abandoned bool
-		if ok && qs.watchers == 0 && !qs.watcherLeftAt.IsZero() && time.Since(qs.watcherLeftAt) > streamGrace {
-			abandoned = true
-			delete(s.qrSessions, uuid)
+		var qsFlowkey string
+		if ok {
+			qsFlowkey = qs.flowkey
+			if qs.watchers == 0 && !qs.watcherLeftAt.IsZero() && time.Since(qs.watcherLeftAt) > streamGrace {
+				abandoned = true
+				delete(s.qrSessions, uuid)
+			}
 		}
 		s.mu.Unlock()
+		// 会话被取消 / 清理掉时必须立即退出，把并发槽位让出来；
+		// 否则它会一直占着 qrSem 跑满整个 TTL，让新码撞上 429。
 		if !ok || abandoned {
 			return
 		}
@@ -300,7 +328,7 @@ func (s *Service) runQrScanLoop(ctx context.Context, cancel context.CancelFunc, 
 			continue
 		}
 		if token != "" {
-			if err := s.completeQrLogin(ctx, token); err != nil {
+			if err := s.completeQrLogin(ctx, token, qsFlowkey); err != nil {
 				s.noteQrFailure(err)
 				s.setQrStatus(uuid, core.QrLoginStatus{Status: "error", Message: err.Error()})
 			} else {
@@ -346,7 +374,7 @@ func (s *Service) setQrStatus(uuid string, st core.QrLoginStatus) {
 
 func (s *Service) pollQrRoundForToken(ctx context.Context, uuid string) (string, error) {
 	// 每一轮都刷新 CSRF，和 SSO 前端的做法一致；用父 ctx 做页面的取用。
-	headers, _, err := s.ssoCSRFHeaders(ctx)
+	headers, _, _, err := s.ssoCSRFHeaders(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -442,16 +470,25 @@ func redactURL(raw string) string {
 	return u.Scheme + "://" + u.Host + u.Path
 }
 
-func (s *Service) completeQrLogin(ctx context.Context, token string) error {
+func (s *Service) completeQrLogin(ctx context.Context, token, flowkey string) error {
 	s.loginGate.Lock()
 	defer s.loginGate.Unlock()
 
-	// SSO 前端的扫码确认是把票据写进 username 字段再提交登录表单：
-	//   input.name  = "username"
-	//   input.value = <scan 返回的 data>
-	// 把票据当成字段名（token=login）会一直被 CAS 拒绝，停在登录页。
+	// CAS 的扫码确认表单（浏览器里实测）有五个字段，缺一个都会被退回登录页：
+	//   _eventId=submit
+	//   type=dingDingQr          <- 声明这是扫码流程
+	//   execution=<flowkey>      <- 取码那次页面加载的流程令牌，每次加载都不同
+	//   geolocation=
+	//   username=<scan 返回的 data>
+	// 之前只提交了 username，CAS 认不出是扫码确认，于是原样退回 /login。
 	form := url.Values{}
+	form.Set("_eventId", "submit")
+	form.Set("type", "dingDingQr")
+	form.Set("geolocation", "")
 	form.Set("username", token)
+	if flowkey != "" {
+		form.Set("execution", flowkey)
+	}
 	client := s.newHTTPClient(s.Client.Jar())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.Endpoints.SSOLoginPage, strings.NewReader(form.Encode()))
 	if err != nil {

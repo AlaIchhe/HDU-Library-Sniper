@@ -121,7 +121,11 @@ func rateBucketFor(path string) (string, int) {
 	case api.PathSessionLogin, api.PathSessionOpenID:
 		return "login", 5
 	case api.PathSessionQR:
-		return "qr", 3
+		// 前端二维码到期（90s）会自动换码，加上用户手动「刷新二维码」，
+		// 每分钟 3 次太紧：换码一旦赶上旧会话未释放就会 429，
+		// 登录页随即卡在取码失败状态。这里按「换码 + 人工重试」的合理上限放宽，
+		// 真正的并发保护由 ScanService 的扫码槽位（qrSem）负责。
+		return "qr", 10
 	case api.PathCheckInEnable, api.PathCheckInDisable:
 		return "checkin", 10
 	default:

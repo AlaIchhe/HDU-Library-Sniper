@@ -407,7 +407,7 @@ func TestCompleteQrLoginReportsRejectedTicket(t *testing.T) {
 		_ = svc.Logout()
 		svc.qrWg.Wait()
 	})
-	err = svc.completeQrLogin(context.Background(), "tok-rejected")
+	err = svc.completeQrLogin(context.Background(), "tok-rejected", "flow-rejected")
 	if err == nil {
 		t.Fatal("expected rejected ticket error")
 	}
@@ -447,9 +447,19 @@ func TestCompleteQrLoginSubmitsTokenAsUsername(t *testing.T) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if got := r.PostForm.Get("username"); got != "tok-shape" {
-				http.Error(w, "username="+got, http.StatusBadRequest)
-				return
+			// CAS 的扫码确认表单必须五个字段齐全，缺一个都会被退回登录页。
+			want := map[string]string{
+				"_eventId":    "submit",
+				"type":        "dingDingQr",
+				"execution":   "flow-shape",
+				"geolocation": "",
+				"username":    "tok-shape",
+			}
+			for k, v := range want {
+				if got := r.PostForm.Get(k); got != v {
+					http.Error(w, "field "+k+"="+got, http.StatusBadRequest)
+					return
+				}
 			}
 			// 形状正确：CAS 接受票据并回到图书馆域。
 			http.Redirect(w, r, lib.URL+"/User/Center/baseInfo", http.StatusFound)
@@ -475,10 +485,77 @@ func TestCompleteQrLoginSubmitsTokenAsUsername(t *testing.T) {
 		svc.qrWg.Wait()
 	})
 
-	if err := svc.completeQrLogin(context.Background(), "tok-shape"); err != nil {
-		t.Fatalf("completeQrLogin should submit the token as username: %v", err)
+	if err := svc.completeQrLogin(context.Background(), "tok-shape", "flow-shape"); err != nil {
+		t.Fatalf("completeQrLogin should submit the full CAS QR form: %v", err)
 	}
 	if !svc.Authenticated() {
 		t.Fatal("expected authenticated session after QR completion")
 	}
+}
+
+// 浏览器到期自动换码时会不断创建新会话；旧会话必须及时让出并发槽位，
+// 否则用户会撞上「已有二维码等待扫码」，登录页就取不到码。
+func TestQrExpiredSessionsReleaseSlots(t *testing.T) {
+	var idCounter atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/sso/login":
+			_, _ = w.Write([]byte("ok"))
+		case r.URL.Path == "/sso/public/utils/loginNew.js":
+			_, _ = w.Write([]byte(`"Csrf-Key":"k1","Csrf-Value":"v1"`))
+		case r.URL.Path == "/sso/api/protected/qrlogin/loginid":
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": fmt.Sprintf("qr-slot-%d", idCounter.Add(1))})
+		case strings.HasPrefix(r.URL.Path, "/sso/api/public/qrlogin/qrgen/"):
+			_, _ = w.Write([]byte("png"))
+		case strings.HasPrefix(r.URL.Path, "/sso/api/protected/qrlogin/scan/"):
+			// 长轮询：没有状态就一直挂着，模拟真实 SSO。
+			select {
+			case <-r.Context().Done():
+			case <-time.After(200 * time.Millisecond):
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 408, "data": "wait"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	svc := testService(t, srv)
+	svc.qrPollTick = 10 * time.Millisecond
+	svc.qrStreamGrace = 5 * time.Second
+
+	first, err := svc.CreateQrLogin(context.Background())
+	if err != nil {
+		t.Fatalf("first CreateQrLogin: %v", err)
+	}
+	second, err := svc.CreateQrLogin(context.Background())
+	if err != nil {
+		t.Fatalf("second CreateQrLogin: %v", err)
+	}
+	// 两个槽位都被占满：第三张码应当被拒绝。
+	if _, err := svc.CreateQrLogin(context.Background()); err == nil {
+		t.Fatal("expected the third concurrent QR to be rejected")
+	}
+
+	// 浏览器换码时先取消旧会话（生产路径），槽位必须马上释放。
+	if !svc.CancelQrLogin(first.UUID) {
+		t.Fatal("CancelQrLogin(first) returned false")
+	}
+	svc.CancelQrLogin(second.UUID)
+
+	// 取消后槽位应立即释放：新码必须能拿到。
+	deadline := time.Now().Add(3 * time.Second)
+	var third *core.QrLoginStart
+	for time.Now().Before(deadline) {
+		third, err = svc.CreateQrLogin(context.Background())
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil || third == nil {
+		t.Fatalf("cancelled QR sessions never released their concurrency slots: %v", err)
+	}
+	// 收尾时取消第三张码，避免后台循环把测试拖满整个 TTL。
+	svc.CancelQrLogin(third.UUID)
 }
