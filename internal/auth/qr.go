@@ -301,6 +301,7 @@ func (s *Service) runQrScanLoop(ctx context.Context, cancel context.CancelFunc, 
 		}
 		if token != "" {
 			if err := s.completeQrLogin(ctx, token); err != nil {
+				s.noteQrFailure(err)
 				s.setQrStatus(uuid, core.QrLoginStatus{Status: "error", Message: err.Error()})
 			} else {
 				sess := s.Status()
@@ -316,6 +317,19 @@ func (s *Service) runQrScanLoop(ctx context.Context, cancel context.CancelFunc, 
 		}
 	}
 	s.setQrStatus(uuid, core.QrLoginStatus{Status: "expired", Message: "二维码已过期"})
+}
+
+// noteQrFailure 把扫码失败的细节留在会话状态里，便于在 /api/session 上直接看到
+// 究竟是票据被拒、落点不对，还是图书馆会话没建起来。
+func (s *Service) noteQrFailure(err error) {
+	if err == nil {
+		return
+	}
+	s.mu.Lock()
+	s.authenticated = false
+	s.lastError = err.Error()
+	s.mu.Unlock()
+	s.notifySession()
 }
 
 func (s *Service) setQrStatus(uuid string, st core.QrLoginStatus) {
