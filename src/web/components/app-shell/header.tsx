@@ -4,8 +4,10 @@ import { Outlet } from "@tanstack/react-router"
 
 import { AnimatedThemeToggler } from "@/ui/animated-theme-toggler"
 import { Avatar, AvatarFallback } from "@/ui/avatar"
+import { BlurFade } from "@/ui/blur-fade"
 import { Button } from "@/ui/button"
 import { AnimateIcon, Command as CommandIcon, ExternalLink, LogOut } from "@/ui/icons"
+import { Magnet } from "@/ui/magnet"
 import {
   Menu,
   MenuGroup,
@@ -39,7 +41,7 @@ export function AppHeader({
   onLogout: () => void
 }) {
   return (
-    <header className="sticky top-0 z-40 flex min-h-14 min-w-0 items-center gap-3 border-b bg-background/82 px-3 backdrop-blur sm:px-6">
+    <header className="glass sticky top-0 z-40 flex min-h-14 min-w-0 items-center gap-3 border-b px-3 sm:px-6">
       {showSidebarTrigger ? (
         <>
           <SidebarTrigger aria-label="切换侧栏" />
@@ -61,11 +63,13 @@ export function AppHeader({
           </Button>
         </AnimateIcon>
         <CheckinControl />
-        <AnimatedThemeToggler
-          className="grid size-8 place-items-center rounded-full border text-foreground/80 transition-colors hover:bg-muted hover:text-foreground [&_svg]:size-4"
-          theme={theme}
-          onThemeChange={(nextTheme) => useAppStore.getState().setTheme(nextTheme)}
-        />
+        <Magnet padding={24} magnetStrength={6}>
+          <AnimatedThemeToggler
+            className="grid size-8 place-items-center rounded-full border text-foreground/80 transition-colors hover:bg-muted hover:text-foreground [&_svg]:size-4"
+            theme={theme}
+            onThemeChange={(nextTheme) => useAppStore.getState().setTheme(nextTheme)}
+          />
+        </Magnet>
         <Menu>
           <MenuTrigger className="rounded-full outline-none" aria-label="用户菜单">
             <Avatar className="size-8">
@@ -112,9 +116,9 @@ export function AppContent({ pathname, compact }: { pathname: string; compact: b
         compact && "pb-28 sm:pb-28",
       )}
     >
-      <div key={pathname} className="animate-enter-rise [--enter-duration:200ms] [--enter-y:6px]">
+      <BlurFade key={pathname} duration={0.22} offset={6} blur="3px">
         <Outlet />
-      </div>
+      </BlurFade>
     </main>
   )
 }

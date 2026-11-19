@@ -3,6 +3,8 @@
 import { AnimatePresence, motion, type Transition, type Variants } from "motion/react"
 import { createContext, type ReactNode, type Ref, useContext } from "react"
 import { cn } from "../../lib/utils"
+import { BorderBeam } from "../../ui/border-beam"
+import { GlowingEffect } from "../../ui/glowing-effect"
 import { Highlight, HighlightItem } from "../../ui/highlight"
 
 // 弹簧预设：交互反馈跟手、布局位移平稳，两页列表共享同一套物理节奏。
@@ -48,7 +50,8 @@ function useDataTableContext() {
 }
 
 /**
- * 统一的数据列表容器（coss ui 单层卡片表面 + Animate UI Highlight 滑块高亮 + Hover-Reveal 渐进披露）。
+ * 统一的数据列表容器（单层卡片表面 + Aceternity 单色 GlowingEffect 边框光弧 +
+ * Magic UI BorderBeam 激活态流光 + Animate UI Highlight 滑块高亮 + Hover-Reveal 渐进披露）。
  *
  * - 单层边框表面：直接承接 `PageHeader`，避免外层再套 Panel Card；
  * - 统一列模板：`columns` 同时作用于表头和行，保证网格对齐；
@@ -58,50 +61,56 @@ export function DataTable({
   columns,
   isEmpty,
   empty,
+  hasActive = false,
   className,
   children,
 }: {
   columns: string
   isEmpty: boolean
   empty: ReactNode
+  hasActive?: boolean
   className?: string
   children: ReactNode
 }) {
   return (
     <DataTableContext.Provider value={{ columns }}>
-      <motion.div
-        layout="position"
-        className={cn(
-          "relative min-w-0 overflow-hidden rounded-2xl border bg-card not-dark:bg-clip-padding text-card-foreground shadow-xs/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-2xl)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
-          className,
-        )}
-      >
-        <AnimatePresence mode="popLayout" initial={false}>
-          {isEmpty ? (
-            <motion.div
-              key="empty"
-              layout="position"
-              initial={{ opacity: 0, scale: 0.985 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.985 }}
-              transition={SNAPPY}
-            >
-              {empty}
-            </motion.div>
-          ) : (
-            <motion.div
-              key="list"
-              layout="position"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="min-w-0"
-            >
-              {children}
-            </motion.div>
+      <div className="relative min-w-0 rounded-2xl">
+        <GlowingEffect spread={30} proximity={64} inactiveZone={0.6} borderWidth={1} />
+        <motion.div
+          layout="position"
+          className={cn(
+            "relative min-w-0 overflow-hidden rounded-2xl border bg-card not-dark:bg-clip-padding text-card-foreground shadow-xs/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-2xl)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+            className,
           )}
-        </AnimatePresence>
-      </motion.div>
+        >
+          {hasActive && !isEmpty ? <BorderBeam size={72} duration={11} borderWidth={1} /> : null}
+          <AnimatePresence mode="popLayout" initial={false}>
+            {isEmpty ? (
+              <motion.div
+                key="empty"
+                layout="position"
+                initial={{ opacity: 0, scale: 0.985 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.985 }}
+                transition={SNAPPY}
+              >
+                {empty}
+              </motion.div>
+            ) : (
+              <motion.div
+                key="list"
+                layout="position"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="min-w-0"
+              >
+                {children}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </div>
     </DataTableContext.Provider>
   )
 }

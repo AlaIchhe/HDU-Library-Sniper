@@ -13,13 +13,15 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "@/ui/alert-dialog"
+import { BorderBeam } from "@/ui/border-beam"
 import { Button } from "@/ui/button"
+import { SlidingNumber } from "@/ui/sliding-number"
+import { TextShimmer } from "@/ui/text-shimmer"
 import { toastManager } from "@/ui/toast"
 import { useCheckin, useCheckinMutation, useNextTarget } from "../../data/queries"
 import { useCountdown } from "../../hooks/use-countdown"
 
 /** 统一的语义色状态点：颜色由 tone 决定，脉冲使用 CSS 关键帧。 */
-
 export function StatusDot({
   tone,
   pulse = false,
@@ -44,10 +46,63 @@ export function StatusDot({
   )
 }
 
+function CountdownReadout({ remainingMs, expired }: { remainingMs: number; expired: boolean }) {
+  if (expired) {
+    return (
+      <TextShimmer duration={1.8} className="font-medium">
+        即将执行
+      </TextShimmer>
+    )
+  }
+
+  const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000))
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (days > 0) {
+    return (
+      <span className="inline-flex items-baseline gap-0.5 tabular-nums">
+        <SlidingNumber value={days} />
+        <span>天</span>
+        <SlidingNumber value={hours} className="ms-0.5" />
+        <span>小时</span>
+      </span>
+    )
+  }
+  if (hours > 0) {
+    return (
+      <span className="inline-flex items-baseline gap-0.5 tabular-nums">
+        <SlidingNumber value={hours} />
+        <span>小时</span>
+        <SlidingNumber value={minutes} padStart className="ms-0.5" />
+        <span>分</span>
+      </span>
+    )
+  }
+  if (minutes > 0) {
+    return (
+      <span className="inline-flex items-baseline gap-0.5 tabular-nums">
+        <SlidingNumber value={minutes} />
+        <span>分</span>
+        <SlidingNumber value={seconds} padStart className="ms-0.5" />
+        <span>秒</span>
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-baseline gap-0.5 tabular-nums">
+      <SlidingNumber value={seconds} />
+      <span>秒</span>
+    </span>
+  )
+}
+
 /**
  * 顶栏状态区：一眼看清「后台在不在线、下一次什么时候动」。
  *
- * 倒计时只用本地 timer 重算，不发网络请求。
+ * 倒计时只用本地 timer 重算，不发网络请求；数字使用 Motion Primitives SlidingNumber 滚轮过渡。
  */
 export function StatusBar({ runtimeState }: { runtimeState: string | undefined }) {
   const target = useNextTarget()
@@ -65,9 +120,19 @@ export function StatusBar({ runtimeState }: { runtimeState: string | undefined }
             : "idle"
 
   const label = target.data?.label || "等待方案启用"
+  const activeBeam = tone === "ok" && Boolean(target.data?.at || runtimeState === "running")
 
   return (
-    <div className="flex min-w-0 items-center gap-2.5 rounded-full border bg-card/60 py-1 ps-2.5 pe-3 text-xs shadow-xs/5 backdrop-blur">
+    <div className="relative flex min-w-0 items-center gap-2.5 overflow-hidden rounded-full border bg-card/70 py-1 ps-2.5 pe-3 text-xs shadow-xs/5 backdrop-blur">
+      {activeBeam ? (
+        <BorderBeam
+          size={40}
+          duration={9}
+          borderWidth={1}
+          colorFrom={runtimeState === "running" ? "var(--success)" : "var(--sheen-strong)"}
+          colorTo="var(--sheen)"
+        />
+      ) : null}
       <StatusDot tone={tone} pulse={runtimeState === "running"} />
 
       <div className="flex min-w-0 items-baseline gap-2">
@@ -81,12 +146,13 @@ export function StatusBar({ runtimeState }: { runtimeState: string | undefined }
       </div>
 
       {target.data?.at ? (
-        <span
-          key={countdown?.text ?? "loading"}
-          className="animate-tick-in flex shrink-0 items-center gap-1 tabular-nums text-muted-foreground"
-        >
+        <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums text-muted-foreground">
           <Clock className="size-3" animateOnHover />
-          {countdown?.text ?? "…"}
+          {countdown ? (
+            <CountdownReadout remainingMs={countdown.remainingMs} expired={countdown.expired} />
+          ) : (
+            "…"
+          )}
         </span>
       ) : null}
     </div>

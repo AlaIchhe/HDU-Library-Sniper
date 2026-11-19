@@ -4,7 +4,10 @@ import { useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 
 import { AnimateIcon, CalendarDays, RefreshCw } from "@/ui/icons"
+import { BlurFade } from "@/ui/blur-fade"
 import { Button } from "@/ui/button"
+import { fireConfetti } from "@/ui/confetti"
+import { ShimmerButton } from "@/ui/shimmer-button"
 import { toastManager } from "@/ui/toast"
 import {
   DataTable,
@@ -16,7 +19,7 @@ import {
   PRESS_CLASS,
   SNAPPY,
 } from "./data-table"
-import { PageHeader, PageShell, PageState, RISE_CLASS } from "./page-layout"
+import { PageHeader, PageShell, PageState } from "./page-layout"
 import { cn } from "@/lib/utils"
 import type { Booking, BookingAction } from "../../shared/types"
 import { useBookingAction, useBookings } from "../data/queries"
@@ -52,9 +55,10 @@ export function BookingsPage() {
   // ⌘K 面板 / `r` 快捷键请求刷新时重拉预约
   useRefreshSignal(() => void bookings.refetch())
 
-  async function run(booking: Booking, name: BookingAction) {
+  async function run(booking: Booking, name: BookingAction, trigger?: Element | null) {
     try {
       await action.mutateAsync({ id: booking.bookingId, action: name })
+      if (name === "checkin") fireConfetti(trigger)
       toastManager.add({ type: "success", title: "预约操作成功" })
     } catch (cause) {
       toastManager.add({ type: "error", title: cause instanceof Error ? cause.message : "操作失败" })
@@ -75,7 +79,7 @@ export function BookingsPage() {
         busy={action.isPending}
         pending={action.isPending ? action.variables : undefined}
         onRefresh={() => void bookings.refetch()}
-        onAction={(booking, name) => void run(booking, name)}
+        onAction={(booking, name, trigger) => void run(booking, name, trigger)}
       />
     </PageState>
   )
@@ -94,7 +98,7 @@ function BookingsView({
   busy: boolean
   pending?: PendingAction
   onRefresh: () => void
-  onAction: (booking: Booking, action: BookingAction) => void
+  onAction: (booking: Booking, action: BookingAction, trigger?: Element | null) => void
 }) {
   // 每次进入拉取状态就多转一圈，由弹簧自然停住，而不是匀速空转
   const [turns, setTurns] = useState(0)
@@ -109,6 +113,7 @@ function BookingsView({
       <PageHeader
         eyebrow="BOOKINGS"
         title="当前预约"
+        count={rows.length}
         actions={
           <AnimateIcon animateOnHover asChild>
             <Button
@@ -130,10 +135,11 @@ function BookingsView({
         }
       />
 
-      <div className={cn("min-w-0", RISE_CLASS)}>
+      <BlurFade delay={0.05} duration={0.28} offset={10} blur="4px" className="min-w-0">
         <DataTable
           columns={COLUMNS}
           isEmpty={rows.length === 0}
+          hasActive={rows.some((row) => toneOf(row) !== "idle")}
           empty={<NoData icon={CalendarDays} title="暂无当前预约" />}
         >
           <DataTableHeader>
@@ -155,7 +161,7 @@ function BookingsView({
             ))}
           </DataTableBody>
         </DataTable>
-      </div>
+      </BlurFade>
     </PageShell>
   )
 }
@@ -171,37 +177,48 @@ function BookingRow({
   index: number
   busy: boolean
   pending?: PendingAction
-  onAction: (booking: Booking, action: BookingAction) => void
+  onAction: (booking: Booking, action: BookingAction, trigger?: Element | null) => void
 }) {
   const actions = ACTIONS.filter((a) => a.available(booking))
   const primaryActions = actions.filter((a) => "primary" in a)
   const secondaryActions = actions.filter((a) => !("primary" in a))
   const tone = toneOf(booking)
 
-  const renderAction = (a: (typeof ACTIONS)[number], primary: boolean) => (
-    <motion.div
-      key={a.key}
-      layout
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.9 }}
-      transition={SNAPPY}
-    >
-      <Button
-        size="sm"
-        variant={primary ? "default" : "ghost"}
-        className={cn(
-          primary ? undefined : "font-medium text-foreground/85 hover:text-foreground",
-          PRESS_CLASS,
-        )}
-        disabled={busy}
-        loading={pending?.id === booking.bookingId && pending.action === a.key}
-        onClick={() => onAction(booking, a.key)}
+  const renderAction = (a: (typeof ACTIONS)[number], primary: boolean) => {
+    const isPending = pending?.id === booking.bookingId && pending.action === a.key
+    return (
+      <motion.div
+        key={a.key}
+        layout
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.9 }}
+        transition={SNAPPY}
       >
-        {a.label}
-      </Button>
-    </motion.div>
-  )
+        {primary ? (
+          <ShimmerButton
+            className="h-8 px-3 py-1 text-xs"
+            disabled={busy}
+            loading={isPending}
+            onClick={(event) => onAction(booking, a.key, event.currentTarget)}
+          >
+            {a.label}
+          </ShimmerButton>
+        ) : (
+          <Button
+            size="sm"
+            variant="ghost"
+            className={cn("font-medium text-foreground/85 hover:text-foreground", PRESS_CLASS)}
+            disabled={busy}
+            loading={isPending}
+            onClick={(event) => onAction(booking, a.key, event.currentTarget)}
+          >
+            {a.label}
+          </Button>
+        )}
+      </motion.div>
+    )
+  }
 
   return (
     <DataTableRow value={booking.bookingId} index={index} active={tone !== "idle"}>

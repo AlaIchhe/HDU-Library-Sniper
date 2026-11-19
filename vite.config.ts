@@ -28,8 +28,8 @@ export default defineConfig({
         icons: [{ src: "favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }],
       },
       workbox: {
-        // 只使用系统字体，不需要为 Web 字体做预缓存或运行时缓存。
-        globPatterns: ["**/*.{js,css,html,svg}"],
+        // Geist 拉丁字体随包内置（中文仍走系统字体），一并预缓存以便离线可用。
+        globPatterns: ["**/*.{js,css,html,svg,woff2}"],
       },
     }),
   ],

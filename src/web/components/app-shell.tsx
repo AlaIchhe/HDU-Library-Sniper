@@ -16,7 +16,10 @@ import {
   RefreshCw,
   Sun,
 } from "@/ui/icons"
-import { AnimatedGridPattern } from "@/ui/animated-grid-pattern"
+import { ClickSpark } from "@/ui/click-spark"
+import { fireSideCannons } from "@/ui/confetti"
+import { DecryptedText } from "@/ui/decrypted-text"
+import { MagicCard } from "@/ui/magic-card"
 import {
   Sidebar,
   SidebarContent,
@@ -36,7 +39,6 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query"
 import type { AuditNotification, InvalidateTarget } from "../../shared/types"
 import { useAppStore } from "../data/store"
 import { queryKeys, useRuntime, useSession } from "../data/queries"
-import { LightRays } from "@/ui/light-rays"
 import { api } from "../data/api"
 import { subscribeAppEvents } from "../data/events"
 import { forgetReturnTo, rememberReturnTo } from "../return-to"
@@ -48,6 +50,7 @@ import { FloatingDock } from "./floating-dock"
 import { HoverRail } from "./hover-rail"
 import type { Command } from "../commands"
 
+import { Ambient } from "./app-shell/ambient"
 import { AppContent, AppHeader } from "./app-shell/header"
 import { StatusDot } from "./app-shell/status"
 
@@ -74,6 +77,7 @@ function notifyAuditToast(audit: AuditNotification) {
     case "booking_run_finished": {
       const success = Boolean(payload.success)
       const message = typeof payload.message === "string" ? payload.message : ""
+      if (success) fireSideCannons()
       toastManager.add({
         type: success ? "success" : "error",
         title: success ? "预约成功" : "预约失败",
@@ -314,18 +318,8 @@ export function AppShell() {
   return (
     <MotionConfig reducedMotion="user">
       <div className="relative min-h-dvh min-w-0 overflow-x-hidden text-foreground">
-        <LightRays
-          count={5}
-          color="rgba(140, 180, 255, 0.12)"
-          blur={28}
-          speed={18}
-          className="fixed inset-0 -z-10"
-        />
-        <AnimatedGridPattern
-          numSquares={18}
-          maxOpacity={0.06}
-          className="fixed inset-0 -z-10 [mask-image:radial-gradient(ellipse_at_center,white,transparent_72%)]"
-        />
+        {pathname !== "/" ? <Ambient /> : null}
+        <ClickSpark />
 
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
 
@@ -338,11 +332,13 @@ export function AppShell() {
                 <SidebarHeader>
                   <AnimateIcon animateOnHover asChild>
                     <div className="flex items-center gap-3 px-2 py-2">
-                      <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-lg">
+                      <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
                         <LibraryBig className="size-5" />
                       </span>
                       <div className="group-data-[collapsible=icon]:hidden">
-                        <strong className="block text-sm">HDU Sniper</strong>
+                        <strong className="block text-sm font-semibold tracking-tight">
+                          <DecryptedText text="HDU Sniper" animateOn="hover" />
+                        </strong>
                       </div>
                     </div>
                   </AnimateIcon>
@@ -383,17 +379,19 @@ export function AppShell() {
                   </SidebarGroup>
                 </SidebarContent>
                 <SidebarFooter>
-                  <div className="flex min-w-0 flex-col gap-1.5 rounded-xl border bg-card/50 px-3 py-2.5">
-                    <div className="flex min-w-0 items-center gap-2 text-xs">
-                      <StatusDot
-                        tone={errorState ? "bad" : authRequired ? "warn" : "ok"}
-                        pulse={!errorState && !authRequired}
-                      />
-                      <span className="truncate text-muted-foreground">
-                        {errorState ? "后台服务异常" : authRequired ? "需要重新登录" : "后台服务在线"}
-                      </span>
+                  <MagicCard className="rounded-xl" gradientSize={140}>
+                    <div className="flex min-w-0 flex-col gap-1.5 px-3 py-2.5">
+                      <div className="flex min-w-0 items-center gap-2 text-xs">
+                        <StatusDot
+                          tone={errorState ? "bad" : authRequired ? "warn" : "ok"}
+                          pulse={!errorState && !authRequired}
+                        />
+                        <span className="truncate text-muted-foreground">
+                          {errorState ? "后台服务异常" : authRequired ? "需要重新登录" : "后台服务在线"}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  </MagicCard>
                 </SidebarFooter>
               </Sidebar>
               <SidebarInset className="min-w-0 max-w-full overflow-x-hidden">

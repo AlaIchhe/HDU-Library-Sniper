@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Link } from "@tanstack/react-router"
 
 import { cn } from "@/lib/utils"
+import { DecryptedText } from "@/ui/decrypted-text"
 import { AnimateIcon, CalendarDays, LibraryBig, ListChecks } from "@/ui/icons"
+import { MagicCard } from "@/ui/magic-card"
 import { StatusDot } from "./app-shell/status"
 
 /** 指针进入后稍等再展开，避免鼠标掠过左边缘时整条 rail 闪一下。 */
@@ -42,7 +44,7 @@ function RailLink({ to, label, shortcut, active }: RailLinkProps) {
       >
         <Icon className="size-5 shrink-0" strokeWidth={active ? 2.25 : 1.75} />
         <span className={cn(labelClass, "flex-1")}>{label}</span>
-        <kbd className={cn(labelClass, "font-sans text-[11px] tracking-widest text-muted-foreground/70")}>
+        <kbd className={cn(labelClass, "font-mono text-[11px] tracking-widest text-muted-foreground/70")}>
           {shortcut}
         </kbd>
       </Link>
@@ -133,11 +135,13 @@ export function HoverRail({
     >
       <div className="flex h-14 shrink-0 items-center gap-3 px-3.5">
         <AnimateIcon animateOnHover>
-          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-lg">
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
             <LibraryBig className="size-5" />
           </span>
         </AnimateIcon>
-        <strong className={cn(labelClass, "text-sm")}>HDU Sniper</strong>
+        <strong className={cn(labelClass, "text-sm font-semibold tracking-tight")}>
+          <DecryptedText text="HDU Sniper" animateOn="hover" />
+        </strong>
       </div>
 
       <nav aria-label="主导航" className="mt-2 flex flex-1 flex-col gap-1 px-2.5" onClickCapture={collapse}>
@@ -146,18 +150,20 @@ export function HoverRail({
       </nav>
 
       <div className="shrink-0 p-2.5">
-        <div
-          className="flex h-10 items-center gap-2 rounded-xl border bg-card/50 px-[17px]"
-          role="status"
-          aria-label={status}
-          title={expanded ? undefined : status}
-        >
-          <StatusDot
-            tone={errorState ? "bad" : authRequired ? "warn" : "ok"}
-            pulse={!errorState && !authRequired}
-          />
-          <span className={cn(labelClass, "text-xs text-muted-foreground")}>{status}</span>
-        </div>
+        <MagicCard className="rounded-xl" gradientSize={130}>
+          <div
+            className="flex h-10 items-center gap-2 px-[17px]"
+            role="status"
+            aria-label={status}
+            title={expanded ? undefined : status}
+          >
+            <StatusDot
+              tone={errorState ? "bad" : authRequired ? "warn" : "ok"}
+              pulse={!errorState && !authRequired}
+            />
+            <span className={cn(labelClass, "text-xs text-muted-foreground")}>{status}</span>
+          </div>
+        </MagicCard>
       </div>
     </aside>
   )

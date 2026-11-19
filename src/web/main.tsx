@@ -8,6 +8,8 @@ import { Spinner } from "@/ui/spinner"
 import { router } from "./routes/router"
 import { initializeTheme } from "./data/store"
 import { DesktopAPI } from "./mygo"
+import "@fontsource-variable/geist"
+import "@fontsource-variable/geist-mono"
 import "./index.css"
 
 // 桌面端启动时会异步初始化数据库与任务调度，这里只等待一次 DesktopAPI.ready()：

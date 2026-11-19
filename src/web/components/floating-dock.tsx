@@ -7,6 +7,7 @@ import { motion, useReducedMotion } from "motion/react"
 import { useMediaQuery } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
 import { AnimateIcon, CalendarDays, ListChecks } from "@/ui/icons"
+import { ShineBorder } from "@/ui/shine-border"
 
 const BUTTON = 44
 const GAP = 6
@@ -53,12 +54,13 @@ export function FloatingDock({
   return (
     <nav
       aria-label="主导航"
-      className="fixed left-1/2 z-40 flex -translate-x-1/2 items-end gap-1.5 rounded-full border bg-background/80 p-1.5 shadow-lg backdrop-blur-md"
+      className="glass fixed left-1/2 z-40 flex -translate-x-1/2 items-end gap-1.5 rounded-full border p-1.5 shadow-lg"
       onPointerLeave={() => setPointerX(null)}
       onPointerMove={handlePointerMove}
       ref={dockRef}
       style={{ bottom: "max(1rem, env(safe-area-inset-bottom))" }}
     >
+      <ShineBorder borderWidth={1} duration={16} />
       {ITEMS.map((item, index) => {
         const active = item.to === "/plans" ? plansActive : bookingsActive
         const center = PADDING + BUTTON / 2 + index * (BUTTON + GAP)
@@ -95,7 +97,12 @@ export function FloatingDock({
               >
                 <Icon className="size-5" strokeWidth={active ? 2.25 : 1.75} />
                 {active ? (
-                  <span aria-hidden className="absolute bottom-1 size-1 rounded-full bg-current" />
+                  <motion.span
+                    layoutId="floating-dock-dot"
+                    aria-hidden
+                    className="absolute bottom-1 size-1 rounded-full bg-current"
+                    transition={{ type: "spring", stiffness: 460, damping: 30 }}
+                  />
                 ) : null}
               </Link>
             </AnimateIcon>

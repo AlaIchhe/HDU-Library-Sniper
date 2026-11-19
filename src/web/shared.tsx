@@ -4,7 +4,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/ui/alert"
 import { Button } from "@/ui/button"
 import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from "@/ui/empty"
 import { type AnimatedIconComponent, CircleAlert } from "@/ui/icons"
+import { Ripple } from "@/ui/ripple"
 import { Spinner } from "@/ui/spinner"
+import { TextShimmer } from "@/ui/text-shimmer"
 
 export {
   type GroupFormValues,
@@ -20,7 +22,7 @@ export function Busy({ label = "正在加载..." }: { label?: string }) {
   return (
     <div className="flex min-h-52 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
       <Spinner />
-      {label}
+      <TextShimmer duration={2.2}>{label}</TextShimmer>
     </div>
   )
 }
@@ -55,14 +57,15 @@ export function NoData({
   action?: ReactNode
 }) {
   return (
-    <Empty>
-      <EmptyHeader>
+    <Empty className="relative overflow-hidden">
+      <Ripple mainCircleSize={112} mainCircleOpacity={0.14} numCircles={5} />
+      <EmptyHeader className="relative z-10">
         <EmptyMedia variant="icon">
           <Icon className="size-5" animate />
         </EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>
       </EmptyHeader>
-      {action ? <EmptyContent>{action}</EmptyContent> : null}
+      {action ? <EmptyContent className="relative z-10">{action}</EmptyContent> : null}
     </Empty>
   )
 }

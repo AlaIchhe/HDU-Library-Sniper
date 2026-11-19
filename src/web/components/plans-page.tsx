@@ -13,6 +13,7 @@ import {
   AlertDialogTitle,
 } from "@/ui/alert-dialog"
 import { Badge } from "@/ui/badge"
+import { BlurFade } from "@/ui/blur-fade"
 import { Button } from "@/ui/button"
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "@/ui/dialog"
 import {
@@ -25,6 +26,8 @@ import {
   DrawerTitle,
 } from "@/ui/drawer"
 import { InteractiveHoverButton } from "@/ui/interactive-hover-button"
+import { Magnet } from "@/ui/magnet"
+import { SpotlightCard } from "@/ui/spotlight-card"
 import { Switch } from "@/ui/switch"
 import { toastManager } from "@/ui/toast"
 import type { BookingPlan, PlanListItem } from "../../shared/types"
@@ -39,7 +42,7 @@ import {
   DataTableRow,
   PRESS_CLASS,
 } from "./data-table"
-import { PageHeader, PageShell, PageState, RISE_CLASS } from "./page-layout"
+import { PageHeader, PageShell, PageState } from "./page-layout"
 import { cn } from "@/lib/utils"
 import { useRefreshSignal } from "../data/store"
 import { undoToast } from "../undo-toast"
@@ -139,18 +142,22 @@ export function PlansPage() {
         <PageHeader
           eyebrow="PLANS"
           title="预约方案"
+          count={items.length}
           actions={
             // InteractiveHoverButton 自带圆点 + 悬停箭头作为 affordance；
             // children 会被放进一个 inline-block 的 span，再塞图标会让「+」
             // 和文字分成两行。这里只传纯文本，accessible name 保持「创建方案」。
-            <InteractiveHoverButton onClick={() => setDialog("type")}>创建方案</InteractiveHoverButton>
+            <Magnet padding={36} magnetStrength={6}>
+              <InteractiveHoverButton onClick={() => setDialog("type")}>创建方案</InteractiveHoverButton>
+            </Magnet>
           }
         />
 
-        <div className={cn("min-w-0", RISE_CLASS)}>
+        <BlurFade delay={0.05} duration={0.28} offset={10} blur="4px" className="min-w-0">
           <DataTable
             columns={PLAN_COLUMNS}
             isEmpty={items.length === 0}
+            hasActive={items.some((item) => item.enabled)}
             empty={
               <NoData
                 icon={ListChecks}
@@ -189,7 +196,7 @@ export function PlansPage() {
               ))}
             </DataTableBody>
           </DataTable>
-        </div>
+        </BlurFade>
 
         <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
           <AlertDialogPopup>
@@ -231,25 +238,30 @@ export function PlansPage() {
             <DialogPanel>
               <div className="grid gap-3 sm:grid-cols-2">
                 <AnimateIcon animateOnHover asChild>
-                  <Button
-                    variant="outline"
-                    className="h-auto sm:h-auto flex-col items-start gap-1 p-5 text-left"
-                    onClick={() => setDialog("single")}
-                  >
-                    <ListChecks className="size-6" />
-                    单条方案
-                  </Button>
+                  <SpotlightCard className="gap-2" onClick={() => setDialog("single")}>
+                    <span className="grid size-10 place-items-center rounded-xl border bg-muted/60 text-foreground">
+                      <ListChecks className="size-5" />
+                    </span>
+                    <span className="text-sm font-semibold text-foreground">单条方案</span>
+                    <span className="text-xs leading-relaxed text-foreground/65">
+                      指定单个房间、座位与预约时段
+                    </span>
+                  </SpotlightCard>
                 </AnimateIcon>
                 <AnimateIcon animateOnHover asChild>
-                  <Button
-                    variant="outline"
-                    className="h-auto sm:h-auto flex-col items-start gap-1 p-5 text-left"
+                  <SpotlightCard
+                    className="gap-2"
                     disabled={available.length < 2}
                     onClick={() => setDialog("group")}
                   >
-                    <CalendarDays className="size-6" />
-                    组合方案
-                  </Button>
+                    <span className="grid size-10 place-items-center rounded-xl border bg-muted/60 text-foreground">
+                      <CalendarDays className="size-5" />
+                    </span>
+                    <span className="text-sm font-semibold text-foreground">组合方案</span>
+                    <span className="text-xs leading-relaxed text-foreground/65">
+                      {available.length < 2 ? "至少需要 2 条可用方案" : "按顺位串联多个备选方案"}
+                    </span>
+                  </SpotlightCard>
                 </AnimateIcon>
               </div>
             </DialogPanel>

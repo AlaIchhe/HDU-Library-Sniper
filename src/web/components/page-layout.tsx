@@ -3,13 +3,18 @@
 import type { ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
+import { AnimatedShinyText } from "@/ui/animated-shiny-text"
+import { Badge } from "@/ui/badge"
+import { BlurFade } from "@/ui/blur-fade"
+import { BlurText } from "@/ui/blur-text"
+import { NumberTicker } from "@/ui/number-ticker"
 import { Busy, Failure } from "../shared"
 
 /** 区块错峰入场样式：配合 PageShell 的页头 0ms、主体 50ms 节奏。 */
 export const RISE_CLASS = "animate-enter-rise [--enter-y:10px] [--enter-delay:50ms]"
 
 /**
- * 页面加载态包装：统一加载 / 失败 / 就绪态之间的轻量 CSS 入场过渡。
+ * 页面加载态包装：统一加载 / 失败 / 就绪态之间的轻量 BlurFade 过渡。
  */
 export function PageState({
   loading,
@@ -29,17 +34,17 @@ export function PageState({
 
   if (phase === "loading") {
     return (
-      <div key="loading" className="animate-enter-rise [--enter-y:6px]">
+      <BlurFade key="loading" duration={0.22} offset={6} blur="3px">
         <Busy />
-      </div>
+      </BlurFade>
     )
   }
 
   if (phase === "error") {
     return (
-      <div key="error" className="animate-enter-rise [--enter-y:6px]">
+      <BlurFade key="error" duration={0.22} offset={6} blur="3px">
         <Failure message={message} retry={onRetry} />
-      </div>
+      </BlurFade>
     )
   }
 
@@ -56,25 +61,52 @@ export function PageShell({ children, className }: { children: ReactNode; classN
   return <div className={cn("flex min-w-0 flex-col gap-5", className)}>{children}</div>
 }
 
-/** 页头：标题 + 眉题，右侧放页面级动作。 */
+/** 页头：眉题（AnimatedShinyText）+ 标题（BlurText）+ 可选计数徽章（NumberTicker），右侧放页面级动作。 */
 export function PageHeader({
   eyebrow,
   title,
+  count,
   actions,
 }: {
   eyebrow?: string
   title: string
+  count?: number
   actions?: ReactNode
 }) {
   return (
-    <header className="animate-enter-rise flex flex-wrap items-end justify-between gap-3 [--enter-y:10px]">
+    <header className="flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
         {eyebrow ? (
-          <p className="font-sans text-xs font-normal tracking-widest text-muted-foreground">{eyebrow}</p>
+          <p className="font-mono text-xs font-normal tracking-widest">
+            <AnimatedShinyText shimmerWidth={80}>{eyebrow}</AnimatedShinyText>
+          </p>
         ) : null}
-        <h1 className={cn("text-3xl font-semibold tracking-tight", eyebrow && "mt-1.5")}>{title}</h1>
+        <div className={cn("flex items-center gap-2.5", eyebrow && "mt-1.5")}>
+          <BlurText
+            as="h1"
+            text={title}
+            delay={26}
+            stepDuration={0.2}
+            className="text-3xl font-semibold tracking-tight"
+          />
+          {count !== undefined && count > 0 ? (
+            <Badge variant="outline" size="sm" className="mt-0.5 font-mono tabular-nums">
+              <NumberTicker value={count} />
+            </Badge>
+          ) : null}
+        </div>
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? (
+        <BlurFade
+          duration={0.24}
+          delay={0.04}
+          offset={6}
+          blur="3px"
+          className="flex flex-wrap items-center gap-2"
+        >
+          {actions}
+        </BlurFade>
+      ) : null}
     </header>
   )
 }

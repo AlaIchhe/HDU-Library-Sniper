@@ -12,6 +12,7 @@ import { motion, useReducedMotion } from "motion/react"
 import { Dialog, DialogPanel, DialogPopup } from "@/ui/dialog"
 import { AnimateIcon, Search } from "@/ui/icons"
 import { MenuShortcut } from "@/ui/menu"
+import { ShineBorder } from "@/ui/shine-border"
 import { cn } from "@/lib/utils"
 import type { Command } from "../commands"
 import { filterCommands } from "../commands"
@@ -105,8 +106,9 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
         // viewport 是 grid-rows-[1fr_auto_3fr]，行高由内容决定，所以 popup 上的
         // max-h-full 永远不生效（父级没有确定高度），面板会撑出边框外。
         // 用视口单位给出确定上限，再让 DialogPanel 作为 flex 子项在内部滚动。
-        className="row-start-1 max-h-[min(80dvh,30rem)] max-w-xl self-start"
+        className="row-start-1 max-h-[min(80dvh,30rem)] max-w-xl self-start overflow-hidden"
       >
+        <ShineBorder borderWidth={1} duration={16} />
         <div className="flex items-center gap-3 border-b px-4">
           <Search
             className="size-4 shrink-0 text-muted-foreground"

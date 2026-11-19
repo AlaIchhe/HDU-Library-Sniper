@@ -3,14 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { QRCodeSVG } from "qrcode.react"
 
 import { AnimateIcon, Info, LibraryBig, LogIn, QrCode, RefreshCw, TriangleAlert } from "@/ui/icons"
 
 import { Alert, AlertDescription } from "@/ui/alert"
 import { AntigravityParticles } from "@/ui/antigravity-particles"
+import { BlurFade } from "@/ui/blur-fade"
+import { BlurText } from "@/ui/blur-text"
+import { BorderBeam } from "@/ui/border-beam"
 import { Button } from "@/ui/button"
 import { Card } from "@/ui/card"
+import { DecryptedText } from "@/ui/decrypted-text"
 import {
   Dialog,
   DialogClose,
@@ -21,9 +26,13 @@ import {
   DialogTitle,
 } from "@/ui/dialog"
 import { Field, FieldDescription, FieldLabel, FormError } from "@/ui/field"
+import { GlowingEffect } from "@/ui/glowing-effect"
 import { Input } from "@/ui/input"
+import { MagicCard } from "@/ui/magic-card"
 import { ScrollArea } from "@/ui/scroll-area"
+import { ShimmerButton } from "@/ui/shimmer-button"
 import { Spinner } from "@/ui/spinner"
+import { TextShimmer } from "@/ui/text-shimmer"
 import { cn } from "@/lib/utils"
 import { api } from "../data/api"
 import { subscribeQrEvents } from "../data/events"
@@ -44,13 +53,6 @@ type LoginTab = "password" | "openid"
 // 登录卡是局部的高密度表单：40px 控件比全局的紧凑桌面控件更适合输入密码。
 const inputClass = "[&>input]:h-10 [&>input]:leading-10 sm:[&>input]:h-10 sm:[&>input]:leading-10"
 
-function tabClass(active: boolean): string {
-  return cn(
-    "h-8 rounded-md text-sm font-medium outline-none transition-[background-color,color,box-shadow] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
-    active ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
-  )
-}
-
 function OpenidGuide({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -69,7 +71,7 @@ function OpenidGuide({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
               <li>用微信扫一扫上面的二维码，打开图书馆并登录。</li>
               <li>
                 登录成功后，地址栏会变成{" "}
-                <code className="break-all rounded bg-muted px-1 py-0.5 font-sans text-[11px]">
+                <code className="break-all rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
                   …/startUp/openid/…/
                 </code>
                 。
@@ -96,6 +98,7 @@ function LoginPage() {
   const queryClient = useQueryClient()
   const setSession = useAppStore((state) => state.setSession)
   const theme = useAppStore((state) => state.theme)
+  const reduced = useReducedMotion()
   const form = useForm<LoginFormValues>({
     resolver: loginResolver,
     defaultValues: { studentId: "", password: "" },
@@ -290,203 +293,256 @@ function LoginPage() {
   return (
     <main className="relative grid min-h-svh place-items-center overflow-hidden p-6">
       <AntigravityParticles theme={theme} className="z-0" />
-      <Card className="login-card relative z-10 w-full max-w-[26rem] overflow-hidden p-7 sm:p-8">
-        <header className="flex items-center justify-between gap-3">
-          <AnimateIcon animateOnHover asChild>
-            <div className="flex min-w-0 items-center gap-2.5">
-              <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-                <LibraryBig className="size-4" />
-              </span>
-              <span className="truncate text-[13px] font-medium">HDU Sniper</span>
-            </div>
-          </AnimateIcon>
-          <AnimateIcon animateOnHover asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-pressed={mode === "qr"}
-              className={cn(
-                "h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground",
-                mode === "qr" && "bg-muted text-foreground",
-              )}
-              onClick={toggleQr}
-            >
-              <QrCode className="size-4" />
-              钉钉扫码
-            </Button>
-          </AnimateIcon>
-        </header>
-
-        <h1 className="mt-5 text-2xl font-semibold tracking-tight">登录图书馆账户</h1>
-
-        {mode === "form" ? (
-          <>
-            {/* biome-ignore lint/a11y/useSemanticElements: 这是按钮组不是表单字段组，fieldset 会带入默认边框和 padding */}
-            <div
-              role="group"
-              aria-label="登录方式"
-              className="mt-6 grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
-            >
-              <button
-                type="button"
-                aria-pressed={tab === "password"}
-                className={tabClass(tab === "password")}
-                onClick={() => selectTab("password")}
-              >
-                密码登录
-              </button>
-              <button
-                type="button"
-                aria-pressed={tab === "openid"}
-                className={tabClass(tab === "openid")}
-                onClick={() => selectTab("openid")}
-              >
-                OpenID 登录
-              </button>
-            </div>
-
-            <div className="mt-5">
-              {tab === "password" ? (
-                <form onSubmit={form.handleSubmit(submit)} className="grid gap-4">
-                  <Field>
-                    <FieldLabel>学号</FieldLabel>
-                    <Input className={inputClass} autoComplete="username" {...form.register("studentId")} />
-                    {form.formState.errors.studentId?.message && (
-                      <FormError>{form.formState.errors.studentId.message}</FormError>
-                    )}
-                  </Field>
-                  <Field>
-                    <FieldLabel>数字杭电密码</FieldLabel>
-                    <Input
-                      className={inputClass}
-                      type="password"
-                      autoComplete="current-password"
-                      {...form.register("password")}
-                    />
-                    {form.formState.errors.password?.message && (
-                      <FormError>{form.formState.errors.password.message}</FormError>
-                    )}
-                  </Field>
-                  {passwordError && (
-                    <Alert variant="error">
-                      <TriangleAlert className="size-4" animate />
-                      <AlertDescription>{passwordError}</AlertDescription>
-                    </Alert>
+      <BlurFade duration={0.32} offset={10} blur="5px" className="relative z-10 w-full max-w-[26rem]">
+        <div className="relative rounded-2xl">
+          <GlowingEffect spread={34} proximity={72} inactiveZone={0.55} borderWidth={1} />
+          <Card className="login-card glass relative w-full overflow-hidden p-7 sm:p-8">
+            <BorderBeam size={80} duration={10} borderWidth={1} />
+            <header className="flex items-center justify-between gap-3">
+              <AnimateIcon animateOnHover asChild>
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+                    <LibraryBig className="size-4" />
+                  </span>
+                  <span className="truncate text-[13px] font-medium tracking-tight">
+                    <DecryptedText text="HDU Sniper" animateOn="hover" />
+                  </span>
+                </div>
+              </AnimateIcon>
+              <AnimateIcon animateOnHover asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-pressed={mode === "qr"}
+                  className={cn(
+                    "h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground",
+                    mode === "qr" && "bg-muted text-foreground",
                   )}
-                  <AnimateIcon animateOnHover asChild>
-                    <Button
-                      type="submit"
-                      className="h-10 w-full sm:h-10"
-                      loading={form.formState.isSubmitting}
-                    >
-                      <LogIn className="size-4" />
-                      登录
-                    </Button>
-                  </AnimateIcon>
-                </form>
-              ) : (
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    void submitOpenid()
-                  }}
-                  className="grid gap-4"
+                  onClick={toggleQr}
                 >
-                  <Field>
-                    <FieldLabel>OpenID</FieldLabel>
-                    <Input
-                      className={inputClass}
-                      value={openid}
-                      onChange={(event) => setOpenid(event.target.value)}
-                      placeholder="粘贴 openid 或微信登录链接"
-                      autoComplete="off"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                    />
-                    <FieldDescription>在微信中打开图书馆并登录，复制地址栏里的整条链接。</FieldDescription>
-                  </Field>
-                  {openidError && (
-                    <Alert variant="error">
-                      <TriangleAlert className="size-4" animate />
-                      <AlertDescription>{openidError}</AlertDescription>
-                    </Alert>
-                  )}
-                  <AnimateIcon animateOnHover asChild>
-                    <Button type="submit" className="h-10 w-full sm:h-10" loading={openidBusy}>
-                      <LogIn className="size-4" />
-                      登录
-                    </Button>
-                  </AnimateIcon>
-                  <p className="-mt-1 text-center text-xs text-muted-foreground">
-                    没有 openid？
-                    <button
-                      type="button"
-                      className="ml-1 font-medium text-foreground underline decoration-muted-foreground/50 underline-offset-4 hover:decoration-foreground"
-                      onClick={() => setGuideOpen(true)}
-                    >
-                      点击获取
-                    </button>
-                  </p>
-                </form>
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="mt-6 grid justify-items-center gap-3">
-            <div className="relative grid size-52 place-items-center overflow-hidden rounded-xl border bg-white p-2">
-              {qr?.image ? (
-                <img src={qr.image} alt="钉钉扫码登录二维码" className="size-full object-contain" />
-              ) : null}
-              {qrState === "loading" && (
-                <div className="absolute inset-0 grid place-items-center gap-2 bg-white/90 text-neutral-500">
-                  <Spinner className="size-5" />
-                  <span className="text-xs">{qrMessage}</span>
-                </div>
-              )}
-              {qrState === "error" && (
-                <div className="absolute inset-0 grid place-items-center bg-white/95 p-4 text-center">
-                  <div className="grid gap-3">
-                    <p className="text-xs leading-5 text-neutral-600">{qrMessage}</p>
-                    <AnimateIcon animateOnHover asChild>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="justify-self-center"
-                        onClick={() => void loadQr()}
-                      >
-                        <RefreshCw className="size-4" />
-                        刷新二维码
-                      </Button>
-                    </AnimateIcon>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="grid gap-1 text-center">
-              <p className="text-sm font-medium">请使用钉钉扫码登录</p>
-              <p className="text-xs text-muted-foreground">二维码失效后会自动刷新</p>
-            </div>
-            <button
-              type="button"
-              className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-              onClick={closeQr}
-            >
-              {tab === "openid" ? "返回 OpenID 登录" : "返回密码登录"}
-            </button>
-          </div>
-        )}
+                  <QrCode className="size-4" />
+                  钉钉扫码
+                </Button>
+              </AnimateIcon>
+            </header>
 
-        <div className="mt-6 text-center">
-          <button
-            type="button"
-            className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-            onClick={() => window.open(ISSUES_URL, "_blank", "noopener,noreferrer")}
-          >
-            登录遇到问题？
-          </button>
+            <BlurText
+              as="h1"
+              text="登录图书馆账户"
+              delay={24}
+              stepDuration={0.2}
+              className="mt-5 text-2xl font-semibold tracking-tight"
+            />
+
+            <AnimatePresence mode="wait" initial={false}>
+              {mode === "form" ? (
+                <motion.div
+                  key="form-mode"
+                  initial={reduced ? false : { opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={reduced ? undefined : { opacity: 0, y: -4 }}
+                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  {/* biome-ignore lint/a11y/useSemanticElements: 这是按钮组不是表单字段组，fieldset 会带入默认边框和 padding */}
+                  <div
+                    role="group"
+                    aria-label="登录方式"
+                    className="mt-6 grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
+                  >
+                    {(
+                      [
+                        { id: "password", label: "密码登录" },
+                        { id: "openid", label: "OpenID 登录" },
+                      ] as const
+                    ).map((option) => {
+                      const active = tab === option.id
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          aria-pressed={active}
+                          className={cn(
+                            "relative z-0 h-8 rounded-md text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+                            active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                          )}
+                          onClick={() => selectTab(option.id)}
+                        >
+                          {active ? (
+                            <motion.span
+                              layoutId="login-tab-pill"
+                              aria-hidden
+                              className="absolute inset-0 -z-1 rounded-md bg-background shadow-xs"
+                              transition={{ type: "spring", stiffness: 480, damping: 34, mass: 0.65 }}
+                            />
+                          ) : null}
+                          {option.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="mt-5">
+                    {tab === "password" ? (
+                      <form onSubmit={form.handleSubmit(submit)} className="grid gap-4">
+                        <Field>
+                          <FieldLabel>学号</FieldLabel>
+                          <Input
+                            className={inputClass}
+                            autoComplete="username"
+                            {...form.register("studentId")}
+                          />
+                          {form.formState.errors.studentId?.message && (
+                            <FormError>{form.formState.errors.studentId.message}</FormError>
+                          )}
+                        </Field>
+                        <Field>
+                          <FieldLabel>数字杭电密码</FieldLabel>
+                          <Input
+                            className={inputClass}
+                            type="password"
+                            autoComplete="current-password"
+                            {...form.register("password")}
+                          />
+                          {form.formState.errors.password?.message && (
+                            <FormError>{form.formState.errors.password.message}</FormError>
+                          )}
+                        </Field>
+                        {passwordError && (
+                          <Alert variant="error">
+                            <TriangleAlert className="size-4" animate />
+                            <AlertDescription>{passwordError}</AlertDescription>
+                          </Alert>
+                        )}
+                        <AnimateIcon animateOnHover asChild>
+                          <ShimmerButton
+                            type="submit"
+                            className="h-10 w-full"
+                            loading={form.formState.isSubmitting}
+                          >
+                            <LogIn className="size-4" />
+                            登录
+                          </ShimmerButton>
+                        </AnimateIcon>
+                      </form>
+                    ) : (
+                      <form
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          void submitOpenid()
+                        }}
+                        className="grid gap-4"
+                      >
+                        <Field>
+                          <FieldLabel>OpenID</FieldLabel>
+                          <Input
+                            className={inputClass}
+                            value={openid}
+                            onChange={(event) => setOpenid(event.target.value)}
+                            placeholder="粘贴 openid 或微信登录链接"
+                            autoComplete="off"
+                            autoCapitalize="none"
+                            spellCheck={false}
+                          />
+                          <FieldDescription>
+                            在微信中打开图书馆并登录，复制地址栏里的整条链接。
+                          </FieldDescription>
+                        </Field>
+                        {openidError && (
+                          <Alert variant="error">
+                            <TriangleAlert className="size-4" animate />
+                            <AlertDescription>{openidError}</AlertDescription>
+                          </Alert>
+                        )}
+                        <AnimateIcon animateOnHover asChild>
+                          <ShimmerButton type="submit" className="h-10 w-full" loading={openidBusy}>
+                            <LogIn className="size-4" />
+                            登录
+                          </ShimmerButton>
+                        </AnimateIcon>
+                        <p className="-mt-1 text-center text-xs text-muted-foreground">
+                          没有 openid？
+                          <button
+                            type="button"
+                            className="ml-1 font-medium text-foreground underline decoration-muted-foreground/50 underline-offset-4 hover:decoration-foreground"
+                            onClick={() => setGuideOpen(true)}
+                          >
+                            点击获取
+                          </button>
+                        </p>
+                      </form>
+                    )}
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="qr-mode"
+                  initial={reduced ? false : { opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={reduced ? undefined : { opacity: 0, y: -4 }}
+                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                  className="mt-6 grid justify-items-center gap-3"
+                >
+                  <MagicCard className="rounded-xl p-0.5" gradientSize={180}>
+                    <div className="relative grid size-52 place-items-center overflow-hidden rounded-[calc(var(--radius-xl)-2px)] bg-white p-2">
+                      {qr?.image ? (
+                        <img src={qr.image} alt="钉钉扫码登录二维码" className="size-full object-contain" />
+                      ) : null}
+                      {qrState === "loading" && (
+                        <div className="absolute inset-0 grid place-items-center gap-2 bg-white/92 text-neutral-500">
+                          <Spinner className="size-5" />
+                          <TextShimmer className="text-xs" duration={2}>
+                            {qrMessage}
+                          </TextShimmer>
+                        </div>
+                      )}
+                      {qrState === "error" && (
+                        <div className="absolute inset-0 grid place-items-center bg-white/95 p-4 text-center">
+                          <div className="grid gap-3">
+                            <p className="text-xs leading-5 text-neutral-600">{qrMessage}</p>
+                            <AnimateIcon animateOnHover asChild>
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="justify-self-center"
+                                onClick={() => void loadQr()}
+                              >
+                                <RefreshCw className="size-4" />
+                                刷新二维码
+                              </Button>
+                            </AnimateIcon>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </MagicCard>
+                  <div className="grid gap-1 text-center">
+                    <p className="text-sm font-medium">请使用钉钉扫码登录</p>
+                    <p className="text-xs text-muted-foreground">二维码失效后会自动刷新</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                    onClick={closeQr}
+                  >
+                    {tab === "openid" ? "返回 OpenID 登录" : "返回密码登录"}
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="mt-6 text-center">
+              <button
+                type="button"
+                className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                onClick={() => window.open(ISSUES_URL, "_blank", "noopener,noreferrer")}
+              >
+                登录遇到问题？
+              </button>
+            </div>
+          </Card>
         </div>
-      </Card>
+      </BlurFade>
 
       <OpenidGuide open={guideOpen} onOpenChange={setGuideOpen} />
     </main>
