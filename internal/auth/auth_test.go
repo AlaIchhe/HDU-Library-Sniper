@@ -298,3 +298,74 @@ func TestQrWatchAbandonAndCancelNotifiesAndFreesSlot(t *testing.T) {
 	_ = svc.CancelQrLogin(q3.UUID)
 	svc.qrWg.Wait()
 }
+
+// SSO 的扫码接口是长轮询：没有新状态时它会挂住连接，最后回 {"code":408,"data":"wait"}。
+// 这个用例锁住两件事：wait 不能被当成失败，单轮超时也不能让整张码作废。
+func TestQrScanLongPollWaitAndTimeoutKeepSessionAlive(t *testing.T) {
+	var polls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/sso/login":
+			_, _ = w.Write([]byte("ok"))
+		case r.URL.Path == "/sso/public/utils/loginNew.js":
+			_, _ = w.Write([]byte(`"Csrf-Key":"k1","Csrf-Value":"v1"`))
+		case r.URL.Path == "/sso/api/protected/qrlogin/loginid":
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": "qr-wait-1"})
+		case strings.HasPrefix(r.URL.Path, "/sso/api/public/qrlogin/qrgen/"):
+			_, _ = w.Write([]byte("png"))
+		case r.URL.Path == "/User/Center/baseInfo":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"DATA": map[string]any{"is_login": true, "uid": "304174", "user_info": map[string]any{"name": "陈同学"}},
+			})
+		case strings.HasPrefix(r.URL.Path, "/sso/api/protected/qrlogin/scan/"):
+			switch n := polls.Add(1); n {
+			case 1:
+				// 长轮询满一轮没等到扫码：SSO 用 408 + data=wait 表示“还没有状态”。
+				w.WriteHeader(http.StatusRequestTimeout)
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 408, "message": "Request Timeout", "data": "wait"})
+			case 2:
+				// 单轮被掐断（对应线上 15s 客户端超时）：直接断连让客户端拿到 EOF。
+				// 这不该让整张码进入 error。
+				conn, _, err := w.(http.Hijacker).Hijack()
+				if err == nil {
+					_ = conn.Close()
+				}
+			default:
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": "tok-wait"})
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	svc := testService(t, srv)
+	svc.qrPollTick = 10 * time.Millisecond
+	svc.qrStreamGrace = 5 * time.Second
+
+	start, err := svc.CreateQrLogin(context.Background())
+	if err != nil {
+		t.Fatalf("CreateQrLogin: %v", err)
+	}
+	end := svc.BeginQrWatch(start.UUID)
+	defer end()
+
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		st := svc.PollQrLogin(start.UUID)
+		if st.Status == "error" {
+			t.Fatalf("长轮询的 wait/超时不应让扫码会话失败: %+v", st)
+		}
+		if st.Status == "success" {
+			if st.Session == nil || !st.Session.Authenticated {
+				t.Fatalf("success 事件缺少已认证会话: %+v", st)
+			}
+			if got := polls.Load(); got < 3 {
+				t.Fatalf("期望至少 3 轮长轮询，实际 %d", got)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("扫码长轮询没有走到 success: %+v", svc.PollQrLogin(start.UUID))
+}

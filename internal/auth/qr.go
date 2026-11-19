@@ -20,10 +20,19 @@ import (
 )
 
 const (
-	qrTTL                = 90 * time.Second
+	qrTTL = 90 * time.Second
+	// SSO 的 /api/protected/qrlogin/scan 是长轮询：没有新状态时它会把连接挂住
+	// 约 30s，然后回 {"code":408,"data":"wait"}。普通 HTTP 客户端的 15s 超时
+	// 会在拿到这个 "wait" 之前就把整轮打断，所以扫码轮询必须单独给足超时。
+	qrScanHold           = 30 * time.Second
+	qrScanHoldSlack      = 5 * time.Second
+	qrScanWaitData       = "wait"
 	defaultQrStreamGrace = 5 * time.Second
 	defaultQrPollTick    = 1200 * time.Millisecond
 )
+
+// errQrScanRejected 表示 SSO 明确拒绝了这次扫码会话（而非暂时没有状态）。
+var errQrScanRejected = errors.New("扫码会话已失效，请刷新二维码")
 
 type qrSession struct {
 	createdAt     time.Time
@@ -277,8 +286,18 @@ func (s *Service) runQrScanLoop(ctx context.Context, cancel context.CancelFunc, 
 			return
 		}
 		if err != nil {
-			s.setQrStatus(uuid, core.QrLoginStatus{Status: "error", Message: err.Error()})
-			return
+			if errors.Is(err, errQrScanRejected) {
+				s.setQrStatus(uuid, core.QrLoginStatus{Status: "error", Message: err.Error()})
+				return
+			}
+			// 单轮超时/网络抖动不该让整张码作废：SSO 的长轮询本来就会挂住几十秒，
+			// 一轮没拿到状态就继续挂下一轮，直到 qrTTL 到期。
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(pollTick):
+			}
+			continue
 		}
 		if token != "" {
 			if err := s.completeQrLogin(ctx, token); err != nil {
@@ -312,14 +331,20 @@ func (s *Service) setQrStatus(uuid string, st core.QrLoginStatus) {
 }
 
 func (s *Service) pollQrRoundForToken(ctx context.Context, uuid string) (string, error) {
+	// 每一轮都刷新 CSRF，和 SSO 前端的做法一致；用父 ctx 做页面的取用。
 	headers, _, err := s.ssoCSRFHeaders(ctx)
 	if err != nil {
 		return "", err
 	}
-	client := s.newHTTPClient(s.Client.Jar())
+
+	// 长轮询单独计时：普通客户端 15s 超时会在 SSO 回 "wait" 之前把它掐断。
+	roundCtx, cancel := context.WithTimeout(ctx, qrScanHold+qrScanHoldSlack)
+	defer cancel()
+
+	client := s.newHTTPClientWithTimeout(s.Client.Jar(), qrScanHold+qrScanHoldSlack)
 	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	scanURL := fmt.Sprintf("%s/api/protected/qrlogin/scan/%s?%s", s.Endpoints.SSO, url.PathEscape(uuid), ts)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scanURL, nil)
+	req, err := http.NewRequestWithContext(roundCtx, http.MethodGet, scanURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -330,11 +355,31 @@ func (s *Service) pollQrRoundForToken(ctx context.Context, uuid string) (string,
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusRequestTimeout {
+		return "", errQrScanRejected
+	}
 	var body map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(core.ToString(body["data"])), nil
+	return classifyQrScanRound(body)
+}
+
+// classifyQrScanRound 解释一轮长轮询的返回：拿到 token 就是成功，SSO 回
+// "wait"（码还没被扫）或 408 表示这一轮没有新状态，需要继续挂下一轮；
+// 401/403 一类才是真失败。空白 data 也按“还没结果”处理，不能当成失败。
+func classifyQrScanRound(body map[string]any) (string, error) {
+	data := strings.TrimSpace(core.ToString(body["data"]))
+	if data == qrScanWaitData {
+		return "", nil
+	}
+	if data != "" {
+		return data, nil
+	}
+	if code := core.ToInt64(body["code"]); code == http.StatusUnauthorized || code == http.StatusForbidden {
+		return "", errQrScanRejected
+	}
+	return "", nil
 }
 
 func (s *Service) completeQrLogin(ctx context.Context, token string) error {

@@ -374,8 +374,13 @@ func (s *Service) decodeStoredCredentials(rec *store.SessionRecord) *Credentials
 }
 
 func (s *Service) newHTTPClient(jar http.CookieJar) *http.Client {
+	return s.newHTTPClientWithTimeout(jar, 15*time.Second)
+}
+
+// newHTTPClientWithTimeout 用于需要比默认 15s 更长的请求（例如 SSO 扫码长轮询）。
+func (s *Service) newHTTPClientWithTimeout(jar http.CookieJar, timeout time.Duration) *http.Client {
 	return &http.Client{
-		Timeout: 15 * time.Second,
+		Timeout: timeout,
 		Jar:     jar,
 	}
 }
