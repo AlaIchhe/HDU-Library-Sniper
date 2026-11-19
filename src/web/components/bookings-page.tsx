@@ -139,7 +139,6 @@ function BookingsView({
         <DataTable
           columns={COLUMNS}
           isEmpty={rows.length === 0}
-          hasActive={rows.some((row) => toneOf(row) !== "idle")}
           empty={<NoData icon={CalendarDays} title="暂无当前预约" />}
         >
           <DataTableHeader>

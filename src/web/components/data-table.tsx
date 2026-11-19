@@ -3,7 +3,6 @@
 import { AnimatePresence, motion, type Transition, type Variants } from "motion/react"
 import { createContext, type ReactNode, type Ref, useContext } from "react"
 import { cn } from "../../lib/utils"
-import { BorderBeam } from "../../ui/border-beam"
 import { GlowingEffect } from "../../ui/glowing-effect"
 import { Highlight, HighlightItem } from "../../ui/highlight"
 
@@ -51,7 +50,7 @@ function useDataTableContext() {
 
 /**
  * 统一的数据列表容器（单层卡片表面 + Aceternity 单色 GlowingEffect 边框光弧 +
- * Magic UI BorderBeam 激活态流光 + Animate UI Highlight 滑块高亮 + Hover-Reveal 渐进披露）。
+ * Animate UI Highlight 滑块高亮 + Hover-Reveal 渐进披露）。
  *
  * - 单层边框表面：直接承接 `PageHeader`，避免外层再套 Panel Card；
  * - 统一列模板：`columns` 同时作用于表头和行，保证网格对齐；
@@ -61,14 +60,12 @@ export function DataTable({
   columns,
   isEmpty,
   empty,
-  hasActive = false,
   className,
   children,
 }: {
   columns: string
   isEmpty: boolean
   empty: ReactNode
-  hasActive?: boolean
   className?: string
   children: ReactNode
 }) {
@@ -83,7 +80,6 @@ export function DataTable({
             className,
           )}
         >
-          {hasActive && !isEmpty ? <BorderBeam size={72} duration={11} borderWidth={1} /> : null}
           <AnimatePresence mode="popLayout" initial={false}>
             {isEmpty ? (
               <motion.div

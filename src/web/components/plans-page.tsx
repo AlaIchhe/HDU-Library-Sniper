@@ -31,7 +31,7 @@ import { SpotlightCard } from "@/ui/spotlight-card"
 import { Switch } from "@/ui/switch"
 import { toastManager } from "@/ui/toast"
 import type { BookingPlan, PlanListItem } from "../../shared/types"
-import { weekdayLabels } from "../../shared/types"
+import { formatWeekdays } from "../../shared/types"
 import { usePlanMutations, usePlans } from "../data/queries"
 import {
   DataTable,
@@ -157,7 +157,6 @@ export function PlansPage() {
           <DataTable
             columns={PLAN_COLUMNS}
             isEmpty={items.length === 0}
-            hasActive={items.some((item) => item.enabled)}
             empty={
               <NoData
                 icon={ListChecks}
@@ -334,7 +333,7 @@ function PlanRow({
     item.kind === "group" ? "顺位组合" : `${String(item.startHour).padStart(2, "0")}:00 开始`
   const timeSecondary =
     item.kind === "group" ? `${item.memberPlanIds.length} 个子方案` : `时长 ${item.durationHours} 小时`
-  const weekdaysText = item.weekdays.map((day) => weekdayLabels[day]).join("、")
+  const weekdaysText = formatWeekdays(item.weekdays)
 
   return (
     <DataTableRow value={item.id} index={index} active={item.enabled}>

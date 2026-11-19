@@ -13,7 +13,6 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "@/ui/alert-dialog"
-import { BorderBeam } from "@/ui/border-beam"
 import { Button } from "@/ui/button"
 import { SlidingNumber } from "@/ui/sliding-number"
 import { TextShimmer } from "@/ui/text-shimmer"
@@ -120,19 +119,9 @@ export function StatusBar({ runtimeState }: { runtimeState: string | undefined }
             : "idle"
 
   const label = target.data?.label || "等待方案启用"
-  const activeBeam = tone === "ok" && Boolean(target.data?.at || runtimeState === "running")
 
   return (
     <div className="relative flex min-w-0 items-center gap-2.5 overflow-hidden rounded-full border bg-card/70 py-1 ps-2.5 pe-3 text-xs shadow-xs/5 backdrop-blur">
-      {activeBeam ? (
-        <BorderBeam
-          size={40}
-          duration={9}
-          borderWidth={1}
-          colorFrom={runtimeState === "running" ? "var(--success)" : "var(--sheen-strong)"}
-          colorTo="var(--sheen)"
-        />
-      ) : null}
       <StatusDot tone={tone} pulse={runtimeState === "running"} />
 
       <div className="flex min-w-0 items-baseline gap-2">

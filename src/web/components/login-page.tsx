@@ -12,7 +12,6 @@ import { Alert, AlertDescription } from "@/ui/alert"
 import { AntigravityParticles } from "@/ui/antigravity-particles"
 import { BlurFade } from "@/ui/blur-fade"
 import { BlurText } from "@/ui/blur-text"
-import { BorderBeam } from "@/ui/border-beam"
 import { Button } from "@/ui/button"
 import { Card } from "@/ui/card"
 import { DecryptedText } from "@/ui/decrypted-text"
@@ -297,7 +296,6 @@ function LoginPage() {
         <div className="relative rounded-2xl">
           <GlowingEffect spread={34} proximity={72} inactiveZone={0.55} borderWidth={1} />
           <Card className="login-card glass relative w-full overflow-hidden p-7 sm:p-8">
-            <BorderBeam size={80} duration={10} borderWidth={1} />
             <header className="flex items-center justify-between gap-3">
               <AnimateIcon animateOnHover asChild>
                 <div className="flex min-w-0 items-center gap-2.5">
