@@ -30,6 +30,18 @@ test("plans toggle/undo, group creation drawer, bookings check-in, and command p
   await page.goto("/plans");
   await expect(page.getByText("101")).toBeVisible();
 
+  // 表头与行内「重复日期」列左边缘必须对齐，避免操作列 auto 宽不一致导致整列左偏
+  const weekdayHeader = await page.getByText("重复日期", { exact: true }).boundingBox();
+  const weekdayCell = await page
+    .locator("li")
+    .filter({ hasText: "自习室" })
+    .first()
+    .getByText("工作日", { exact: true })
+    .boundingBox();
+  expect(weekdayHeader).not.toBeNull();
+  expect(weekdayCell).not.toBeNull();
+  expect(Math.abs((weekdayHeader?.x ?? 0) - (weekdayCell?.x ?? 0))).toBeLessThan(1);
+
   // 启用第二个方案应触发顶替撤销提示，点击「撤销」恢复原方案
   await page.getByRole("switch", { name: "启用方案" }).first().click();
   await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();

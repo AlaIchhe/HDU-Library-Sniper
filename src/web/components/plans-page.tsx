@@ -51,7 +51,7 @@ import { NoData } from "../shared"
 import { GroupEditor } from "./plans/group-editor"
 import { PlanEditor } from "./plans/plan-editor"
 
-const PLAN_COLUMNS = "sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,1.25fr)_auto]"
+const PLAN_COLUMNS = "sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,1.25fr)_minmax(6.5rem,auto)]"
 export function PlansPage() {
   const plans = usePlans()
   const mutations = usePlanMutations()
@@ -70,6 +70,25 @@ export function PlansPage() {
     items.filter((item) => item.kind === "group").flatMap((item) => item.memberPlanIds),
   )
   const available = allSingles.filter((item) => !referenced.has(item.id))
+
+  // 创建模式始终不携带历史选中项，避免先编辑再创建时误把编辑目标当成 initial 覆盖原方案
+  const editingSingle = dialog === "single" ? undefined : selected?.kind === "single" ? selected : undefined
+  const editingGroup = dialog === "group" ? undefined : selected?.kind === "group" ? selected : undefined
+
+  function openCreateDialog() {
+    setSelected(undefined)
+    setDialog("type")
+  }
+
+  function openCreateSingle() {
+    setSelected(undefined)
+    setDialog("single")
+  }
+
+  function openCreateGroup() {
+    setSelected(undefined)
+    setDialog("group")
+  }
 
   // 同一方案的切换在请求返回前只接受一次点击：开关是受控的，
   // 列表刷新前 item.enabled 还是旧值，连点两次会发出两个相同方向的请求。
@@ -148,7 +167,7 @@ export function PlansPage() {
             // children 会被放进一个 inline-block 的 span，再塞图标会让「+」
             // 和文字分成两行。这里只传纯文本，accessible name 保持「创建方案」。
             <Magnet padding={36} magnetStrength={6}>
-              <InteractiveHoverButton onClick={() => setDialog("type")}>创建方案</InteractiveHoverButton>
+              <InteractiveHoverButton onClick={openCreateDialog}>创建方案</InteractiveHoverButton>
             </Magnet>
           }
         />
@@ -163,7 +182,7 @@ export function PlansPage() {
                 title="还没有预约方案"
                 action={
                   <AnimateIcon animateOnHover asChild>
-                    <Button onClick={() => setDialog("type")}>
+                    <Button onClick={openCreateDialog}>
                       <Plus className="size-4" />
                       创建第一个方案
                     </Button>
@@ -237,7 +256,7 @@ export function PlansPage() {
             <DialogPanel>
               <div className="grid gap-3 sm:grid-cols-2">
                 <AnimateIcon animateOnHover asChild>
-                  <SpotlightCard className="gap-2" onClick={() => setDialog("single")}>
+                  <SpotlightCard className="gap-2" onClick={openCreateSingle}>
                     <span className="grid size-10 place-items-center rounded-xl border bg-muted/60 text-foreground">
                       <ListChecks className="size-5" />
                     </span>
@@ -248,11 +267,7 @@ export function PlansPage() {
                   </SpotlightCard>
                 </AnimateIcon>
                 <AnimateIcon animateOnHover asChild>
-                  <SpotlightCard
-                    className="gap-2"
-                    disabled={available.length < 2}
-                    onClick={() => setDialog("group")}
-                  >
+                  <SpotlightCard className="gap-2" disabled={available.length < 2} onClick={openCreateGroup}>
                     <span className="grid size-10 place-items-center rounded-xl border bg-muted/60 text-foreground">
                       <CalendarDays className="size-5" />
                     </span>
@@ -270,14 +285,18 @@ export function PlansPage() {
         <Dialog
           open={dialog === "single" || dialog === "edit-single"}
           onOpenChange={(open) => !open && setDialog(null)}
+          onOpenChangeComplete={(open) => {
+            if (!open && dialog === null) setSelected(undefined)
+          }}
         >
           <DialogPopup>
             <DialogHeader>
-              <DialogTitle>{dialog === "edit-single" ? "编辑单条方案" : "创建单条方案"}</DialogTitle>
+              <DialogTitle>{editingSingle ? "编辑单条方案" : "创建单条方案"}</DialogTitle>
             </DialogHeader>
             <DialogPanel>
               <PlanEditor
-                initial={selected?.kind === "single" ? selected : undefined}
+                key={editingSingle ? `edit-${editingSingle.id}` : "create"}
+                initial={editingSingle}
                 onClose={() => setDialog(null)}
               />
             </DialogPanel>
@@ -287,15 +306,19 @@ export function PlansPage() {
         <Drawer
           open={dialog === "group" || dialog === "edit-group"}
           onOpenChange={(open) => !open && setDialog(null)}
+          onOpenChangeComplete={(open) => {
+            if (!open && dialog === null) setSelected(undefined)
+          }}
         >
           <DrawerPopup>
             <DrawerHeader>
-              <DrawerTitle>{dialog === "edit-group" ? "编辑组合方案" : "创建组合方案"}</DrawerTitle>
+              <DrawerTitle>{editingGroup ? "编辑组合方案" : "创建组合方案"}</DrawerTitle>
             </DrawerHeader>
             <DrawerPanel>
               <GroupEditor
-                singles={selected?.kind === "group" ? allSingles : available}
-                initial={selected?.kind === "group" ? selected : undefined}
+                key={editingGroup ? `edit-${editingGroup.id}` : "create"}
+                singles={editingGroup ? allSingles : available}
+                initial={editingGroup}
                 onClose={() => setDialog(null)}
               />
             </DrawerPanel>

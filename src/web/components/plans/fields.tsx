@@ -1,4 +1,5 @@
 "use client"
+import { useMemo } from "react"
 import {
   Combobox,
   ComboboxEmpty,
@@ -76,25 +77,30 @@ export function SearchableField({
   onOpenChange?: (open: boolean) => void
   emptyText?: string
 }) {
+  const itemValues = useMemo(() => options.map((option) => option.value), [options])
+  const labelMap = useMemo(() => new Map(options.map((option) => [option.value, option.label])), [options])
+
   return (
     <Field>
       <FieldLabel>{label}</FieldLabel>
       <Combobox
-        value={value}
+        items={itemValues}
+        value={value || null}
         onValueChange={(next) => next !== null && onChange(String(next))}
+        itemToStringLabel={(item) => (item == null ? "" : (labelMap.get(item) ?? String(item)))}
         itemToStringValue={(item) => String(item ?? "")}
         onOpenChange={onOpenChange}
         disabled={disabled}
       >
         <ComboboxInput placeholder={placeholder} />
         <ComboboxPopup>
+          <ComboboxEmpty>{emptyText}</ComboboxEmpty>
           <ComboboxList>
-            {options.map((option) => (
-              <ComboboxItem key={option.value} value={option.value}>
-                {option.label}
+            {(item: string) => (
+              <ComboboxItem key={item} value={item}>
+                {labelMap.get(item) ?? item}
               </ComboboxItem>
-            ))}
-            <ComboboxEmpty>{emptyText}</ComboboxEmpty>
+            )}
           </ComboboxList>
         </ComboboxPopup>
       </Combobox>

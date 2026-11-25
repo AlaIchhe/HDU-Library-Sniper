@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { AnimateIcon, Check } from "@/ui/icons"
 import { MultipleSelect } from "@/ui/multiple-select"
@@ -20,6 +20,10 @@ import { SearchableField, SelectField } from "./fields"
 export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClose: () => void }) {
   const mutations = usePlanMutations()
   const roomTypes = useRoomTypes()
+  const roomTypeOptions = useMemo(
+    () => roomTypes.data?.options.map((item) => ({ value: item.name, label: item.name })) || [],
+    [roomTypes.data?.options],
+  )
   const form = useForm<PlanFormValues>({
     resolver: planResolver,
     defaultValues: {
@@ -87,7 +91,7 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
             setRoomQuery(item?.query || "")
           }}
           placeholder="选择房间类型"
-          options={roomTypes.data?.options.map((item) => ({ value: item.name, label: item.name })) || []}
+          options={roomTypeOptions}
           disabled={roomTypes.isLoading}
           error={form.formState.errors.roomType?.message}
           onOpenChange={(open) => {
