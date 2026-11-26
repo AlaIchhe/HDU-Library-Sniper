@@ -54,6 +54,7 @@ export function AppHeader({
           <Button
             variant="outline"
             size="sm"
+            aria-label="搜索命令"
             className="gap-2 text-muted-foreground hover:text-foreground"
             onClick={onOpenPalette}
           >

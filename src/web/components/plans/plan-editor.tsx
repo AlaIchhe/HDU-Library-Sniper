@@ -71,10 +71,17 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
       weekdays: values.weekdays.map(Number) as Weekday[],
       enabled: initial?.enabled || false,
     }
-    if (initial) await mutations.update.mutateAsync({ id: initial.id, patch: payload })
-    else await mutations.create.mutateAsync(payload)
-    toastManager.add({ type: "success", title: initial ? "方案已更新" : "方案已创建" })
-    onClose()
+    try {
+      if (initial) await mutations.update.mutateAsync({ id: initial.id, patch: payload })
+      else await mutations.create.mutateAsync(payload)
+      toastManager.add({ type: "success", title: initial ? "方案已更新" : "方案已创建" })
+      onClose()
+    } catch (cause) {
+      toastManager.add({
+        type: "error",
+        title: cause instanceof Error ? cause.message : "方案保存失败",
+      })
+    }
   }
 
   return (
@@ -88,6 +95,9 @@ export function PlanEditor({ initial, onClose }: { initial?: BookingPlan; onClos
             form.setValue("roomType", value, { shouldValidate: true })
             form.setValue("roomQuery", item?.query || "")
             form.setValue("floorId", 0)
+            form.setValue("floorName", "")
+            form.setValue("startHour", "")
+            form.setValue("duration", "")
             setRoomQuery(item?.query || "")
           }}
           placeholder="选择房间类型"

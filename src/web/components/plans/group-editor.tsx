@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState } from "react"
+import { createContext, useContext, useId, useState } from "react"
 import { Reorder, useDragControls, useReducedMotion, type DragControls } from "motion/react"
 
 import { AnimateIcon, Check, ChevronDown, ChevronUp, GripVertical } from "@/ui/icons"
@@ -8,7 +8,7 @@ import { Badge } from "@/ui/badge"
 import { Button } from "@/ui/button"
 import { Checkbox } from "@/ui/checkbox"
 import { CheckboxGroup } from "@/ui/checkbox-group"
-import { DialogClose, DialogFooter } from "@/ui/dialog"
+import { DrawerClose, DrawerFooter, DrawerPanel } from "@/ui/drawer"
 import { Field, FieldLabel, FormError } from "@/ui/field"
 import { Form } from "@/ui/form"
 import { Input } from "@/ui/input"
@@ -120,6 +120,7 @@ export function GroupEditor({
   initial?: BookingGroup
   onClose: () => void
 }) {
+  const formId = useId()
   const mutations = usePlanMutations()
   const form = useForm<GroupFormValues>({
     resolver: groupResolver,
@@ -127,6 +128,8 @@ export function GroupEditor({
   })
   const ids = form.values.ids ?? []
   const ordered = ids.map((id) => singles.find((plan) => plan.id === id)).filter(Boolean) as BookingPlan[]
+  const saving =
+    form.formState.isSubmitting || mutations.createGroup.isPending || mutations.updateGroup.isPending
 
   async function submit(values: GroupFormValues) {
     try {
@@ -141,74 +144,80 @@ export function GroupEditor({
   }
 
   return (
-    <Form onSubmit={form.handleSubmit(submit)} className="grid gap-5">
-      <Field>
-        <FieldLabel>组合名称</FieldLabel>
-        <Input {...form.register("name")} />
-        {form.formState.errors.name?.message && <FormError>{form.formState.errors.name.message}</FormError>}
-      </Field>
-      <Field>
-        <FieldLabel>选择单条方案</FieldLabel>
-        <CheckboxGroup
-          value={ids}
-          onValueChange={(values) => form.setValue("ids", values, { shouldValidate: true })}
-          className="grid gap-2"
-        >
-          {singles.map((plan) => {
-            return (
-              // biome-ignore lint/a11y/noLabelWithoutControl: Checkbox 是 Base UI 组件，label 通过包裹建立关联
-              <label key={plan.id} className="flex items-start gap-3 rounded-lg border p-3 text-xs">
-                <Checkbox value={plan.id} />
-                <span>
-                  <strong className="block">
-                    {plan.roomType} · 座位 {plan.seatNum}
-                  </strong>
-                  <small className="text-muted-foreground">
-                    {plan.floorName || `楼层 ${plan.floorId}`} · {String(plan.startHour).padStart(2, "0")}:00
-                    · {plan.durationHours} 小时
-                  </small>
-                </span>
-              </label>
-            )
-          })}
-        </CheckboxGroup>
-        {form.formState.errors.ids?.message && <FormError>{form.formState.errors.ids.message}</FormError>}
-      </Field>
-      <div className="grid gap-2">
-        <span className="text-sm font-medium">执行顺序</span>
-        {ordered.length ? (
-          <Reorder.Group
-            axis="y"
-            values={ids}
-            onReorder={(next) => form.setValue("ids", next, { shouldValidate: true })}
-            className="grid gap-2"
-          >
-            {ordered.map((plan, index) => (
-              <SortableRow
-                key={plan.id}
-                value={plan.id}
-                index={index}
-                total={ordered.length}
-                label={`${plan.roomType} · 座位 ${plan.seatNum}`}
-                onMove={(from, to) => {
-                  const next = [...ids]
-                  ;[next[from], next[to]] = [next[to], next[from]]
-                  form.setValue("ids", next, { shouldValidate: true })
-                }}
-              />
-            ))}
-          </Reorder.Group>
-        ) : null}
-      </div>
-      <DialogFooter variant="bare" className="px-0">
-        <DialogClose render={<Button type="button" variant="outline" />}>取消</DialogClose>
+    <>
+      <DrawerPanel>
+        <Form id={formId} onSubmit={form.handleSubmit(submit)} className="grid gap-5">
+          <Field>
+            <FieldLabel>组合名称</FieldLabel>
+            <Input {...form.register("name")} />
+            {form.formState.errors.name?.message && (
+              <FormError>{form.formState.errors.name.message}</FormError>
+            )}
+          </Field>
+          <Field>
+            <FieldLabel>选择单条方案</FieldLabel>
+            <CheckboxGroup
+              value={ids}
+              onValueChange={(values) => form.setValue("ids", values, { shouldValidate: true })}
+              className="grid gap-2"
+            >
+              {singles.map((plan) => {
+                return (
+                  // biome-ignore lint/a11y/noLabelWithoutControl: Checkbox 是 Base UI 组件，label 通过包裹建立关联
+                  <label key={plan.id} className="flex items-start gap-3 rounded-lg border p-3 text-xs">
+                    <Checkbox value={plan.id} />
+                    <span>
+                      <strong className="block">
+                        {plan.roomType} · 座位 {plan.seatNum}
+                      </strong>
+                      <small className="text-muted-foreground">
+                        {plan.floorName || `楼层 ${plan.floorId}`} · {String(plan.startHour).padStart(2, "0")}
+                        :00 · {plan.durationHours} 小时
+                      </small>
+                    </span>
+                  </label>
+                )
+              })}
+            </CheckboxGroup>
+            {form.formState.errors.ids?.message && <FormError>{form.formState.errors.ids.message}</FormError>}
+          </Field>
+          {ordered.length > 0 ? (
+            <div className="grid gap-2">
+              <span className="text-sm font-medium">执行顺序</span>
+              <Reorder.Group
+                axis="y"
+                values={ids}
+                onReorder={(next) => form.setValue("ids", next, { shouldValidate: true })}
+                className="grid gap-2"
+              >
+                {ordered.map((plan, index) => (
+                  <SortableRow
+                    key={plan.id}
+                    value={plan.id}
+                    index={index}
+                    total={ordered.length}
+                    label={`${plan.roomType} · 座位 ${plan.seatNum}`}
+                    onMove={(from, to) => {
+                      const next = [...ids]
+                      ;[next[from], next[to]] = [next[to], next[from]]
+                      form.setValue("ids", next, { shouldValidate: true })
+                    }}
+                  />
+                ))}
+              </Reorder.Group>
+            </div>
+          ) : null}
+        </Form>
+      </DrawerPanel>
+      <DrawerFooter>
+        <DrawerClose render={<Button type="button" variant="outline" disabled={saving} />}>取消</DrawerClose>
         <AnimateIcon animateOnHover asChild>
-          <Button type="submit" loading={form.formState.isSubmitting}>
+          <Button type="submit" form={formId} loading={saving}>
             <Check className="size-4" />
             保存组合
           </Button>
         </AnimateIcon>
-      </DialogFooter>
-    </Form>
+      </DrawerFooter>
+    </>
   )
 }

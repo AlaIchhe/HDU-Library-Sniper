@@ -61,7 +61,9 @@ export const AnimatedThemeToggler = ({
       onThemeChange(nextTheme);
     };
 
-    if (typeof document.startViewTransition !== "function") {
+    const prefersReducedMotion =
+      typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion || typeof document.startViewTransition !== "function") {
       applyTheme();
       return;
     }
@@ -121,7 +123,7 @@ export const AnimatedThemeToggler = ({
             <Moon />
           </span>
         </span>
-        <span className="sr-only">Toggle theme</span>
+        <span className="sr-only">{isDark ? "切换到浅色主题" : "切换到深色主题"}</span>
       </button>
     </AnimateIcon>
   );

@@ -16,15 +16,7 @@ import { Badge } from "@/ui/badge"
 import { BlurFade } from "@/ui/blur-fade"
 import { Button } from "@/ui/button"
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "@/ui/dialog"
-import {
-  Drawer,
-  DrawerClose,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerPanel,
-  DrawerPopup,
-  DrawerTitle,
-} from "@/ui/drawer"
+import { Drawer, DrawerHeader, DrawerPopup, DrawerTitle } from "@/ui/drawer"
 import { InteractiveHoverButton } from "@/ui/interactive-hover-button"
 import { Magnet } from "@/ui/magnet"
 import { SpotlightCard } from "@/ui/spotlight-card"
@@ -314,17 +306,12 @@ export function PlansPage() {
             <DrawerHeader>
               <DrawerTitle>{editingGroup ? "编辑组合方案" : "创建组合方案"}</DrawerTitle>
             </DrawerHeader>
-            <DrawerPanel>
-              <GroupEditor
-                key={editingGroup ? `edit-${editingGroup.id}` : "create"}
-                singles={editingGroup ? allSingles : available}
-                initial={editingGroup}
-                onClose={() => setDialog(null)}
-              />
-            </DrawerPanel>
-            <DrawerFooter>
-              <DrawerClose render={<Button variant="outline" />}>关闭</DrawerClose>
-            </DrawerFooter>
+            <GroupEditor
+              key={editingGroup ? `edit-${editingGroup.id}` : "create"}
+              singles={editingGroup ? allSingles : available}
+              initial={editingGroup}
+              onClose={() => setDialog(null)}
+            />
           </DrawerPopup>
         </Drawer>
       </PageShell>

@@ -4,6 +4,7 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react"
@@ -34,8 +35,22 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
   const [query, setQuery] = useState("")
   const [activeIndex, setActiveIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listboxId = useId()
 
   const results = filterCommands(commands, query)
+  const activeCommand = results[activeIndex]
+  const activeOptionId = activeCommand ? `${listboxId}-opt-${activeCommand.id}` : undefined
+
+  const groups: Array<{ name: string; entries: Array<{ command: Command; index: number }> }> = []
+  for (let index = 0; index < results.length; index += 1) {
+    const command = results[index]
+    const last = groups[groups.length - 1]
+    if (last && last.name === command.group) {
+      last.entries.push({ command, index })
+    } else {
+      groups.push({ name: command.group, entries: [{ command, index }] })
+    }
+  }
 
   // 打开时重置，避免上次的查询/选中残留
   useEffect(() => {
@@ -122,6 +137,8 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
             onKeyDown={onKeyDown}
             placeholder="搜索命令…"
             aria-label="搜索命令"
+            aria-controls={listboxId}
+            aria-activedescendant={activeOptionId}
             className="h-12 w-full min-w-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/72"
           />
           <MenuShortcut className="me-0 shrink-0">ESC</MenuShortcut>
@@ -131,17 +148,32 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
             会让内容把面板撑高，ScrollArea 就不会滚动。 */}
         <DialogPanel className="min-h-0 flex-1 p-2">
           {results.length ? (
-            <div className="grid gap-0.5" role="listbox" aria-label="命令">
-              {results.map((command, index) => (
-                <CommandRow
-                  key={command.id}
-                  command={command}
-                  index={index}
-                  active={index === activeIndex}
-                  onHover={() => setActiveIndex(index)}
-                  onSelect={() => runCommand(command)}
-                />
-              ))}
+            <div id={listboxId} className="grid gap-1" role="listbox" aria-label="命令">
+              {groups.map((group) => {
+                const headingId = `${listboxId}-group-${group.name}`
+                return (
+                  // biome-ignore lint/a11y/useSemanticElements: listbox 选项分组按 ARIA 规范使用 role="group"
+                  <div key={group.name} role="group" aria-labelledby={headingId} className="grid gap-0.5">
+                    <div
+                      id={headingId}
+                      className="px-3 pt-2 pb-1 text-[11px] font-medium tracking-wider text-muted-foreground/80 first:pt-1"
+                    >
+                      {group.name}
+                    </div>
+                    {group.entries.map(({ command, index }) => (
+                      <CommandRow
+                        key={command.id}
+                        id={`${listboxId}-opt-${command.id}`}
+                        command={command}
+                        index={index}
+                        active={index === activeIndex}
+                        onHover={() => setActiveIndex(index)}
+                        onSelect={() => runCommand(command)}
+                      />
+                    ))}
+                  </div>
+                )
+              })}
             </div>
           ) : (
             <p className="px-3 py-8 text-center text-sm text-muted-foreground">没有匹配的命令</p>
@@ -153,12 +185,14 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
 }
 
 function CommandRow({
+  id,
   command,
   index,
   active,
   onHover,
   onSelect,
 }: {
+  id: string
   command: Command
   index: number
   active: boolean
@@ -167,6 +201,13 @@ function CommandRow({
 }) {
   const Icon = command.icon
   const reduced = useReducedMotion()
+  const rowRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (active) {
+      rowRef.current?.scrollIntoView({ block: "nearest" })
+    }
+  }, [active])
 
   return (
     <div
@@ -175,6 +216,8 @@ function CommandRow({
     >
       <AnimateIcon animateOnHover asChild>
         <button
+          ref={rowRef}
+          id={id}
           type="button"
           role="option"
           aria-selected={active}

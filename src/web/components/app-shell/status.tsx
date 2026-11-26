@@ -179,10 +179,12 @@ export function CheckinControl() {
         onClick={() => {
           if (data) setPending(!data.enabled)
         }}
+        aria-label={data?.enabled ? "自动签到已开启，点击关闭" : "自动签到已关闭，点击开启"}
         title={data?.enabled ? "自动签到已开启，点击关闭" : "自动签到已关闭，点击开启"}
       >
         <StatusDot tone={data?.enabled ? "ok" : "idle"} />
         <span className="max-sm:hidden">{data?.enabled ? "自动签到" : "未开签到"}</span>
+        <span className="sm:hidden">签到</span>
       </Button>
 
       <AlertDialog

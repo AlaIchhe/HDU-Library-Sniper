@@ -321,7 +321,9 @@ export function AppShell() {
         {pathname !== "/" ? <Ambient /> : null}
         <ClickSpark />
 
-        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
+        {authenticated && pathname !== "/" ? (
+          <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
+        ) : null}
 
         <ToastProvider>
           {pathname === "/" ? (

@@ -4,6 +4,15 @@ import { useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 
 import { AnimateIcon, CalendarDays, RefreshCw } from "@/ui/icons"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "@/ui/alert-dialog"
 import { BlurFade } from "@/ui/blur-fade"
 import { Button } from "@/ui/button"
 import { fireConfetti } from "@/ui/confetti"
@@ -30,20 +39,55 @@ const COLUMNS = "sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.9fr)_min
 
 // 顺序即按钮渲染顺序；签到是唯一的主操作
 const ACTIONS = [
-  { key: "checkin", label: "签到", available: (b: Booking) => b.canCheckIn, primary: true },
-  { key: "cancel", label: "取消", available: (b: Booking) => b.canCancel },
-  { key: "leave", label: "暂离", available: (b: Booking) => b.canLeave },
-  { key: "comeback", label: "续座", available: (b: Booking) => b.canRenew },
-  { key: "signout", label: "签退", available: (b: Booking) => b.canSignOut },
+  {
+    key: "checkin",
+    label: "签到",
+    successTitle: "签到成功",
+    available: (b: Booking) => b.canCheckIn,
+    primary: true,
+  },
+  {
+    key: "cancel",
+    label: "取消",
+    successTitle: "预约已取消",
+    available: (b: Booking) => b.canCancel,
+    confirm: {
+      title: "取消这条预约？",
+      description: (b: Booking) => `将取消 ${b.roomName}（座位 ${b.seatNum}）的预约，座位会立即释放。`,
+      actionLabel: "确认取消",
+    },
+  },
+  { key: "leave", label: "暂离", successTitle: "已设为暂离", available: (b: Booking) => b.canLeave },
+  { key: "comeback", label: "续座", successTitle: "续座成功", available: (b: Booking) => b.canRenew },
+  {
+    key: "signout",
+    label: "签退",
+    successTitle: "签退成功",
+    available: (b: Booking) => b.canSignOut,
+    confirm: {
+      title: "确认签退？",
+      description: (b: Booking) =>
+        `将结束 ${b.roomName}（座位 ${b.seatNum}）的本次使用并释放座位，此操作无法撤销。`,
+      actionLabel: "确认签退",
+    },
+  },
 ] as const satisfies ReadonlyArray<{
   key: BookingAction
   label: string
+  successTitle: string
   available: (b: Booking) => boolean
   primary?: true
+  confirm?: {
+    title: string
+    description: (b: Booking) => string
+    actionLabel: string
+  }
 }>
 
+type ActionConfig = (typeof ACTIONS)[number]
 type Tone = "attention" | "active" | "idle"
 type PendingAction = { id: string; action: BookingAction }
+type ConfirmTarget = { booking: Booking; action: Extract<ActionConfig, { confirm: object }> }
 
 const toneOf = (booking: Booking): Tone =>
   booking.canCheckIn ? "attention" : booking.state === "in_use" ? "active" : "idle"
@@ -51,18 +95,29 @@ const toneOf = (booking: Booking): Tone =>
 export function BookingsPage() {
   const bookings = useBookings()
   const action = useBookingAction()
+  const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
 
   // ⌘K 面板 / `r` 快捷键请求刷新时重拉预约
   useRefreshSignal(() => void bookings.refetch())
 
-  async function run(booking: Booking, name: BookingAction, trigger?: Element | null) {
+  async function run(booking: Booking, config: ActionConfig, trigger?: Element | null) {
     try {
-      await action.mutateAsync({ id: booking.bookingId, action: name })
-      if (name === "checkin") fireConfetti(trigger)
-      toastManager.add({ type: "success", title: "预约操作成功" })
+      await action.mutateAsync({ id: booking.bookingId, action: config.key })
+      if (config.key === "checkin") fireConfetti(trigger)
+      toastManager.add({ type: "success", title: config.successTitle })
+      return true
     } catch (cause) {
       toastManager.add({ type: "error", title: cause instanceof Error ? cause.message : "操作失败" })
+      return false
     }
+  }
+
+  function handleAction(booking: Booking, config: ActionConfig, trigger?: Element | null) {
+    if ("confirm" in config) {
+      setConfirmTarget({ booking, action: config })
+      return
+    }
+    void run(booking, config, trigger)
   }
 
   return (
@@ -76,11 +131,42 @@ export function BookingsPage() {
         key="ready"
         rows={bookings.data?.bookings ?? []}
         fetching={bookings.isFetching}
-        busy={action.isPending}
         pending={action.isPending ? action.variables : undefined}
         onRefresh={() => void bookings.refetch()}
-        onAction={(booking, name, trigger) => void run(booking, name, trigger)}
+        onAction={handleAction}
       />
+
+      <AlertDialog
+        open={confirmTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !action.isPending) setConfirmTarget(null)
+        }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmTarget?.action.confirm.title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmTarget ? confirmTarget.action.confirm.description(confirmTarget.booking) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" disabled={action.isPending} />}>
+              返回
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              loading={action.isPending}
+              onClick={async () => {
+                if (!confirmTarget) return
+                const ok = await run(confirmTarget.booking, confirmTarget.action)
+                if (ok) setConfirmTarget(null)
+              }}
+            >
+              {confirmTarget?.action.confirm.actionLabel}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
     </PageState>
   )
 }
@@ -88,17 +174,15 @@ export function BookingsPage() {
 function BookingsView({
   rows,
   fetching,
-  busy,
   pending,
   onRefresh,
   onAction,
 }: {
   rows: Booking[]
   fetching: boolean
-  busy: boolean
   pending?: PendingAction
   onRefresh: () => void
-  onAction: (booking: Booking, action: BookingAction, trigger?: Element | null) => void
+  onAction: (booking: Booking, action: ActionConfig, trigger?: Element | null) => void
 }) {
   // 每次进入拉取状态就多转一圈，由弹簧自然停住，而不是匀速空转
   const [turns, setTurns] = useState(0)
@@ -153,7 +237,6 @@ function BookingsView({
                 key={booking.bookingId}
                 booking={booking}
                 index={index}
-                busy={busy}
                 pending={pending}
                 onAction={onAction}
               />
@@ -168,23 +251,22 @@ function BookingsView({
 function BookingRow({
   booking,
   index,
-  busy,
   pending,
   onAction,
 }: {
   booking: Booking
   index: number
-  busy: boolean
   pending?: PendingAction
-  onAction: (booking: Booking, action: BookingAction, trigger?: Element | null) => void
+  onAction: (booking: Booking, action: ActionConfig, trigger?: Element | null) => void
 }) {
   const actions = ACTIONS.filter((a) => a.available(booking))
   const primaryActions = actions.filter((a) => "primary" in a)
   const secondaryActions = actions.filter((a) => !("primary" in a))
   const tone = toneOf(booking)
+  const rowBusy = pending?.id === booking.bookingId
 
-  const renderAction = (a: (typeof ACTIONS)[number], primary: boolean) => {
-    const isPending = pending?.id === booking.bookingId && pending.action === a.key
+  const renderAction = (a: ActionConfig, primary: boolean) => {
+    const isPending = rowBusy && pending?.action === a.key
     return (
       <motion.div
         key={a.key}
@@ -197,9 +279,9 @@ function BookingRow({
         {primary ? (
           <ShimmerButton
             className="h-8 px-3 py-1 text-xs"
-            disabled={busy}
+            disabled={rowBusy}
             loading={isPending}
-            onClick={(event) => onAction(booking, a.key, event.currentTarget)}
+            onClick={(event) => onAction(booking, a, event.currentTarget)}
           >
             {a.label}
           </ShimmerButton>
@@ -207,10 +289,14 @@ function BookingRow({
           <Button
             size="sm"
             variant="ghost"
-            className={cn("font-medium text-foreground/85 hover:text-foreground", PRESS_CLASS)}
-            disabled={busy}
+            className={cn(
+              "font-medium text-foreground/85 hover:text-foreground",
+              "confirm" in a && "hover:text-destructive",
+              PRESS_CLASS,
+            )}
+            disabled={rowBusy}
             loading={isPending}
-            onClick={(event) => onAction(booking, a.key, event.currentTarget)}
+            onClick={(event) => onAction(booking, a, event.currentTarget)}
           >
             {a.label}
           </Button>
