@@ -1,22 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react"
-import type { SessionStatus } from "../../shared/types"
+import { useSyncExternalStore } from "react"
 
 const THEME_STORAGE_KEY = "hdu-sniper-preferences"
-type Theme = "light" | "dark"
+export type Theme = "light" | "dark"
 
-type AppStore = {
-  session: SessionStatus | null
+type ThemeStore = {
   theme: Theme
-  /**
-   * 自增计数器：命令面板 / 快捷键请求「刷新当前页」时 +1，
-   * 页面用 useRefreshSignal 订阅。用广播而不是 DOM 查询，
-   * 页面自己决定刷什么（各自的 react-query key）。
-   */
-  refreshRequest: number
-  setSession: (session: SessionStatus | null) => void
   setTheme: (theme: Theme) => void
   toggleTheme: () => void
-  requestRefresh: () => void
 }
 
 function getStorage(): Storage | undefined {
@@ -48,12 +38,8 @@ function applyThemeClass(theme: Theme) {
 
 const listeners = new Set<() => void>()
 
-let state: AppStore = {
-  session: null,
+let state: ThemeStore = {
   theme: readStoredTheme(),
-  refreshRequest: 0,
-  setSession: (session) =>
-    updateState((prev) => (Object.is(prev.session, session) ? prev : { ...prev, session })),
   setTheme: (theme) => {
     applyThemeClass(theme)
     writeStoredTheme(theme)
@@ -65,10 +51,9 @@ let state: AppStore = {
     writeStoredTheme(next)
     updateState((prev) => ({ ...prev, theme: next }))
   },
-  requestRefresh: () => updateState((prev) => ({ ...prev, refreshRequest: prev.refreshRequest + 1 })),
 }
 
-function updateState(updater: (prev: AppStore) => AppStore) {
+function updateState(updater: (prev: ThemeStore) => ThemeStore) {
   const next = updater(state)
   if (Object.is(next, state)) return
   state = next
@@ -82,7 +67,7 @@ function subscribe(listener: () => void) {
   }
 }
 
-export function useAppStore<T>(selector: (store: AppStore) => T): T {
+export function useAppStore<T>(selector: (store: ThemeStore) => T): T {
   return useSyncExternalStore(
     subscribe,
     () => selector(state),
@@ -94,24 +79,4 @@ useAppStore.getState = () => state
 
 export function initializeTheme() {
   applyThemeClass(state.theme)
-}
-
-/**
- * 订阅「刷新当前页」广播。首次挂载不触发，只在计数增加时调用 handler，
- * 避免页面刚打开就白白多刷一次。
- */
-export function useRefreshSignal(handler: () => void) {
-  const count = useAppStore((store) => store.refreshRequest)
-  const seen = useRef(count)
-  const handlerRef = useRef(handler)
-
-  useLayoutEffect(() => {
-    handlerRef.current = handler
-  })
-
-  useEffect(() => {
-    if (count === seen.current) return
-    seen.current = count
-    handlerRef.current()
-  }, [count])
 }

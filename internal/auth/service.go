@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -78,7 +77,11 @@ func NewService(st *store.Store, secrets *SecretStore) *Service {
 
 func NewServiceWithEndpoints(st *store.Store, secrets *SecretStore, ep Endpoints) *Service {
 	if secrets == nil {
-		secrets = OpenSecretStore("")
+		var err error
+		secrets, err = OpenSecretStore("")
+		if err != nil {
+			panic(err)
+		}
 	}
 	client := hdu.NewClientWithBaseURL(ep.Library)
 	svc := &Service{
@@ -333,42 +336,31 @@ func (s *Service) persistSession() error {
 		UpdatedAt: core.FormatISO(time.Now()),
 	}
 	if creds != nil {
-		if s.Secrets != nil && s.Secrets.IsEncrypted() {
-			raw, err := json.Marshal(creds)
-			if err != nil {
-				return err
-			}
-			enc, scheme, err := s.Secrets.Seal(string(raw))
-			if err != nil {
-				return err
-			}
-			rec.CredentialsEnc = enc
-			rec.CredentialsScheme = scheme
-		} else {
-			rec.StudentID = creds.StudentID
-			rec.Password = creds.Password
-			rec.OpenID = creds.OpenID
-			rec.CredentialsScheme = SchemePlain
+		raw, err := json.Marshal(creds)
+		if err != nil {
+			return err
 		}
+		enc, scheme, err := s.Secrets.Seal(string(raw))
+		if err != nil {
+			return err
+		}
+		rec.CredentialsEnc = enc
+		rec.CredentialsScheme = scheme
 	}
 	return s.Store.SaveSession(rec)
 }
 
 func (s *Service) decodeStoredCredentials(rec *store.SessionRecord) *Credentials {
-	if rec.CredentialsEnc != "" && s.Secrets != nil {
-		if plain, err := s.Secrets.Open(rec.CredentialsEnc, rec.CredentialsScheme); err == nil && plain != "" {
-			var c Credentials
-			if json.Unmarshal([]byte(plain), &c) == nil && (c.StudentID != "" || c.OpenID != "") {
-				return &c
-			}
-		}
+	if rec.CredentialsEnc == "" || s.Secrets == nil {
+		return nil
 	}
-	if strings.TrimSpace(rec.StudentID) != "" || strings.TrimSpace(rec.OpenID) != "" {
-		return &Credentials{
-			StudentID: rec.StudentID,
-			Password:  rec.Password,
-			OpenID:    rec.OpenID,
-		}
+	plain, err := s.Secrets.Open(rec.CredentialsEnc, rec.CredentialsScheme)
+	if err != nil || plain == "" {
+		return nil
+	}
+	var c Credentials
+	if json.Unmarshal([]byte(plain), &c) == nil && (c.StudentID != "" || c.OpenID != "") {
+		return &c
 	}
 	return nil
 }

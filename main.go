@@ -2,45 +2,43 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
+	"errors"
 	"log"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
 
 	"hdu-library-sniper/internal/api"
 	"hdu-library-sniper/internal/app"
-	"hdu-library-sniper/internal/core"
 	"hdu-library-sniper/internal/events"
 )
 
 //go:embed resources/icon.png
 var appIconPNG []byte
 
-var (
-	qrStatusEvent = mygo.NewEvent[api.QrStatusEvent]("qr_status")
-	appEvent      = mygo.NewEvent[api.AppEvent]("app_event")
-)
-
-// APIResponse mirrors the HTTP status and response body returned over desktop IPC.
-type APIResponse struct {
-	Status int    `json:"status"`
-	Body   string `json:"body"`
+// DesktopConfig gives the WebView the local loopback HTTP/SSE endpoint and per-launch auth token.
+type DesktopConfig struct {
+	BaseURL string `json:"baseUrl"`
+	Token   string `json:"token"`
 }
 
-// DesktopAPI exposes the embedded Go HTTP handler to the desktop WebView via mygo.Bind.
+// DesktopAPI exposes startup readiness and the local HTTP/SSE bridge address to the WebView.
 type DesktopAPI struct {
 	readyCh chan struct{}
 	mu      sync.Mutex
-	handler http.Handler
+	cfg     DesktopConfig
 	initErr error
 }
 
@@ -48,48 +46,30 @@ func newDesktopAPI() *DesktopAPI {
 	return &DesktopAPI{readyCh: make(chan struct{})}
 }
 
-func (d *DesktopAPI) setReady(handler http.Handler, err error) {
+func (d *DesktopAPI) setReady(cfg DesktopConfig, err error) {
 	d.mu.Lock()
-	d.handler = handler
+	d.cfg = cfg
 	d.initErr = err
 	d.mu.Unlock()
 	close(d.readyCh)
 }
 
-func (d *DesktopAPI) waitReady(ctx context.Context) (http.Handler, error) {
+// Config resolves once the embedded local HTTP/SSE server is listening, or returns the startup error.
+func (d *DesktopAPI) Config(ctx context.Context) (DesktopConfig, error) {
 	select {
 	case <-d.readyCh:
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return DesktopConfig{}, ctx.Err()
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.handler, d.initErr
+	return d.cfg, d.initErr
 }
 
-// Ready resolves once backend initialization completes, or returns the startup error.
-func (d *DesktopAPI) Ready(ctx context.Context) error {
-	_, err := d.waitReady(ctx)
-	return err
-}
-
-// Request dispatches a /api/* request directly into the shared net/http handler in memory.
-func (d *DesktopAPI) Request(ctx context.Context, method, path, body string) (APIResponse, error) {
-	h, err := d.waitReady(ctx)
-	if err != nil {
-		return APIResponse{}, err
-	}
-	req := httptest.NewRequest(method, path, strings.NewReader(body)).WithContext(ctx)
-	req.Host = "localhost"
-	if body != "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return APIResponse{
-		Status: rec.Code,
-		Body:   rec.Body.String(),
-	}, nil
+func generateDesktopToken() string {
+	var b [32]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 func main() {
@@ -110,6 +90,7 @@ func main() {
 	var (
 		mu          sync.Mutex
 		rt          *app.Runtime
+		httpSrv     *http.Server
 		unsubEvents func()
 		mainWin     *mygo.Window
 		quitting    atomic.Bool
@@ -164,10 +145,17 @@ func main() {
 		mu.Lock()
 		unsub := unsubEvents
 		unsubEvents = nil
+		srv := httpSrv
+		httpSrv = nil
 		cur := rt
 		mu.Unlock()
 		if unsub != nil {
 			unsub()
+		}
+		if srv != nil {
+			shutCtx, shutCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_ = srv.Shutdown(shutCtx)
+			shutCancel()
 		}
 		if cur != nil {
 			_ = cur.Close()
@@ -193,13 +181,16 @@ func main() {
 		}
 
 		userDir, _ := pg.Path(mygo.PathUserData)
-		opened, err := app.Open(userDir, nil)
+		token := generateDesktopToken()
+		opened, err := app.Open(userDir, nil, app.Options{DesktopToken: token})
 		if err != nil {
-			desktop.setReady(nil, err)
+			desktop.setReady(DesktopConfig{}, err)
 			log.Printf("backend startup error: %v", err)
+		} else if ln, listenErr := net.Listen("tcp", "127.0.0.1:0"); listenErr != nil {
+			_ = opened.Close()
+			desktop.setReady(DesktopConfig{}, listenErr)
+			log.Printf("local http listen error: %v", listenErr)
 		} else {
-			// A visible, focused window already shows the toast; only notify when
-			// the app is hidden, minimized or behind another window.
 			windowInFront := func() bool {
 				mu.Lock()
 				win := mainWin
@@ -207,35 +198,53 @@ func main() {
 				return win != nil && !win.IsDestroyed() && win.IsVisible() && win.IsFocused() && !win.IsMinimized()
 			}
 			unsub := opened.Events.OnPublish(func(msg events.Message) {
-				switch msg.Name {
-				case events.TopicQrStatus:
-					if ev, ok := msg.Payload.(api.QrStatusEvent); ok {
-						_ = qrStatusEvent.Broadcast(ev)
-					}
-				case events.TopicAppEvent:
-					if ev, ok := msg.Payload.(api.AppEvent); ok {
-						if ev.Kind == api.AppEventAudit && ev.Audit != nil {
-							go notifyAuditEvent(ev.Audit.Event, ev.Audit.Payload, windowInFront)
-						}
-						_ = appEvent.Broadcast(ev)
-					}
+				if msg.Name != events.TopicAppEvent {
+					return
 				}
+				ev, ok := msg.Payload.(api.AppEvent)
+				if !ok || ev.Kind != api.AppEventNotification || ev.Notification == nil {
+					return
+				}
+				if windowInFront() {
+					return
+				}
+				notif := *ev.Notification
+				go func() {
+					_ = mygo.NewNotification(mygo.NotificationOptions{
+						Title: notif.Title,
+						Body:  notif.Body,
+					}).Show()
+				}()
 			})
+
+			srv := &http.Server{
+				Handler:           opened.Handler,
+				ReadHeaderTimeout: 10 * time.Second,
+			}
+			go func() {
+				if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+					log.Printf("local http server error: %v", serveErr)
+				}
+			}()
 
 			mu.Lock()
 			rt = opened
+			httpSrv = srv
 			unsubEvents = unsub
 			mu.Unlock()
 
 			if pg.IsPackaged() {
-				if done, _ := opened.Store.GetMeta("autostart_initialized"); done == "" {
+				if done, _ := opened.Store.GetSetting("autostart_initialized"); done == "" {
 					_ = pg.SetOpenAtLogin(true)
-					_ = opened.Store.SetMeta("autostart_initialized", "1")
+					_ = opened.Store.SetSetting("autostart_initialized", "1")
 				}
 			}
 
 			opened.Start(ctx)
-			desktop.setReady(opened.Handler, nil)
+			desktop.setReady(DesktopConfig{
+				BaseURL: "http://" + ln.Addr().String(),
+				Token:   token,
+			}, nil)
 		}
 
 		showWindow()
@@ -271,41 +280,5 @@ func main() {
 
 	if err := pg.Run(); err != nil {
 		log.Fatal(err)
-	}
-}
-
-// notifyAuditEvent raises a system notification for the same audit events the
-// WebView shows as in-app toasts. When the window is already in front the toast
-// is visible on its own, so the notification would only duplicate it.
-func notifyAuditEvent(event string, payload map[string]any, windowInFront func() bool) {
-	if windowInFront != nil && windowInFront() {
-		return
-	}
-	var title, body string
-	switch event {
-	case "booking_run_finished":
-		msg := core.ToString(payload["message"])
-		if core.ToBool(payload["success"]) {
-			title = "预约成功"
-		} else {
-			title = "预约失败"
-		}
-		body = msg
-	case "checkin_succeeded":
-		if core.ToString(payload["source"]) != "manual" {
-			title = "自动签到成功"
-			body = "预约 " + core.ToString(payload["bookingId"]) + " 已完成签到"
-		}
-	case "checkin_missed":
-		title = "自动签到超时"
-		body = core.ToString(payload["reason"])
-	case "checkin_failed":
-		if core.ToBool(payload["terminal"]) {
-			title = "自动签到已停止"
-			body = core.ToString(payload["error"])
-		}
-	}
-	if title != "" {
-		_ = mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body}).Show()
 	}
 }

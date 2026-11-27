@@ -1,7 +1,6 @@
-import { act, useState } from "react";
+import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, test, vi } from "vitest";
-import { useAppStore, useRefreshSignal } from "../src/web/data/store";
+import { afterEach, describe, expect, test } from "vitest";
 import { type LoginFormValues, loginResolver, useForm } from "../src/web/form-resolvers";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -27,15 +26,6 @@ async function mountNode(element: React.ReactElement) {
     root.render(element);
   });
   return container;
-}
-
-function RefreshHarness({ onRefresh }: { onRefresh: () => void }) {
-  const [label, setLabel] = useState("idle");
-  useRefreshSignal(() => {
-    onRefresh();
-    setLabel("refreshed");
-  });
-  return <output>{label}</output>;
 }
 
 function FormHarness({ onSubmitted }: { onSubmitted: (data: LoginFormValues) => void }) {
@@ -68,18 +58,6 @@ function FormHarness({ onSubmitted }: { onSubmitted: (data: LoginFormValues) => 
 }
 
 describe("React hooks without external state libraries", () => {
-  test("useRefreshSignal skips initial mount and fires when requestRefresh increments", async () => {
-    const onRefresh = vi.fn();
-    const container = await mountNode(<RefreshHarness onRefresh={onRefresh} />);
-    expect(onRefresh).not.toHaveBeenCalled();
-
-    await act(async () => {
-      useAppStore.getState().requestRefresh();
-    });
-    expect(onRefresh).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toBe("refreshed");
-  });
-
   test("useForm blocks invalid submit, clears field error on revalidation, and submits normalized values", async () => {
     const submitted: LoginFormValues[] = [];
     const container = await mountNode(<FormHarness onSubmitted={(data) => submitted.push(data)} />);

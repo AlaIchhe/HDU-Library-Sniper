@@ -131,11 +131,13 @@ func (s *Service) CreateQrLogin(ctx context.Context) (*core.QrLoginStart, error)
 		return nil, err
 	}
 	defer respID.Body.Close()
-	var idBody map[string]any
+	var idBody struct {
+		Data hdu.FlexString `json:"data"`
+	}
 	if err := json.NewDecoder(respID.Body).Decode(&idBody); err != nil {
 		return nil, errors.New("获取扫码登录会话失败")
 	}
-	uuid := strings.TrimSpace(core.ToString(idBody["data"]))
+	uuid := strings.TrimSpace(idBody.Data.String())
 	if uuid == "" {
 		return nil, errors.New("获取扫码登录 uuid 失败")
 	}
@@ -400,25 +402,30 @@ func (s *Service) pollQrRoundForToken(ctx context.Context, uuid string) (string,
 	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusRequestTimeout {
 		return "", errQrScanRejected
 	}
-	var body map[string]any
+	var body qrScanRoundBody
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return "", err
 	}
 	return classifyQrScanRound(body)
 }
 
+type qrScanRoundBody struct {
+	Code hdu.FlexInt64  `json:"code"`
+	Data hdu.FlexString `json:"data"`
+}
+
 // classifyQrScanRound 解释一轮长轮询的返回：拿到 token 就是成功，SSO 回
 // "wait"（码还没被扫）或 408 表示这一轮没有新状态，需要继续挂下一轮；
 // 401/403 一类才是真失败。空白 data 也按“还没结果”处理，不能当成失败。
-func classifyQrScanRound(body map[string]any) (string, error) {
-	data := strings.TrimSpace(core.ToString(body["data"]))
+func classifyQrScanRound(body qrScanRoundBody) (string, error) {
+	data := strings.TrimSpace(body.Data.String())
 	if data == qrScanWaitData {
 		return "", nil
 	}
 	if data != "" {
 		return data, nil
 	}
-	if code := core.ToInt64(body["code"]); code == http.StatusUnauthorized || code == http.StatusForbidden {
+	if code := int64(body.Code); code == http.StatusUnauthorized || code == http.StatusForbidden {
 		return "", errQrScanRejected
 	}
 	return "", nil

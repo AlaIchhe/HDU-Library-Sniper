@@ -1,23 +1,19 @@
 package core
 
-import (
-	"encoding/json"
-	"fmt"
-)
-
 const (
-	PlanKindSingle = "single"
-	PlanKindGroup  = "group"
-
 	NextTargetBooking = "booking"
 	NextTargetCheckIn = "check-in"
 	NextTargetNone    = "none"
+
+	NotifySuccess = "success"
+	NotifyWarning = "warning"
+	NotifyError   = "error"
+	NotifyInfo    = "info"
 )
 
-// BookingPlan is a single seat reservation rule with fallback seats and weekday schedule.
-type BookingPlan struct {
+// PlanSlot is one non-overlapping seat reservation window within a BookingPlan.
+type PlanSlot struct {
 	ID            string   `json:"id"`
-	Kind          string   `json:"kind" contract:"\"single\""`
 	RoomType      string   `json:"roomType"`
 	RoomQuery     string   `json:"roomQuery"`
 	FloorID       int64    `json:"floorId"`
@@ -26,67 +22,34 @@ type BookingPlan struct {
 	FallbackSeats []string `json:"fallbackSeats"`
 	StartHour     int64    `json:"startHour"`
 	DurationHours int64    `json:"durationHours"`
-	Weekdays      []int    `json:"weekdays" contract:"Weekday[]"`
-	Enabled       bool     `json:"enabled"`
-	CreatedAt     string   `json:"createdAt"`
-	UpdatedAt     string   `json:"updatedAt"`
 }
 
-// BookingGroup executes a sequence of member plans in order.
-type BookingGroup struct {
-	ID            string        `json:"id"`
-	Kind          string        `json:"kind" contract:"\"group\""`
-	Name          string        `json:"name"`
-	MemberPlanIDs []string      `json:"memberPlanIds"`
-	Members       []BookingPlan `json:"members,omitempty"`
-	Weekdays      []int         `json:"weekdays" contract:"Weekday[]"`
-	Enabled       bool          `json:"enabled"`
-	CreatedAt     string        `json:"createdAt"`
-	UpdatedAt     string        `json:"updatedAt"`
+// BookingPlan is the unified reservation aggregate containing 1..N non-overlapping slots.
+type BookingPlan struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Slots     []PlanSlot `json:"slots"`
+	Weekdays  []int      `json:"weekdays" contract:"Weekday[]"`
+	Enabled   bool       `json:"enabled"`
+	CreatedAt string     `json:"createdAt"`
+	UpdatedAt string     `json:"updatedAt"`
 }
 
-// PlanListItem represents the tagged union BookingPlan | BookingGroup.
-type PlanListItem struct {
-	Single *BookingPlan
-	Group  *BookingGroup
+// Notification is a backend-authored user alert rendered identically by desktop notifications and web toasts.
+type Notification struct {
+	Level     string `json:"level" contract:"NotificationLevel"`
+	Title     string `json:"title"`
+	Body      string `json:"body,omitempty"`
+	Celebrate bool   `json:"celebrate,omitempty"`
 }
 
-func (p PlanListItem) IsEnabled() bool {
-	if p.Single != nil {
-		return p.Single.Enabled
-	}
-	if p.Group != nil {
-		return p.Group.Enabled
-	}
-	return false
-}
-
-func (p PlanListItem) ItemID() string {
-	if p.Single != nil {
-		return p.Single.ID
-	}
-	if p.Group != nil {
-		return p.Group.ID
-	}
-	return ""
-}
-
-func (p PlanListItem) MarshalJSON() ([]byte, error) {
-	if p.Single != nil {
-		v := *p.Single
-		v.Kind = PlanKindSingle
-		v.FallbackSeats = NonNil(v.FallbackSeats)
-		v.Weekdays = NonNil(v.Weekdays)
-		return json.Marshal(v)
-	}
-	if p.Group != nil {
-		v := *p.Group
-		v.Kind = PlanKindGroup
-		v.MemberPlanIDs = NonNil(v.MemberPlanIDs)
-		v.Weekdays = NonNil(v.Weekdays)
-		return json.Marshal(v)
-	}
-	return nil, fmt.Errorf("empty PlanListItem")
+// PendingCheckIn tracks an active booking awaiting automatic check-in.
+type PendingCheckIn struct {
+	BookingID  string
+	BeginMs    int64
+	DeadlineMs int64
+	Attempts   uint32
+	NextAtMs   int64
 }
 
 // SessionStatus mirrors the active CAS/library session snapshot for the UI.

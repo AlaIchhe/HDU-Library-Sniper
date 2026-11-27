@@ -18,6 +18,12 @@ import (
 	"hdu-library-sniper/internal/store"
 )
 
+// Options configures optional runtime behaviors such as desktop bearer token or panel password auth.
+type Options struct {
+	DesktopToken  string
+	PanelPassword string
+}
+
 // Runtime bundles the shared backend services used by both cmd/server and the MyGo desktop app.
 type Runtime struct {
 	Store     *store.Store
@@ -43,52 +49,32 @@ func ResolveHomeDir(fallbackDir string) string {
 	return filepath.Join(home, ".hdu-library-sniper")
 }
 
-func Open(homeDir string, frontend fs.FS) (*Runtime, error) {
+func Open(homeDir string, frontend fs.FS, opts ...Options) (*Runtime, error) {
+	var cfg Options
+	if len(opts) > 0 {
+		cfg = opts[0]
+	}
+	if cfg.PanelPassword == "" {
+		cfg.PanelPassword = strings.TrimSpace(os.Getenv("HDU_PANEL_PASSWORD"))
+	}
+
 	dataDir := filepath.Join(ResolveHomeDir(homeDir), "data")
 	st, err := store.Open(filepath.Join(dataDir, "sniper.db"))
 	if err != nil {
 		return nil, err
 	}
-	secrets := auth.OpenSecretStore(dataDir)
+	secrets, err := auth.OpenSecretStore(dataDir)
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	bus := events.NewBus()
 	authSvc := auth.NewService(st, secrets)
-	exec := booking.NewExecutor(st)
-	sched := scheduler.New(st, authSvc, exec)
-	srv := server.New(st, authSvc, exec, sched, frontend)
-	wireEventBus(st, authSvc, sched, srv.Events)
-	return &Runtime{
-		Store:     st,
-		Auth:      authSvc,
-		Booking:   exec,
-		Scheduler: sched,
-		Events:    srv.Events,
-		Handler:   srv.Handler(),
-	}, nil
-}
-
-func wireEventBus(st *store.Store, authSvc *auth.Service, sched *scheduler.Scheduler, bus *events.Bus) {
-	st.SetOnAudit(func(event string, payload map[string]any) {
-		var invalidate []api.InvalidateTarget
-		switch event {
-		case "booking_run_finished":
-			invalidate = []api.InvalidateTarget{api.InvalidateBookings, api.InvalidateNextTarget}
-		case "checkin_succeeded", "checkin_missed":
-			invalidate = []api.InvalidateTarget{api.InvalidateBookings, api.InvalidateNextTarget, api.InvalidateCheckIn}
-		case "checkin_failed":
-			if !core.ToBool(payload["terminal"]) {
-				return
-			}
-			invalidate = []api.InvalidateTarget{api.InvalidateBookings, api.InvalidateNextTarget, api.InvalidateCheckIn}
-		default:
-			return
-		}
-		bus.Publish(events.TopicAppEvent, api.AppEvent{
-			Kind:       api.AppEventAudit,
-			Invalidate: invalidate,
-			Audit: &api.AuditNotification{
-				Event:   event,
-				Payload: payload,
-			},
-		})
+	exec := booking.NewExecutor(st, bus)
+	sched := scheduler.New(st, authSvc, exec, bus)
+	srv := server.NewWithOptions(st, authSvc, exec, sched, bus, frontend, server.Options{
+		DesktopToken:  cfg.DesktopToken,
+		PanelPassword: cfg.PanelPassword,
 	})
 
 	authSvc.SetOnSessionChange(func(status core.SessionStatus) {
@@ -98,7 +84,6 @@ func wireEventBus(st *store.Store, authSvc *auth.Service, sched *scheduler.Sched
 			Session: &stCopy,
 		})
 	})
-
 	authSvc.SetOnQrChange(func(uuid string, qrStatus core.QrLoginStatus) {
 		if qrStatus.Status == string(api.QrLoginSuccess) {
 			sched.ClearAuthRequired()
@@ -112,18 +97,14 @@ func wireEventBus(st *store.Store, authSvc *auth.Service, sched *scheduler.Sched
 		})
 	})
 
-	sched.SetOnChange(func(rtStatus core.RuntimeStatus, rawTargets []string) {
-		stCopy := rtStatus
-		targets := make([]api.InvalidateTarget, 0, len(rawTargets))
-		for _, t := range rawTargets {
-			targets = append(targets, api.InvalidateTarget(t))
-		}
-		bus.Publish(events.TopicAppEvent, api.AppEvent{
-			Kind:       api.AppEventRuntime,
-			Runtime:    &stCopy,
-			Invalidate: targets,
-		})
-	})
+	return &Runtime{
+		Store:     st,
+		Auth:      authSvc,
+		Booking:   exec,
+		Scheduler: sched,
+		Events:    bus,
+		Handler:   srv.Handler(),
+	}, nil
 }
 
 func (r *Runtime) Start(ctx context.Context) {

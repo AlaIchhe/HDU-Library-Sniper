@@ -24,7 +24,6 @@ describe("useAppStore", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", createMemoryStorage());
     document.documentElement.classList.remove("dark");
-    useAppStore.getState().setSession(null);
     useAppStore.getState().setTheme("light");
   });
 

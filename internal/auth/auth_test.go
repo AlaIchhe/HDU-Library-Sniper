@@ -40,7 +40,10 @@ func testService(t *testing.T, srv *httptest.Server) *Service {
 }
 
 func TestSecretStoreSealAndOpen(t *testing.T) {
-	sec := OpenSecretStore(t.TempDir())
+	sec, err := OpenSecretStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenSecretStore failed: %v", err)
+	}
 	enc, scheme, err := sec.Seal(`{"student_id":"304174","password":"secret"}`)
 	if err != nil || scheme != SchemeFile || enc == "" {
 		t.Fatalf("Seal failed: %q %v", scheme, err)

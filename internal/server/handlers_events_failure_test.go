@@ -60,7 +60,7 @@ func TestSSEWriteHelpersPropagateErrors(t *testing.T) {
 
 func TestHandleEventsStopsWhenHandshakeFails(t *testing.T) {
 	srv, _ := testRouter(t)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	// First write (the "connected" comment) fails, so the handler returns early.
 	w := &failingWriter{failAfter: 0}
@@ -75,7 +75,7 @@ func TestHandleEventsStopsWhenHandshakeFails(t *testing.T) {
 func TestHandleEventsStopsWhenSessionSnapshotFails(t *testing.T) {
 	srv, _ := testRouter(t)
 	stubAuthUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	body, _ := json.Marshal(api.LoginOpenIDRequest{OpenID: "abcdef_123"})
 	rec := httptest.NewRecorder()
@@ -96,7 +96,7 @@ func TestHandleEventsStopsWhenSessionSnapshotFails(t *testing.T) {
 func TestHandleSessionQREventsStopsWhenHandshakeFails(t *testing.T) {
 	srv, _ := testRouter(t)
 	stubQrUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, api.PathSessionQR, nil))
@@ -131,7 +131,7 @@ func TestHandleEventsSendsKeepalive(t *testing.T) {
 	withHeartbeat(t, 10*time.Millisecond)
 	srv, _ := testRouter(t)
 	stubAuthUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	body, _ := json.Marshal(api.LoginOpenIDRequest{OpenID: "abcdef_123"})
 	rec := httptest.NewRecorder()
@@ -170,7 +170,7 @@ func TestHandleSessionQREventsSendsKeepalive(t *testing.T) {
 	withHeartbeat(t, 10*time.Millisecond)
 	srv, _ := testRouter(t)
 	stubQrUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -224,7 +224,7 @@ func TestPublishInvalidateNoOps(t *testing.T) {
 func TestHandleSessionQREventsFallsBackToRawJSON(t *testing.T) {
 	srv, _ := testRouter(t)
 	stubQrUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -262,7 +262,7 @@ func TestHandleEventsStopsWhenPublishWriteFails(t *testing.T) {
 	withHeartbeat(t, time.Hour)
 	srv, _ := testRouter(t)
 	stubAuthUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	body, _ := json.Marshal(api.LoginOpenIDRequest{OpenID: "abcdef_123"})
 	rec := httptest.NewRecorder()
@@ -298,7 +298,7 @@ func TestHandleEventsStopsWhenPublishWriteFails(t *testing.T) {
 func TestHandleSessionQREventsSkipsUnparsablePayload(t *testing.T) {
 	srv, _ := testRouter(t)
 	stubQrUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -349,7 +349,7 @@ func TestHandleEventsUnavailableWithoutBus(t *testing.T) {
 func TestHandleEventsReturnsImmediatelyWhenUnauthenticated(t *testing.T) {
 	withHeartbeat(t, time.Hour)
 	srv, _ := testRouter(t)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	// No login: the handler must write the session snapshot then close.
 	w := &failingWriter{failAfter: 10}
@@ -373,7 +373,7 @@ func TestHandleEventsStopsWhenRuntimeSnapshotFails(t *testing.T) {
 	withHeartbeat(t, time.Hour)
 	srv, _ := testRouter(t)
 	stubAuthUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	body, _ := json.Marshal(api.LoginOpenIDRequest{OpenID: "abcdef_123"})
 	rec := httptest.NewRecorder()
@@ -391,7 +391,7 @@ func TestHandleEventsStopsWhenKeepaliveFails(t *testing.T) {
 	withHeartbeat(t, 5*time.Millisecond)
 	srv, _ := testRouter(t)
 	stubAuthUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	body, _ := json.Marshal(api.LoginOpenIDRequest{OpenID: "abcdef_123"})
 	rec := httptest.NewRecorder()
@@ -416,7 +416,7 @@ func qrHandlerFixture(t *testing.T) (*Server, string) {
 	t.Helper()
 	srv, _ := testRouter(t)
 	stubQrUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, api.PathSessionQR, nil))

@@ -1,17 +1,20 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api, resolveApiBase } from "../src/web/data/api";
-import { useAppStore } from "../src/web/data/store";
-
-function stubMyGoCall(callImpl: ReturnType<typeof vi.fn>) {
-  vi.stubGlobal("mygo", { call: callImpl });
-}
+import {
+  api,
+  buildEventUrl,
+  resolveApiBase,
+  setDesktopTransport,
+  setOnUnauthorized,
+} from "../src/web/data/api";
 
 afterEach(() => {
+  setDesktopTransport("", "");
+  setOnUnauthorized(null);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
-describe("web API transport", () => {
+describe("unified HTTP/SSE API transport", () => {
   test("keeps relative HTTP requests for backend-served WebUI", async () => {
     expect(resolveApiBase()).toBe("");
     const fetchMock = vi.fn(
@@ -24,100 +27,95 @@ describe("web API transport", () => {
 
     await api.session();
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/session", expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/session",
+      expect.objectContaining({ method: "GET", credentials: "include" }),
+    );
   });
 
-  test("routes requests through MyGo DesktopAPI inside the desktop app", async () => {
-    const callMock = vi.fn().mockResolvedValueOnce({
-      status: 200,
-      body: JSON.stringify({ authenticated: false, refreshing: false }),
-    });
-    stubMyGoCall(callMock);
+  test("routes desktop requests over loopback HTTP with Bearer token and SSE query token", async () => {
+    setDesktopTransport("http://127.0.0.1:43210/", "secret-token");
+    expect(resolveApiBase()).toBe("http://127.0.0.1:43210");
+    expect(buildEventUrl("/api/events")).toBe("http://127.0.0.1:43210/api/events?token=secret-token");
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ authenticated: false, refreshing: false }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await api.session();
 
     expect(result).toEqual({ authenticated: false, refreshing: false });
-    expect(callMock).toHaveBeenCalledWith("DesktopAPI.Request", "GET", "/api/session", "");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:43210/api/session",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({ Authorization: "Bearer secret-token" }),
+      }),
+    );
   });
 
   test("does not expose an HTML SPA response as a JSON parse error", async () => {
-    stubMyGoCall(
-      vi.fn().mockResolvedValueOnce({
-        status: 200,
-        body: "<!doctype html><html></html>",
-      }),
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<!doctype html><html></html>", { status: 200 })),
     );
     await expect(api.session()).rejects.toThrow("后台服务返回格式错误");
   });
 
-  test("logs the backend detail next to the failing status", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    stubMyGoCall(
-      vi.fn().mockResolvedValueOnce({
-        status: 502,
-        body: JSON.stringify({ detail: "图书馆登录状态已失效" }),
-      }),
+  test("surfaces backend error details on non-2xx responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ detail: "图书馆登录状态已失效" }), { status: 502 })),
     );
 
     await expect(api.nextTarget()).rejects.toThrow("图书馆登录状态已失效");
-
-    expect(errorSpy).toHaveBeenCalledWith(
-      "API 返回错误: /api/runtime/next-target -> 502 (图书馆登录状态已失效)",
-    );
   });
 
-  test("surfaces IPC errors when local service failed to initialize", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    stubMyGoCall(vi.fn().mockRejectedValueOnce("startup API error: db locked"));
-
-    await expect(api.session()).rejects.toThrow("本地服务不可用：startup API error: db locked");
-    expect(errorSpy).toHaveBeenCalledWith("API 请求失败: /api/session -> startup API error: db locked");
-  });
-
-  test("clears cached session on HTTP 401 and prompts re-login", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    useAppStore.getState().setSession({ authenticated: true, uid: "1", name: "23320116", refreshing: false });
-    stubMyGoCall(
-      vi.fn().mockResolvedValueOnce({
-        status: 401,
-        body: JSON.stringify({ detail: "unauthorized" }),
-      }),
+  test("invokes onUnauthorized hook on HTTP 401", async () => {
+    const onUnauthorized = vi.fn();
+    setOnUnauthorized(onUnauthorized);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ detail: "unauthorized" }), { status: 401 })),
     );
 
-    await expect(api.bookings()).rejects.toThrow("登录已过期，请重新登录");
-    expect(useAppStore.getState().session).toBeNull();
-    expect(warnSpy).toHaveBeenCalledWith("API 返回错误: /api/bookings/current -> 401 (unauthorized)");
+    await expect(api.bookings()).rejects.toThrow("unauthorized");
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
   });
 
   test("serializes path and query parameters according to generated contract", async () => {
-    const callMock = vi
+    const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce({ status: 200, body: JSON.stringify({ success: true, message: "操作成功" }) })
-      .mockResolvedValueOnce({
-        status: 200,
-        body: JSON.stringify({
-          options: [],
-          range: { minBeginTime: 8, maxEndTime: 22, minDuration: 1, maxDuration: 8 },
-        }),
-      });
-    stubMyGoCall(callMock);
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, message: "操作成功" }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            options: [],
+            range: { minBeginTime: 8, maxEndTime: 22, minDuration: 1, maxDuration: 8 },
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
 
     await api.bookingAction("b 1", "checkin");
-    expect(callMock).toHaveBeenNthCalledWith(
+    expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      "DesktopAPI.Request",
-      "POST",
       "/api/bookings/b%201/checkin",
-      "",
+      expect.objectContaining({ method: "POST" }),
     );
 
     await api.floors("q=76", "自习室");
-    expect(callMock).toHaveBeenNthCalledWith(
+    expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "DesktopAPI.Request",
-      "GET",
       "/api/catalog/floors?roomQuery=q%3D76&roomType=%E8%87%AA%E4%B9%A0%E5%AE%A4",
-      "",
+      expect.objectContaining({ method: "GET" }),
     );
   });
 });

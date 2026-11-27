@@ -16,13 +16,11 @@ import { Badge } from "@/ui/badge"
 import { BlurFade } from "@/ui/blur-fade"
 import { Button } from "@/ui/button"
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "@/ui/dialog"
-import { Drawer, DrawerHeader, DrawerPopup, DrawerTitle } from "@/ui/drawer"
 import { InteractiveHoverButton } from "@/ui/interactive-hover-button"
 import { Magnet } from "@/ui/magnet"
-import { SpotlightCard } from "@/ui/spotlight-card"
 import { Switch } from "@/ui/switch"
 import { toastManager } from "@/ui/toast"
-import type { BookingPlan, PlanListItem } from "../../shared/types"
+import type { BookingPlan } from "../../shared/types"
 import { formatWeekdays } from "../../shared/types"
 import { usePlanMutations, usePlans } from "../data/queries"
 import {
@@ -36,61 +34,33 @@ import {
 } from "./data-table"
 import { PageHeader, PageShell, PageState } from "./page-layout"
 import { cn } from "@/lib/utils"
-import { useRefreshSignal } from "../data/store"
 import { undoToast } from "../undo-toast"
 import { NoData } from "../shared"
 
-import { GroupEditor } from "./plans/group-editor"
 import { PlanEditor } from "./plans/plan-editor"
 
 const PLAN_COLUMNS = "sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,1.25fr)_minmax(6.5rem,auto)]"
+
 export function PlansPage() {
   const plans = usePlans()
   const mutations = usePlanMutations()
-  const [dialog, setDialog] = useState<"type" | "single" | "group" | "edit-single" | "edit-group" | null>(
-    null,
-  )
-  const [selected, setSelected] = useState<PlanListItem>()
-  const [deleteTarget, setDeleteTarget] = useState<PlanListItem | null>(null)
+  const [dialog, setDialog] = useState<"create" | "edit" | null>(null)
+  const [selected, setSelected] = useState<BookingPlan>()
+  const [deleteTarget, setDeleteTarget] = useState<BookingPlan | null>(null)
   const items = plans.data?.plans || []
 
-  // ⌘K 面板 / `r` 快捷键请求刷新时，重拉方案与「下一次执行」
-  useRefreshSignal(() => void plans.refetch())
-
-  const allSingles = items.filter((item): item is BookingPlan => item.kind === "single")
-  const referenced = new Set(
-    items.filter((item) => item.kind === "group").flatMap((item) => item.memberPlanIds),
-  )
-  const available = allSingles.filter((item) => !referenced.has(item.id))
-
-  // 创建模式始终不携带历史选中项，避免先编辑再创建时误把编辑目标当成 initial 覆盖原方案
-  const editingSingle = dialog === "single" ? undefined : selected?.kind === "single" ? selected : undefined
-  const editingGroup = dialog === "group" ? undefined : selected?.kind === "group" ? selected : undefined
+  const editingPlan = dialog === "edit" ? selected : undefined
 
   function openCreateDialog() {
     setSelected(undefined)
-    setDialog("type")
+    setDialog("create")
   }
 
-  function openCreateSingle() {
-    setSelected(undefined)
-    setDialog("single")
-  }
-
-  function openCreateGroup() {
-    setSelected(undefined)
-    setDialog("group")
-  }
-
-  // 同一方案的切换在请求返回前只接受一次点击：开关是受控的，
-  // 列表刷新前 item.enabled 还是旧值，连点两次会发出两个相同方向的请求。
   const toggleInFlight = useRef(new Set<string>())
 
-  async function toggle(item: PlanListItem, nextEnabled?: boolean) {
+  async function toggle(item: BookingPlan, nextEnabled?: boolean) {
     if (toggleInFlight.current.has(item.id)) return
     const enabled = nextEnabled ?? !item.enabled
-    // 同时只能启用一个方案：启用新方案时由后端自动停用当前方案。
-    // 停用的结果可撤销，所以不做事前确认，而是事后给一个「撤销」入口。
     toggleInFlight.current.add(item.id)
     try {
       const result = await mutations.toggle.mutateAsync({ id: item.id, enabled })
@@ -100,7 +70,6 @@ export function PlansPage() {
         return
       }
 
-      // 把被顶掉的方案还给用户：后端在 disabledPlanIds 里已经说清是哪些
       const displaced = (result?.disabledPlanIds || []).filter((id) => id !== item.id)
       if (!displaced.length) {
         toastManager.add({ type: "success", title: "方案已启用" })
@@ -109,9 +78,13 @@ export function PlansPage() {
 
       const names = displaced
         .map((id) => items.find((entry) => entry.id === id))
-        .map((entry) =>
-          entry?.kind === "group" ? entry.name : entry ? `${entry.roomType} · ${entry.seatNum}` : null,
-        )
+        .map((entry) => {
+          if (!entry) return null
+          if (entry.slots.length === 1) {
+            return `${entry.name || entry.slots[0].roomType} · ${entry.slots[0].seatNum}`
+          }
+          return entry.name
+        })
         .filter((name): name is string => Boolean(name))
 
       undoToast({
@@ -121,7 +94,6 @@ export function PlansPage() {
             : `已启用，${names.length} 个原方案已停用`,
         onUndo: async () => {
           try {
-            // 先停用当前方案再恢复旧的，避免「同时只能启用一个」被破坏
             await mutations.toggle.mutateAsync({ id: item.id, enabled: false })
             for (const id of displaced) {
               await mutations.toggle.mutateAsync({ id, enabled: true })
@@ -155,9 +127,6 @@ export function PlansPage() {
           title="预约方案"
           count={items.length}
           actions={
-            // InteractiveHoverButton 自带圆点 + 悬停箭头作为 affordance；
-            // children 会被放进一个 inline-block 的 span，再塞图标会让「+」
-            // 和文字分成两行。这里只传纯文本，accessible name 保持「创建方案」。
             <Magnet padding={36} magnetStrength={6}>
               <InteractiveHoverButton onClick={openCreateDialog}>创建方案</InteractiveHoverButton>
             </Magnet>
@@ -199,7 +168,7 @@ export function PlansPage() {
                   onToggle={(checked) => void toggle(item, checked)}
                   onEdit={() => {
                     setSelected(item)
-                    setDialog(item.kind === "group" ? "edit-group" : "edit-single")
+                    setDialog("edit")
                   }}
                   onDelete={() => setDeleteTarget(item)}
                 />
@@ -212,7 +181,7 @@ export function PlansPage() {
           <AlertDialogPopup>
             <AlertDialogHeader>
               <AlertDialogTitle>删除方案？</AlertDialogTitle>
-              <AlertDialogDescription>此操作无法撤销，组合引用关系也会受到影响。</AlertDialogDescription>
+              <AlertDialogDescription>此操作无法撤销。</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogClose render={<Button variant="outline" />}>取消</AlertDialogClose>
@@ -240,80 +209,26 @@ export function PlansPage() {
           </AlertDialogPopup>
         </AlertDialog>
 
-        <Dialog open={dialog === "type"} onOpenChange={(open) => !open && setDialog(null)}>
-          <DialogPopup>
-            <DialogHeader>
-              <DialogTitle>创建方案</DialogTitle>
-            </DialogHeader>
-            <DialogPanel>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <AnimateIcon animateOnHover asChild>
-                  <SpotlightCard className="gap-2" onClick={openCreateSingle}>
-                    <span className="grid size-10 place-items-center rounded-xl border bg-muted/60 text-foreground">
-                      <ListChecks className="size-5" />
-                    </span>
-                    <span className="text-sm font-semibold text-foreground">单条方案</span>
-                    <span className="text-xs leading-relaxed text-foreground/65">
-                      指定单个房间、座位与预约时段
-                    </span>
-                  </SpotlightCard>
-                </AnimateIcon>
-                <AnimateIcon animateOnHover asChild>
-                  <SpotlightCard className="gap-2" disabled={available.length < 2} onClick={openCreateGroup}>
-                    <span className="grid size-10 place-items-center rounded-xl border bg-muted/60 text-foreground">
-                      <CalendarDays className="size-5" />
-                    </span>
-                    <span className="text-sm font-semibold text-foreground">组合方案</span>
-                    <span className="text-xs leading-relaxed text-foreground/65">
-                      {available.length < 2 ? "至少需要 2 条可用方案" : "按顺位串联多个备选方案"}
-                    </span>
-                  </SpotlightCard>
-                </AnimateIcon>
-              </div>
-            </DialogPanel>
-          </DialogPopup>
-        </Dialog>
-
         <Dialog
-          open={dialog === "single" || dialog === "edit-single"}
+          open={dialog !== null}
           onOpenChange={(open) => !open && setDialog(null)}
           onOpenChangeComplete={(open) => {
             if (!open && dialog === null) setSelected(undefined)
           }}
         >
-          <DialogPopup>
+          <DialogPopup className="sm:max-w-[38rem]">
             <DialogHeader>
-              <DialogTitle>{editingSingle ? "编辑单条方案" : "创建单条方案"}</DialogTitle>
+              <DialogTitle>{editingPlan ? "编辑预约方案" : "创建预约方案"}</DialogTitle>
             </DialogHeader>
             <DialogPanel>
               <PlanEditor
-                key={editingSingle ? `edit-${editingSingle.id}` : "create"}
-                initial={editingSingle}
+                key={editingPlan ? `edit-${editingPlan.id}` : "create"}
+                initial={editingPlan}
                 onClose={() => setDialog(null)}
               />
             </DialogPanel>
           </DialogPopup>
         </Dialog>
-
-        <Drawer
-          open={dialog === "group" || dialog === "edit-group"}
-          onOpenChange={(open) => !open && setDialog(null)}
-          onOpenChangeComplete={(open) => {
-            if (!open && dialog === null) setSelected(undefined)
-          }}
-        >
-          <DrawerPopup>
-            <DrawerHeader>
-              <DrawerTitle>{editingGroup ? "编辑组合方案" : "创建组合方案"}</DrawerTitle>
-            </DrawerHeader>
-            <GroupEditor
-              key={editingGroup ? `edit-${editingGroup.id}` : "create"}
-              singles={editingGroup ? allSingles : available}
-              initial={editingGroup}
-              onClose={() => setDialog(null)}
-            />
-          </DrawerPopup>
-        </Drawer>
       </PageShell>
     </PageState>
   )
@@ -327,22 +242,31 @@ function PlanRow({
   onEdit,
   onDelete,
 }: {
-  item: PlanListItem
+  item: BookingPlan
   index: number
   pending: boolean
   onToggle: (checked: boolean) => void
   onEdit: () => void
   onDelete: () => void
 }) {
-  const title = item.kind === "group" ? item.name : item.roomType
-  const subtitle =
-    item.kind === "group"
-      ? `${item.memberPlanIds.length} 个成员方案`
-      : `${item.floorName || `楼层 ${item.floorId}`} · 座位 ${item.seatNum}`
-  const timePrimary =
-    item.kind === "group" ? "顺位组合" : `${String(item.startHour).padStart(2, "0")}:00 开始`
-  const timeSecondary =
-    item.kind === "group" ? `${item.memberPlanIds.length} 个子方案` : `时长 ${item.durationHours} 小时`
+  const isMulti = item.slots.length > 1
+  const first = item.slots[0]
+  const title = item.name || first?.roomType || "未命名方案"
+  const subtitle = isMulti
+    ? item.slots.map((s) => `${s.roomType} · 座位 ${s.seatNum}`).join(" / ")
+    : first
+      ? `${first.floorName || `楼层 ${first.floorId}`} · 座位 ${first.seatNum}`
+      : "无时段"
+  const timePrimary = isMulti
+    ? `${item.slots.length} 个时段`
+    : first
+      ? `${String(first.startHour).padStart(2, "0")}:00 开始`
+      : "-"
+  const timeSecondary = isMulti
+    ? item.slots.map((s) => `${String(s.startHour).padStart(2, "0")}:00(${s.durationHours}h)`).join(" · ")
+    : first
+      ? `时长 ${first.durationHours} 小时`
+      : "-"
   const weekdaysText = formatWeekdays(item.weekdays)
 
   return (
@@ -350,13 +274,9 @@ function PlanRow({
       <DataTableRevealCell
         primary={
           <div className="flex min-w-0 items-center gap-2.5">
-            <Badge size="sm" variant={item.kind === "group" ? "info" : "outline"}>
-              {item.kind === "group" ? (
-                <CalendarDays className="size-3" />
-              ) : (
-                <ListChecks className="size-3" />
-              )}
-              {item.kind === "group" ? "组合" : "单条"}
+            <Badge size="sm" variant={isMulti ? "info" : "outline"}>
+              {isMulti ? <CalendarDays className="size-3" /> : <ListChecks className="size-3" />}
+              {isMulti ? `${item.slots.length} 时段` : "单时段"}
             </Badge>
             <p className="truncate text-sm font-medium text-foreground">{title}</p>
           </div>

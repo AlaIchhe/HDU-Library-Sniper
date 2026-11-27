@@ -28,6 +28,8 @@ type EndpointSpec struct {
 
 const (
 	PathHealth            = "/api/health"
+	PathPanelAuthStatus   = "/api/panel/auth"
+	PathPanelAuthLogin    = "/api/panel/auth/login"
 	PathEvents            = "/api/events"
 	PathSessionStatus     = "/api/session"
 	PathSessionLogin      = "/api/session/login"
@@ -41,8 +43,6 @@ const (
 	PathPlans             = "/api/plans"
 	PathPlanByID          = "/api/plans/{id}"
 	PathPlanToggle        = "/api/plans/{id}/{action}"
-	PathGroups            = "/api/groups"
-	PathGroupByID         = "/api/groups/{id}"
 	PathCatalogRoomTypes  = "/api/catalog/room-types"
 	PathCatalogFloors     = "/api/catalog/floors"
 	PathCatalogDurations  = "/api/catalog/durations"
@@ -56,9 +56,11 @@ const (
 	PathCheckInDisable    = "/api/checkin/disable"
 )
 
-// Endpoints enumerates every HTTP/IPC API endpoint exposed by the server.
+// Endpoints enumerates every HTTP API endpoint exposed by the server.
 var Endpoints = []EndpointSpec{
 	{Name: "health", Method: http.MethodGet, Path: PathHealth, Public: true, ResponseType: reflect.TypeFor[HealthResponse]()},
+	{Name: "panelAuthStatus", Method: http.MethodGet, Path: PathPanelAuthStatus, Public: true, ResponseType: reflect.TypeFor[PanelAuthStatusResponse]()},
+	{Name: "panelAuthLogin", Method: http.MethodPost, Path: PathPanelAuthLogin, Public: true, RequestType: reflect.TypeFor[PanelAuthRequest](), ResponseType: reflect.TypeFor[PanelAuthStatusResponse]()},
 	{Name: "events", Method: http.MethodGet, Path: PathEvents, ResponseType: reflect.TypeFor[AppEvent]()},
 	{Name: "sessionStatus", Method: http.MethodGet, Path: PathSessionStatus, Public: true, ResponseType: reflect.TypeFor[core.SessionStatus]()},
 	{Name: "sessionLogin", Method: http.MethodPost, Path: PathSessionLogin, Public: true, RequestType: reflect.TypeFor[LoginPasswordRequest](), ResponseType: reflect.TypeFor[LoginResponse]()},
@@ -71,16 +73,11 @@ var Endpoints = []EndpointSpec{
 
 	{Name: "auditList", Method: http.MethodGet, Path: PathAudit, QueryParams: []ParamSpec{{Name: "limit", TypeExpr: "number", Required: false}}, ResponseType: reflect.TypeFor[AuditListResponse]()},
 	{Name: "plansList", Method: http.MethodGet, Path: PathPlans, ResponseType: reflect.TypeFor[PlansListResponse]()},
-	{Name: "plansCreate", Method: http.MethodPost, Path: PathPlans, RequestType: reflect.TypeFor[PlanUpsertRequest](), ResponseType: reflect.TypeFor[SinglePlanResponse]()},
-	{Name: "plansGet", Method: http.MethodGet, Path: PathPlanByID, PathParams: []ParamSpec{{Name: "id", TypeExpr: "string", Required: true}}, ResponseType: reflect.TypeFor[PlanItemResponse]()},
-	{Name: "plansUpdate", Method: http.MethodPatch, Path: PathPlanByID, PathParams: []ParamSpec{{Name: "id", TypeExpr: "string", Required: true}}, RequestType: reflect.TypeFor[PlanUpsertRequest](), ResponseType: reflect.TypeFor[SinglePlanResponse]()},
+	{Name: "plansCreate", Method: http.MethodPost, Path: PathPlans, RequestType: reflect.TypeFor[PlanUpsertRequest](), ResponseType: reflect.TypeFor[PlanResponse]()},
+	{Name: "plansGet", Method: http.MethodGet, Path: PathPlanByID, PathParams: []ParamSpec{{Name: "id", TypeExpr: "string", Required: true}}, ResponseType: reflect.TypeFor[PlanResponse]()},
+	{Name: "plansUpdate", Method: http.MethodPatch, Path: PathPlanByID, PathParams: []ParamSpec{{Name: "id", TypeExpr: "string", Required: true}}, RequestType: reflect.TypeFor[PlanUpsertRequest](), ResponseType: reflect.TypeFor[PlanResponse]()},
 	{Name: "plansDelete", Method: http.MethodDelete, Path: PathPlanByID, PathParams: []ParamSpec{{Name: "id", TypeExpr: "string", Required: true}}, ResponseType: reflect.TypeFor[SuccessResponse]()},
 	{Name: "plansToggle", Method: http.MethodPost, Path: PathPlanToggle, PathParams: []ParamSpec{{Name: "id", TypeExpr: "string", Required: true}, {Name: "action", TypeExpr: "PlanToggleAction", Required: true}}, ResponseType: reflect.TypeFor[TogglePlanResponse]()},
-
-	{Name: "groupsCreate", Method: http.MethodPost, Path: PathGroups, RequestType: reflect.TypeFor[GroupUpsertRequest](), ResponseType: reflect.TypeFor[GroupResponse]()},
-	{Name: "groupsGet", Method: http.MethodGet, Path: PathGroupByID, PathParams: []ParamSpec{{Name: "id", TypeExpr: "string", Required: true}}, ResponseType: reflect.TypeFor[GroupResponse]()},
-	{Name: "groupsUpdate", Method: http.MethodPatch, Path: PathGroupByID, PathParams: []ParamSpec{{Name: "id", TypeExpr: "string", Required: true}}, RequestType: reflect.TypeFor[GroupUpsertRequest](), ResponseType: reflect.TypeFor[GroupResponse]()},
-	{Name: "groupsDelete", Method: http.MethodDelete, Path: PathGroupByID, PathParams: []ParamSpec{{Name: "id", TypeExpr: "string", Required: true}}, ResponseType: reflect.TypeFor[SuccessResponse]()},
 
 	{Name: "catalogRoomTypes", Method: http.MethodGet, Path: PathCatalogRoomTypes, ResponseType: reflect.TypeFor[RoomTypesResponse]()},
 	{Name: "catalogFloors", Method: http.MethodGet, Path: PathCatalogFloors, QueryParams: []ParamSpec{{Name: "roomQuery", TypeExpr: "string", Required: true}, {Name: "roomType", TypeExpr: "string", Required: false}}, ResponseType: reflect.TypeFor[FloorsResponse]()},

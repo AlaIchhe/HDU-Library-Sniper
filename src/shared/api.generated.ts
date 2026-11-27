@@ -6,8 +6,9 @@ export type BookingAction = "cancel" | "checkin" | "comeback" | "signout" | "lea
 export type BookingState = "pending" | "check_in" | "in_use" | "away";
 export type NextTargetKind = "booking" | "check-in" | "none";
 export type QrLoginPhase = "pending" | "success" | "expired" | "error";
-export type AppEventKind = "session" | "runtime" | "invalidate" | "audit";
+export type AppEventKind = "session" | "runtime" | "invalidate" | "notification";
 export type InvalidateTarget = "plans" | "bookings" | "nextTarget" | "checkin" | "runtime";
+export type NotificationLevel = "success" | "warning" | "error" | "info";
 
 export type ActionResponse = {
   success: boolean;
@@ -19,7 +20,7 @@ export type AppEvent = {
   session?: SessionStatus;
   runtime?: RuntimeStatus;
   invalidate?: InvalidateTarget[];
-  audit?: AuditNotification;
+  notification?: Notification;
 };
 
 export type AuditEvent = {
@@ -31,11 +32,6 @@ export type AuditEvent = {
 
 export type AuditListResponse = {
   events: AuditEvent[];
-};
-
-export type AuditNotification = {
-  event: string;
-  payload: Record<string, unknown>;
 };
 
 export type Booking = {
@@ -54,29 +50,10 @@ export type Booking = {
   canRenew: boolean;
 };
 
-export type BookingGroup = {
-  id: string;
-  kind: "group";
-  name: string;
-  memberPlanIds: string[];
-  members?: BookingPlan[];
-  weekdays: Weekday[];
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
-
 export type BookingPlan = {
   id: string;
-  kind: "single";
-  roomType: string;
-  roomQuery: string;
-  floorId: number;
-  floorName: string;
-  seatNum: string;
-  fallbackSeats: string[];
-  startHour: number;
-  durationHours: number;
+  name: string;
+  slots: PlanSlot[];
   weekdays: Weekday[];
   enabled: boolean;
   createdAt: string;
@@ -135,15 +112,6 @@ export type FloorsResponse = {
   range: BookingRange;
 };
 
-export type GroupResponse = {
-  plan: BookingGroup;
-};
-
-export type GroupUpsertRequest = {
-  name: string;
-  memberPlanIds: string[];
-};
-
 export type HealthResponse = {
   status: string;
 };
@@ -171,25 +139,59 @@ export type NextExecutionTarget = {
   bookingId?: string;
 };
 
-export type PlanItemResponse = {
-  plan: PlanListItem;
+export type Notification = {
+  level: NotificationLevel;
+  title: string;
+  body?: string;
+  celebrate?: boolean;
+};
+
+export type PanelAuthRequest = {
+  password: string;
+};
+
+export type PanelAuthStatusResponse = {
+  required: boolean;
+  authenticated: boolean;
+};
+
+export type PlanResponse = {
+  plan: BookingPlan;
+};
+
+export type PlanSlot = {
+  id: string;
+  roomType: string;
+  roomQuery: string;
+  floorId: number;
+  floorName: string;
+  seatNum: string;
+  fallbackSeats: string[];
+  startHour: number;
+  durationHours: number;
+};
+
+export type PlanSlotInput = {
+  id?: string;
+  roomType: string;
+  roomQuery: string;
+  floorId: number;
+  floorName?: string;
+  seatNum: string;
+  fallbackSeats?: string[];
+  startHour: number;
+  durationHours: number;
 };
 
 export type PlanUpsertRequest = {
-  roomType?: string;
-  roomQuery?: string;
-  floorId?: number;
-  floorName?: string;
-  seatNum?: string;
-  fallbackSeats?: string[];
-  startHour?: number;
-  durationHours?: number;
+  name?: string;
+  slots?: PlanSlotInput[];
   weekdays?: Weekday[];
   enabled?: boolean;
 };
 
 export type PlansListResponse = {
-  plans: PlanListItem[];
+  plans: BookingPlan[];
 };
 
 export type QrCancelResponse = {
@@ -241,26 +243,31 @@ export type SessionStatus = {
   lastError?: string;
 };
 
-export type SinglePlanResponse = {
-  plan: BookingPlan;
-};
-
 export type SuccessResponse = {
   success: boolean;
 };
 
 export type TogglePlanResponse = {
-  plan: PlanListItem;
+  plan: BookingPlan;
   disabledPlanIds: string[];
 };
-
-export type PlanListItem = BookingPlan | BookingGroup;
 
 export type APIEndpoints = {
   health: {
     method: "GET";
     pattern: "/api/health";
     response: HealthResponse;
+  };
+  panelAuthStatus: {
+    method: "GET";
+    pattern: "/api/panel/auth";
+    response: PanelAuthStatusResponse;
+  };
+  panelAuthLogin: {
+    method: "POST";
+    pattern: "/api/panel/auth/login";
+    request: PanelAuthRequest;
+    response: PanelAuthStatusResponse;
   };
   events: {
     method: "GET";
@@ -335,7 +342,7 @@ export type APIEndpoints = {
     method: "POST";
     pattern: "/api/plans";
     request: PlanUpsertRequest;
-    response: SinglePlanResponse;
+    response: PlanResponse;
   };
   plansGet: {
     method: "GET";
@@ -343,7 +350,7 @@ export type APIEndpoints = {
     pathParams: {
       id: string;
     };
-    response: PlanItemResponse;
+    response: PlanResponse;
   };
   plansUpdate: {
     method: "PATCH";
@@ -352,7 +359,7 @@ export type APIEndpoints = {
       id: string;
     };
     request: PlanUpsertRequest;
-    response: SinglePlanResponse;
+    response: PlanResponse;
   };
   plansDelete: {
     method: "DELETE";
@@ -370,37 +377,6 @@ export type APIEndpoints = {
       action: PlanToggleAction;
     };
     response: TogglePlanResponse;
-  };
-  groupsCreate: {
-    method: "POST";
-    pattern: "/api/groups";
-    request: GroupUpsertRequest;
-    response: GroupResponse;
-  };
-  groupsGet: {
-    method: "GET";
-    pattern: "/api/groups/{id}";
-    pathParams: {
-      id: string;
-    };
-    response: GroupResponse;
-  };
-  groupsUpdate: {
-    method: "PATCH";
-    pattern: "/api/groups/{id}";
-    pathParams: {
-      id: string;
-    };
-    request: GroupUpsertRequest;
-    response: GroupResponse;
-  };
-  groupsDelete: {
-    method: "DELETE";
-    pattern: "/api/groups/{id}";
-    pathParams: {
-      id: string;
-    };
-    response: SuccessResponse;
   };
   catalogRoomTypes: {
     method: "GET";
@@ -473,118 +449,288 @@ export type APIEndpoints = {
   };
 };
 
-export const API_SCHEMAS = {
+export const API_ENUMS = {
+  Weekday: [1, 2, 3, 4, 5, 6, 7],
+  PlanToggleAction: ["enable", "disable"],
+  BookingAction: ["cancel", "checkin", "comeback", "signout", "leave"],
+  BookingState: ["pending", "check_in", "in_use", "away"],
+  NextTargetKind: ["booking", "check-in", "none"],
+  QrLoginPhase: ["pending", "success", "expired", "error"],
+  AppEventKind: ["session", "runtime", "invalidate", "notification"],
+  InvalidateTarget: ["plans", "bookings", "nextTarget", "checkin", "runtime"],
+  NotificationLevel: ["success", "warning", "error", "info"],
+} as const;
+
+export type SchemaName =
+  | "ActionResponse"
+  | "AppEvent"
+  | "AuditEvent"
+  | "AuditListResponse"
+  | "Booking"
+  | "BookingPlan"
+  | "BookingRange"
+  | "BookingsListResponse"
+  | "CheckInPolling"
+  | "CheckInStatus"
+  | "DurationOptions"
+  | "EnableCheckInRequest"
+  | "ErrorResponse"
+  | "FloorOption"
+  | "FloorsResponse"
+  | "HealthResponse"
+  | "LoginOpenIDRequest"
+  | "LoginPasswordRequest"
+  | "LoginResponse"
+  | "NextExecutionTarget"
+  | "Notification"
+  | "PanelAuthRequest"
+  | "PanelAuthStatusResponse"
+  | "PlanResponse"
+  | "PlanSlot"
+  | "PlanSlotInput"
+  | "PlanUpsertRequest"
+  | "PlansListResponse"
+  | "QrCancelResponse"
+  | "QrLoginStart"
+  | "QrLoginStatus"
+  | "QrStatusEvent"
+  | "RoomTypeOption"
+  | "RoomTypesResponse"
+  | "RuntimeStatus"
+  | "SessionStatus"
+  | "SuccessResponse"
+  | "TogglePlanResponse";
+
+export type SchemaNode =
+  | { kind: "string" | "number" | "boolean" | "record" | "unknown" }
+  | { kind: "enum"; name: keyof typeof API_ENUMS }
+  | { kind: "array"; item: SchemaNode }
+  | { kind: "ref"; name: SchemaName };
+
+export type SchemaField = SchemaNode & { optional?: true };
+
+export const API_SCHEMAS: Record<SchemaName, Record<string, SchemaField>> = {
   ActionResponse: {
-    success: "b",
-    message: "s",
+    success: { kind: "boolean" },
+    message: { kind: "string" },
   },
   AppEvent: {
-    kind: "s",
-    session: "o?",
-    runtime: "o?",
-    invalidate: "a?",
-    audit: "o?",
+    kind: { kind: "enum", name: "AppEventKind" },
+    session: { kind: "ref", name: "SessionStatus", optional: true },
+    runtime: { kind: "ref", name: "RuntimeStatus", optional: true },
+    invalidate: { kind: "array", item: { kind: "enum", name: "InvalidateTarget" }, optional: true },
+    notification: { kind: "ref", name: "Notification", optional: true },
+  },
+  AuditEvent: {
+    id: { kind: "number" },
+    event: { kind: "string" },
+    payload: { kind: "record" },
+    createdAt: { kind: "string" },
   },
   AuditListResponse: {
-    events: "a",
+    events: { kind: "array", item: { kind: "ref", name: "AuditEvent" } },
+  },
+  Booking: {
+    bookingId: { kind: "string" },
+    roomName: { kind: "string" },
+    seatNum: { kind: "string" },
+    startText: { kind: "string" },
+    durationText: { kind: "string" },
+    status: { kind: "string" },
+    state: { kind: "enum", name: "BookingState" },
+    statusLabel: { kind: "string" },
+    canCancel: { kind: "boolean" },
+    canCheckIn: { kind: "boolean" },
+    canSignOut: { kind: "boolean" },
+    canLeave: { kind: "boolean" },
+    canRenew: { kind: "boolean" },
+  },
+  BookingPlan: {
+    id: { kind: "string" },
+    name: { kind: "string" },
+    slots: { kind: "array", item: { kind: "ref", name: "PlanSlot" } },
+    weekdays: { kind: "array", item: { kind: "enum", name: "Weekday" } },
+    enabled: { kind: "boolean" },
+    createdAt: { kind: "string" },
+    updatedAt: { kind: "string" },
+  },
+  BookingRange: {
+    minBeginTime: { kind: "number" },
+    maxEndTime: { kind: "number" },
+    minDuration: { kind: "number" },
+    maxDuration: { kind: "number" },
   },
   BookingsListResponse: {
-    bookings: "a",
+    bookings: { kind: "array", item: { kind: "ref", name: "Booking" } },
+  },
+  CheckInPolling: {
+    active: { kind: "boolean" },
+    nextPollAt: { kind: "string", optional: true },
+    lastPollAt: { kind: "string", optional: true },
   },
   CheckInStatus: {
-    enabled: "b",
-    consentVersion: "s",
-    consentedAt: "s?",
-    lastAttemptAt: "s?",
-    lastSuccessAt: "s?",
-    lastMessage: "s?",
+    enabled: { kind: "boolean" },
+    consentVersion: { kind: "string" },
+    consentedAt: { kind: "string", optional: true },
+    lastAttemptAt: { kind: "string", optional: true },
+    lastSuccessAt: { kind: "string", optional: true },
+    lastMessage: { kind: "string", optional: true },
   },
   DurationOptions: {
-    roomQuery: "s",
-    startHour: "n",
-    options: "a",
+    roomQuery: { kind: "string" },
+    startHour: { kind: "number" },
+    options: { kind: "array", item: { kind: "number" } },
+  },
+  EnableCheckInRequest: {
+    agreed: { kind: "boolean" },
+  },
+  ErrorResponse: {
+    detail: { kind: "string" },
+  },
+  FloorOption: {
+    id: { kind: "number" },
+    name: { kind: "string" },
+    seatCount: { kind: "number" },
+    seatTitles: { kind: "array", item: { kind: "string" } },
   },
   FloorsResponse: {
-    options: "a",
-    range: "o",
-  },
-  GroupResponse: {
-    plan: "o",
+    options: { kind: "array", item: { kind: "ref", name: "FloorOption" } },
+    range: { kind: "ref", name: "BookingRange" },
   },
   HealthResponse: {
-    status: "s",
+    status: { kind: "string" },
+  },
+  LoginOpenIDRequest: {
+    openid: { kind: "string" },
+  },
+  LoginPasswordRequest: {
+    studentId: { kind: "string" },
+    password: { kind: "string" },
   },
   LoginResponse: {
-    success: "b",
-    message: "s",
-    session: "o",
+    success: { kind: "boolean" },
+    message: { kind: "string" },
+    session: { kind: "ref", name: "SessionStatus" },
   },
   NextExecutionTarget: {
-    kind: "s",
-    label: "s",
-    at: "s?",
-    planId: "s?",
-    bookingId: "s?",
+    kind: { kind: "enum", name: "NextTargetKind" },
+    label: { kind: "string" },
+    at: { kind: "string", optional: true },
+    planId: { kind: "string", optional: true },
+    bookingId: { kind: "string", optional: true },
   },
-  PlanItemResponse: {
-    plan: "o",
+  Notification: {
+    level: { kind: "enum", name: "NotificationLevel" },
+    title: { kind: "string" },
+    body: { kind: "string", optional: true },
+    celebrate: { kind: "boolean", optional: true },
+  },
+  PanelAuthRequest: {
+    password: { kind: "string" },
+  },
+  PanelAuthStatusResponse: {
+    required: { kind: "boolean" },
+    authenticated: { kind: "boolean" },
+  },
+  PlanResponse: {
+    plan: { kind: "ref", name: "BookingPlan" },
+  },
+  PlanSlot: {
+    id: { kind: "string" },
+    roomType: { kind: "string" },
+    roomQuery: { kind: "string" },
+    floorId: { kind: "number" },
+    floorName: { kind: "string" },
+    seatNum: { kind: "string" },
+    fallbackSeats: { kind: "array", item: { kind: "string" } },
+    startHour: { kind: "number" },
+    durationHours: { kind: "number" },
+  },
+  PlanSlotInput: {
+    id: { kind: "string", optional: true },
+    roomType: { kind: "string" },
+    roomQuery: { kind: "string" },
+    floorId: { kind: "number" },
+    floorName: { kind: "string", optional: true },
+    seatNum: { kind: "string" },
+    fallbackSeats: { kind: "array", item: { kind: "string" }, optional: true },
+    startHour: { kind: "number" },
+    durationHours: { kind: "number" },
+  },
+  PlanUpsertRequest: {
+    name: { kind: "string", optional: true },
+    slots: { kind: "array", item: { kind: "ref", name: "PlanSlotInput" }, optional: true },
+    weekdays: { kind: "array", item: { kind: "enum", name: "Weekday" }, optional: true },
+    enabled: { kind: "boolean", optional: true },
   },
   PlansListResponse: {
-    plans: "a",
+    plans: { kind: "array", item: { kind: "ref", name: "BookingPlan" } },
   },
   QrCancelResponse: {
-    cancelled: "b",
+    cancelled: { kind: "boolean" },
   },
   QrLoginStart: {
-    uuid: "s",
-    image: "s",
-    ttlSeconds: "n",
+    uuid: { kind: "string" },
+    image: { kind: "string" },
+    ttlSeconds: { kind: "number" },
   },
   QrLoginStatus: {
-    status: "s",
-    message: "s?",
-    session: "o?",
+    status: { kind: "enum", name: "QrLoginPhase" },
+    message: { kind: "string", optional: true },
+    session: { kind: "ref", name: "SessionStatus", optional: true },
   },
   QrStatusEvent: {
-    uuid: "s",
-    status: "s",
-    message: "s?",
-    session: "o?",
+    uuid: { kind: "string" },
+    status: { kind: "enum", name: "QrLoginPhase" },
+    message: { kind: "string", optional: true },
+    session: { kind: "ref", name: "SessionStatus", optional: true },
+  },
+  RoomTypeOption: {
+    id: { kind: "string" },
+    name: { kind: "string" },
+    query: { kind: "string" },
   },
   RoomTypesResponse: {
-    options: "a",
+    options: { kind: "array", item: { kind: "ref", name: "RoomTypeOption" } },
   },
   RuntimeStatus: {
-    scheduler: "s",
-    state: "s",
-    lastRunAt: "s?",
-    lastMessage: "s?",
-    checkInPolling: "o?",
+    scheduler: { kind: "string" },
+    state: { kind: "string" },
+    lastRunAt: { kind: "string", optional: true },
+    lastMessage: { kind: "string", optional: true },
+    checkInPolling: { kind: "ref", name: "CheckInPolling", optional: true },
   },
   SessionStatus: {
-    authenticated: "b",
-    uid: "s?",
-    name: "s?",
-    refreshing: "b",
-    lastError: "s?",
-  },
-  SinglePlanResponse: {
-    plan: "o",
+    authenticated: { kind: "boolean" },
+    uid: { kind: "string", optional: true },
+    name: { kind: "string", optional: true },
+    refreshing: { kind: "boolean" },
+    lastError: { kind: "string", optional: true },
   },
   SuccessResponse: {
-    success: "b",
+    success: { kind: "boolean" },
   },
   TogglePlanResponse: {
-    plan: "o",
-    disabledPlanIds: "a",
+    plan: { kind: "ref", name: "BookingPlan" },
+    disabledPlanIds: { kind: "array", item: { kind: "string" } },
   },
-} as const;
+};
 
 export const API_ROUTES = {
   health: {
     method: "GET",
     pattern: "/api/health",
     schema: "HealthResponse",
+  },
+  panelAuthStatus: {
+    method: "GET",
+    pattern: "/api/panel/auth",
+    schema: "PanelAuthStatusResponse",
+  },
+  panelAuthLogin: {
+    method: "POST",
+    pattern: "/api/panel/auth/login",
+    schema: "PanelAuthStatusResponse",
   },
   events: {
     method: "GET",
@@ -644,17 +790,17 @@ export const API_ROUTES = {
   plansCreate: {
     method: "POST",
     pattern: "/api/plans",
-    schema: "SinglePlanResponse",
+    schema: "PlanResponse",
   },
   plansGet: {
     method: "GET",
     pattern: "/api/plans/{id}",
-    schema: "PlanItemResponse",
+    schema: "PlanResponse",
   },
   plansUpdate: {
     method: "PATCH",
     pattern: "/api/plans/{id}",
-    schema: "SinglePlanResponse",
+    schema: "PlanResponse",
   },
   plansDelete: {
     method: "DELETE",
@@ -665,26 +811,6 @@ export const API_ROUTES = {
     method: "POST",
     pattern: "/api/plans/{id}/{action}",
     schema: "TogglePlanResponse",
-  },
-  groupsCreate: {
-    method: "POST",
-    pattern: "/api/groups",
-    schema: "GroupResponse",
-  },
-  groupsGet: {
-    method: "GET",
-    pattern: "/api/groups/{id}",
-    schema: "GroupResponse",
-  },
-  groupsUpdate: {
-    method: "PATCH",
-    pattern: "/api/groups/{id}",
-    schema: "GroupResponse",
-  },
-  groupsDelete: {
-    method: "DELETE",
-    pattern: "/api/groups/{id}",
-    schema: "SuccessResponse",
   },
   catalogRoomTypes: {
     method: "GET",

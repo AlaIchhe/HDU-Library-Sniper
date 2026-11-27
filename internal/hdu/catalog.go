@@ -2,6 +2,7 @@ package hdu
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"slices"
@@ -12,14 +13,63 @@ import (
 	"hdu-library-sniper/internal/core"
 )
 
+type categoryItem struct {
+	ID   FlexString `json:"id"`
+	Name FlexString `json:"name"`
+	Link *struct {
+		URL FlexString `json:"url"`
+	} `json:"link"`
+}
+
+type categoryTreeNode struct {
+	DefaultItems []categoryItem    `json:"defaultItems"`
+	Children     []json.RawMessage `json:"children"`
+}
+
+type categoryListEnvelope struct {
+	Content json.RawMessage `json:"content"`
+	Data    json.RawMessage `json:"data"`
+	DATA    json.RawMessage `json:"DATA"`
+}
+
+type roomMetaEnvelope struct {
+	Data *struct {
+		SpaceCategory *struct {
+			CategoryID FlexString `json:"category_id"`
+			ContentID  FlexString `json:"content_id"`
+		} `json:"space_category"`
+		Range *struct {
+			MinBeginTime FlexInt64 `json:"minBeginTime"`
+			MaxEndTime   FlexInt64 `json:"maxEndTime"`
+			MinDuration  FlexInt64 `json:"min_duration"`
+			MaxDuration  FlexInt64 `json:"max_duration"`
+		} `json:"range"`
+	} `json:"data"`
+}
+
+type searchSeatsEnvelope struct {
+	Code    FlexString `json:"CODE"`
+	Message FlexString `json:"MESSAGE"`
+	Data    *struct {
+		Msg FlexString `json:"msg"`
+	} `json:"DATA"`
+	AllContent *struct {
+		Children []struct {
+			Children *struct {
+				Children []FloorNode `json:"children"`
+			} `json:"children"`
+		} `json:"children"`
+	} `json:"allContent"`
+}
+
 func (c *LibraryClient) RoomTypes(ctx context.Context) ([]core.RoomTypeOption, error) {
-	body, err := c.requestJSON(ctx, "/Space/Category/list?LAB_JSON=1", http.MethodGet, nil, nil, false)
-	if err != nil {
+	var env categoryListEnvelope
+	if err := c.requestInto(ctx, "/Space/Category/list?LAB_JSON=1", http.MethodGet, nil, nil, false, &env); err != nil {
 		return nil, err
 	}
-	var items []any
-	for _, key := range []string{"content", "data", "DATA"} {
-		if found := findNonEmptyDefaultItems(body[key]); len(found) > 0 {
+	var items []categoryItem
+	for _, raw := range []json.RawMessage{env.Content, env.Data, env.DATA} {
+		if found := findCategoryItems(raw); len(found) > 0 {
 			items = found
 			break
 		}
@@ -29,18 +79,17 @@ func (c *LibraryClient) RoomTypes(ctx context.Context) ([]core.RoomTypeOption, e
 	}
 
 	opts := make([]core.RoomTypeOption, 0, len(items))
-	for _, raw := range items {
-		m := core.AsMap(raw)
-		if m == nil {
-			continue
+	for _, m := range items {
+		name := strings.TrimSpace(m.Name.String())
+		linkURL := ""
+		if m.Link != nil {
+			linkURL = m.Link.URL.String()
 		}
-		name := strings.TrimSpace(core.ToString(m["name"]))
-		linkURL := core.GetString(m, "link", "url")
 		query := extractRoomQuery(linkURL)
 		if name == "" || query == "" {
 			continue
 		}
-		id := strings.TrimSpace(core.ToString(m["id"]))
+		id := strings.TrimSpace(m.ID.String())
 		if id == "" {
 			id = query
 		}
@@ -86,20 +135,19 @@ func (c *LibraryClient) loadRoomMeta(ctx context.Context, roomQuery string) (roo
 		return cached, nil
 	}
 
-	body, err := c.requestJSON(
+	var env roomMetaEnvelope
+	if err := c.requestInto(
 		ctx,
 		"/Seat/Index/searchSeats?"+key+"&LAB_JSON=1",
-		http.MethodGet, nil, nil, false,
-	)
-	if err != nil {
+		http.MethodGet, nil, nil, false, &env,
+	); err != nil {
 		return roomMetaEntry{}, err
 	}
-	sc := core.AsMap(core.Get(body, "data", "space_category"))
 	catID := ""
 	contentID := ""
-	if sc != nil {
-		catID = strings.TrimSpace(core.ToString(sc["category_id"]))
-		contentID = strings.TrimSpace(core.ToString(sc["content_id"]))
+	if env.Data != nil && env.Data.SpaceCategory != nil {
+		catID = strings.TrimSpace(env.Data.SpaceCategory.CategoryID.String())
+		contentID = strings.TrimSpace(env.Data.SpaceCategory.ContentID.String())
 	}
 	if catID == "" {
 		return roomMetaEntry{}, LibraryError("房间详情解析失败")
@@ -107,17 +155,18 @@ func (c *LibraryClient) loadRoomMeta(ctx context.Context, roomQuery string) (roo
 	entry := roomMetaEntry{
 		cat: category{categoryID: catID, contentID: contentID},
 	}
-	if r := core.AsMap(core.Get(body, "data", "range")); r != nil {
-		minDur := core.ToInt64(r["min_duration"])
+	if env.Data != nil && env.Data.Range != nil {
+		r := env.Data.Range
+		minDur := int64(r.MinDuration)
 		if minDur <= 0 {
 			minDur = 1
 		}
 		entry.hasRange = true
 		entry.rng = core.BookingRange{
-			MinBeginTime: core.ToInt64(r["minBeginTime"]),
-			MaxEndTime:   core.ToInt64(r["maxEndTime"]),
+			MinBeginTime: int64(r.MinBeginTime),
+			MaxEndTime:   int64(r.MaxEndTime),
 			MinDuration:  minDur,
-			MaxDuration:  core.ToInt64(r["max_duration"]),
+			MaxDuration:  int64(r.MaxDuration),
 		}
 	}
 	c.mu.Lock()
@@ -126,7 +175,7 @@ func (c *LibraryClient) loadRoomMeta(ctx context.Context, roomQuery string) (roo
 	return entry, nil
 }
 
-func (c *LibraryClient) Floors(ctx context.Context, roomQuery string, lookupTime time.Time, durationHours int64) ([]map[string]any, error) {
+func (c *LibraryClient) Floors(ctx context.Context, roomQuery string, lookupTime time.Time, durationHours int64) ([]FloorNode, error) {
 	meta, err := c.loadRoomMeta(ctx, roomQuery)
 	if err != nil {
 		return nil, err
@@ -139,55 +188,48 @@ func (c *LibraryClient) Floors(ctx context.Context, roomQuery string, lookupTime
 	form.Set("space_category[category_id]", cat.categoryID)
 	form.Set("space_category[content_id]", cat.contentID)
 
-	body, err := c.requestJSON(ctx, "/Seat/Index/searchSeats?LAB_JSON=1", http.MethodPost, form, nil, false)
-	if err != nil {
+	var env searchSeatsEnvelope
+	if err := c.requestInto(ctx, "/Seat/Index/searchSeats?LAB_JSON=1", http.MethodPost, form, nil, false, &env); err != nil {
 		return nil, err
 	}
-	if code := strings.TrimSpace(core.ToString(body["CODE"])); code != "" && !strings.EqualFold(code, "ok") {
-		return nil, LibraryError(responseErrorMessage(body, "座位图解析失败"))
-	}
-	topChildren := core.AsSlice(core.Get(body, "allContent", "children"))
-	if len(topChildren) <= 2 {
-		return nil, LibraryError(responseErrorMessage(body, "座位图解析失败"))
-	}
-	rawFloors := core.AsSlice(core.Get(topChildren[2], "children", "children"))
-	if rawFloors == nil {
-		return nil, LibraryError(responseErrorMessage(body, "座位图解析失败"))
-	}
-	floors := make([]map[string]any, 0, len(rawFloors))
-	for _, f := range rawFloors {
-		if m := core.AsMap(f); m != nil {
-			floors = append(floors, m)
+	errMsg := func() string {
+		if env.Data != nil && strings.TrimSpace(env.Data.Msg.String()) != "" {
+			return strings.TrimSpace(env.Data.Msg.String())
 		}
+		if m := strings.TrimSpace(env.Message.String()); m != "" && !strings.EqualFold(m, "ok") && !strings.EqualFold(m, "success") {
+			return m
+		}
+		return "座位图解析失败"
 	}
-	return floors, nil
+	if code := strings.TrimSpace(env.Code.String()); code != "" && !strings.EqualFold(code, "ok") {
+		return nil, LibraryError(errMsg())
+	}
+	if env.AllContent == nil || len(env.AllContent.Children) <= 2 ||
+		env.AllContent.Children[2].Children == nil ||
+		env.AllContent.Children[2].Children.Children == nil {
+		return nil, LibraryError(errMsg())
+	}
+	return env.AllContent.Children[2].Children.Children, nil
 }
 
-// FloorOptionFromRaw converts a raw searchSeats floor node into FloorOption.
-func FloorOptionFromRaw(raw map[string]any) *core.FloorOption {
-	info := core.AsMap(core.Get(raw, "seatMap", "info"))
-	if info == nil {
+// FloorOptionFromRaw converts a typed FloorNode into core.FloorOption.
+func FloorOptionFromRaw(raw FloorNode) *core.FloorOption {
+	if raw.SeatMap == nil || raw.SeatMap.Info == nil {
 		return nil
 	}
-	id := core.ToInt64(info["id"])
+	info := raw.SeatMap.Info
+	id := int64(info.ID)
 	if id <= 0 {
 		return nil
 	}
-	name := firstNonEmpty(
-		core.ToString(raw["roomName"]),
-		core.ToString(info["title"]),
-		core.ToString(info["name"]),
-	)
+	name := firstNonEmpty(raw.RoomName.String(), info.Title.String(), info.Name.String())
 	if name == "" {
 		name = "楼层 " + strconv.FormatInt(id, 10)
 	}
-	pois := core.AsSlice(core.Get(raw, "seatMap", "POIs"))
-	titles := make([]string, 0, len(pois))
-	for _, p := range pois {
-		if m := core.AsMap(p); m != nil {
-			if t := strings.TrimSpace(core.ToString(m["title"])); t != "" {
-				titles = append(titles, t)
-			}
+	titles := make([]string, 0, len(raw.SeatMap.POIs))
+	for _, p := range raw.SeatMap.POIs {
+		if t := strings.TrimSpace(p.Title.String()); t != "" {
+			titles = append(titles, t)
 		}
 	}
 	slices.Sort(titles)
@@ -209,20 +251,26 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-func findNonEmptyDefaultItems(v any) []any {
-	switch x := v.(type) {
-	case []any:
-		for _, item := range x {
-			if found := findNonEmptyDefaultItems(item); len(found) > 0 {
+func findCategoryItems(raw json.RawMessage) []categoryItem {
+	if len(raw) == 0 {
+		return nil
+	}
+	var arr []json.RawMessage
+	if json.Unmarshal(raw, &arr) == nil {
+		for _, item := range arr {
+			if found := findCategoryItems(item); len(found) > 0 {
 				return found
 			}
 		}
-	case map[string]any:
-		if items := core.AsSlice(x["defaultItems"]); len(items) > 0 {
-			return items
+		return nil
+	}
+	var node categoryTreeNode
+	if json.Unmarshal(raw, &node) == nil {
+		if len(node.DefaultItems) > 0 {
+			return node.DefaultItems
 		}
-		for _, child := range core.AsSlice(x["children"]) {
-			if found := findNonEmptyDefaultItems(child); len(found) > 0 {
+		for _, child := range node.Children {
+			if found := findCategoryItems(child); len(found) > 0 {
 				return found
 			}
 		}

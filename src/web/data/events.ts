@@ -1,7 +1,5 @@
-import { isMyGo } from "mygo-runtime"
 import { API_ROUTES, type AppEvent, type QrStatusEvent, type SessionStatus } from "../../shared/api.generated"
-import { events as mygoEvents } from "../mygo"
-import { api, buildPath, resolveApiBase } from "./api"
+import { api, buildEventUrl } from "./api"
 
 export type AppEventHandlers = {
   onEvent: (event: AppEvent) => void
@@ -25,21 +23,11 @@ function parseJsonEvent<T>(message: Event): T | null {
 }
 
 export function subscribeAppEvents(handlers: AppEventHandlers): () => void {
-  if (isMyGo()) {
-    let closed = false
-    const unlisten = mygoEvents.appEvent.on((event) => {
-      if (!closed) handlers.onEvent(event as AppEvent)
-    })
-    return () => {
-      closed = true
-      unlisten()
-    }
-  }
   if (typeof EventSource === "undefined") {
     return () => {}
   }
 
-  const url = `${resolveApiBase()}${buildPath(API_ROUTES.events.pattern)}`
+  const url = buildEventUrl(API_ROUTES.events.pattern)
   let closed = false
   let source: EventSource | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined
@@ -100,7 +88,7 @@ export function subscribeAppEvents(handlers: AppEventHandlers): () => void {
   const connect = () => {
     if (closed) return
     source?.close()
-    const es = new EventSource(url)
+    const es = new EventSource(url, { withCredentials: true })
     source = es
 
     es.addEventListener("open", () => {
@@ -124,7 +112,6 @@ export function subscribeAppEvents(handlers: AppEventHandlers): () => void {
       if (closed) return
       hadError = true
       if (probeTimer !== undefined) return
-      // 延迟探测，避免页面卸载或刚收到 session=false 时多发一次 /api/session
       probeTimer = setTimeout(() => {
         probeTimer = undefined
         void probeSession()
@@ -143,33 +130,11 @@ export function subscribeAppEvents(handlers: AppEventHandlers): () => void {
 }
 
 export function subscribeQrEvents(uuid: string, handlers: QrEventHandlers): () => void {
-  if (isMyGo()) {
-    let closed = false
-    const emit = (ev: QrStatusEvent) => {
-      if (closed || ev.uuid !== uuid) return
-      if (ev.status !== "pending") closed = true
-      handlers.onEvent(ev)
-    }
-    const unlisten = mygoEvents.qrStatus.on((ev) => emit(ev as QrStatusEvent))
-    // 补抓一次快照，防止 qrStart 返回到监听注册之间恰好完成状态跃迁
-    void api
-      .qrStatus(uuid)
-      .then((st) => {
-        if (closed || st.status === "pending") return
-        emit({ uuid, ...st })
-      })
-      .catch(() => undefined)
-
-    return () => {
-      closed = true
-      unlisten()
-    }
-  }
   if (typeof EventSource === "undefined") {
     return () => {}
   }
 
-  const url = `${resolveApiBase()}${buildPath(API_ROUTES.sessionQrEvents.pattern, { uuid })}`
+  const url = buildEventUrl(API_ROUTES.sessionQrEvents.pattern, { uuid })
   let closed = false
   let source: EventSource | null = null
   let retryTimer: ReturnType<typeof setTimeout> | undefined
@@ -231,7 +196,7 @@ export function subscribeQrEvents(uuid: string, handlers: QrEventHandlers): () =
   const connect = () => {
     if (closed) return
     source?.close()
-    const es = new EventSource(url)
+    const es = new EventSource(url, { withCredentials: true })
     source = es
 
     es.addEventListener("open", () => {

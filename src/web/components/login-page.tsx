@@ -95,7 +95,6 @@ function OpenidGuide({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
 function LoginPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const setSession = useAppStore((state) => state.setSession)
   const theme = useAppStore((state) => state.theme)
   const reduced = useReducedMotion()
   const form = useForm<LoginFormValues>({
@@ -118,10 +117,9 @@ function LoginPage() {
   const applyAuthenticatedSession = useCallback(
     async (nextSession: SessionStatus) => {
       queryClient.setQueryData(queryKeys.session, nextSession)
-      setSession(nextSession)
       await navigate({ to: consumeReturnTo(), replace: true })
     },
-    [navigate, queryClient, setSession],
+    [navigate, queryClient],
   )
 
   const loadQr = useCallback(async () => {
@@ -548,19 +546,11 @@ function LoginPage() {
 }
 
 export function LoginGate() {
-  const session = useAppStore((state) => state.session)
-  const setSession = useAppStore((state) => state.setSession)
   const query = useSession()
+  const session = query.data ?? null
   const navigate = useNavigate()
   // 只跳一次：StrictMode 会重跑 effect，第二次读到的返回目标已经被消费掉了。
   const redirected = useRef(false)
-  const lastSeededAt = useRef(0)
-
-  useEffect(() => {
-    if (!query.data || query.dataUpdatedAt === lastSeededAt.current) return
-    lastSeededAt.current = query.dataUpdatedAt
-    setSession(query.data)
-  }, [query.data, query.dataUpdatedAt, setSession])
 
   useEffect(() => {
     if (redirected.current || !session?.authenticated) return
@@ -569,7 +559,7 @@ export function LoginGate() {
     if (window.location.pathname !== "/") return
     redirected.current = true
     void navigate({ to: consumeReturnTo(), replace: true })
-  }, [session, navigate])
+  }, [session?.authenticated, navigate])
 
   if (query.isLoading && !session) return <Busy label="正在连接后台服务..." />
   return session?.authenticated ? <Busy /> : <LoginPage />

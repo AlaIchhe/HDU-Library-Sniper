@@ -115,50 +115,50 @@ func (c *LibraryClient) SetHooks(onRefresh func(context.Context) bool, onAuthLos
 
 // Validate checks /User/Center/baseInfo and attempts one session refresh if expired.
 func (c *LibraryClient) Validate(ctx context.Context) bool {
-	body, err := c.requestJSON(ctx, "/User/Center/baseInfo", http.MethodGet, nil, nil, false)
-	if err != nil {
+	var body BaseInfoResponse
+	if err := c.requestInto(ctx, "/User/Center/baseInfo", http.MethodGet, nil, nil, false, &body); err != nil {
 		return false
 	}
-	return c.applyBaseInfo(body)
+	return c.applyBaseInfo(&body)
 }
 
 // ValidateOnce checks /User/Center/baseInfo without invoking the session refresh callback.
 func (c *LibraryClient) ValidateOnce(ctx context.Context) bool {
-	body, err := c.requestJSONOnce(ctx, "/User/Center/baseInfo", http.MethodGet, nil, nil, false)
-	if err != nil {
+	var body BaseInfoResponse
+	if err := c.requestIntoOnce(ctx, "/User/Center/baseInfo", http.MethodGet, nil, nil, false, &body); err != nil {
 		return false
 	}
-	return c.applyBaseInfo(body)
+	return c.applyBaseInfo(&body)
 }
 
-func (c *LibraryClient) applyBaseInfo(body map[string]any) bool {
-	data := core.AsMap(body["DATA"])
-	if data == nil {
+func (c *LibraryClient) applyBaseInfo(body *BaseInfoResponse) bool {
+	if body == nil || body.Data == nil || !bool(body.Data.IsLogin) {
 		return false
 	}
-	if !core.ToBool(data["is_login"]) {
-		return false
-	}
-	uid := strings.TrimSpace(core.ToString(data["uid"]))
+	uid := strings.TrimSpace(body.Data.UID.String())
 	if uid == "" || !allASCIIDigits(uid) {
 		return false
 	}
-	name := strings.TrimSpace(core.GetString(data, "user_info", "name"))
+	name := ""
+	if body.Data.UserInfo != nil {
+		name = strings.TrimSpace(body.Data.UserInfo.Name.String())
+	}
 	c.SetIdentity(uid, name)
 	return true
 }
 
-func (c *LibraryClient) requestJSON(
+func (c *LibraryClient) requestInto(
 	ctx context.Context,
 	path string,
 	method string,
 	form url.Values,
 	headers http.Header,
 	isWrite bool,
-) (map[string]any, error) {
-	body, err := c.requestJSONOnce(ctx, path, method, form, headers, isWrite)
+	dst any,
+) error {
+	err := c.requestIntoOnce(ctx, path, method, form, headers, isWrite, dst)
 	if err == nil || !IsAuthExpired(err) {
-		return body, err
+		return err
 	}
 
 	c.mu.Lock()
@@ -167,36 +167,37 @@ func (c *LibraryClient) requestJSON(
 	c.mu.Unlock()
 
 	if refresh != nil && refresh(ctx) {
-		retryBody, retryErr := c.requestJSONOnce(ctx, path, method, form, headers, isWrite)
+		retryErr := c.requestIntoOnce(ctx, path, method, form, headers, isWrite, dst)
 		if retryErr == nil {
-			return retryBody, nil
+			return nil
 		}
 		if IsAuthExpired(retryErr) && authLost != nil {
 			authLost()
 		}
-		return nil, retryErr
+		return retryErr
 	}
 	if authLost != nil {
 		authLost()
 	}
-	return nil, err
+	return err
 }
 
-func (c *LibraryClient) requestJSONOnce(
+func (c *LibraryClient) requestIntoOnce(
 	ctx context.Context,
 	path string,
 	method string,
 	form url.Values,
 	headers http.Header,
 	isWrite bool,
-) (map[string]any, error) {
+	dst any,
+) error {
 	var bodyReader io.Reader
 	if form != nil {
 		bodyReader = strings.NewReader(form.Encode())
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
 	if err != nil {
-		return nil, NetworkError(err)
+		return NetworkError(err)
 	}
 	req.Header.Set("User-Agent", MobileUserAgent)
 	req.Header.Set("Accept", "application/json, text/plain, */*")
@@ -217,37 +218,45 @@ func (c *LibraryClient) requestJSONOnce(
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, classifyTransportError(err)
+		return classifyTransportError(err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		loc := resp.Header.Get("Location")
 		if strings.Contains(loc, LoginEntry) || strings.Contains(loc, "sso.hdu.edu.cn") {
-			return nil, AuthExpired("图书馆登录状态已失效")
+			return AuthExpired("图书馆登录状态已失效")
 		}
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, classifyTransportError(err)
+		return classifyTransportError(err)
 	}
-	var parsed map[string]any
-	jsonErr := json.Unmarshal(raw, &parsed)
+
+	var redir RedirectEnvelope
+	redirErr := json.Unmarshal(raw, &redir)
+	isRedirectToLogin := redirErr == nil &&
+		redir.UIType.String() == "com.Redirect" &&
+		strings.Contains(redir.Href.String(), LoginEntry)
+
 	if resp.StatusCode >= 400 {
-		if jsonErr == nil && core.GetString(parsed, "ui_type") == "com.Redirect" &&
-			strings.Contains(core.GetString(parsed, "href"), LoginEntry) {
-			return nil, AuthExpired("图书馆登录状态已失效")
+		if isRedirectToLogin {
+			return AuthExpired("图书馆登录状态已失效")
 		}
-		return nil, HTTPError(resp.StatusCode)
+		return HTTPError(resp.StatusCode)
 	}
-	if jsonErr != nil {
-		return nil, LibraryError("馆方返回了无效数据")
+	if !json.Valid(raw) {
+		return LibraryError("馆方返回了无效数据")
 	}
-	if core.GetString(parsed, "ui_type") == "com.Redirect" &&
-		strings.Contains(core.GetString(parsed, "href"), LoginEntry) {
-		return nil, AuthExpired("图书馆登录状态已失效")
+	if isRedirectToLogin {
+		return AuthExpired("图书馆登录状态已失效")
 	}
-	return parsed, nil
+	if dst != nil {
+		if err := json.Unmarshal(raw, dst); err != nil {
+			return LibraryError("馆方返回了无效数据")
+		}
+	}
+	return nil
 }
 
 func allASCIIDigits(s string) bool {

@@ -269,14 +269,20 @@ func TestSeatMapConcurrencyGuardMapsToHTTP404(t *testing.T) {
 }
 
 func TestActionContractsAndTimeouts(t *testing.T) {
-	if err := AssertActionSuccess(map[string]any{"CODE": "ok", "DATA": map[string]any{}}); err != nil {
+	if err := assertActionSuccess(&ActionResponse{Code: "ok"}); err != nil {
 		t.Fatalf("expected cancel without result field to succeed, got %v", err)
 	}
-	if err := AssertActionSuccess(map[string]any{"CODE": "ok", "DATA": map[string]any{"result": "fail", "msg": "失败"}}); err == nil {
+	failResp := &ActionResponse{Code: "ok", Data: &struct {
+		Result             FlexString `json:"result"`
+		Msg                FlexString `json:"msg"`
+		LatestComeBackTime FlexInt64  `json:"latest_come_back_time"`
+	}{Result: "fail", Msg: "失败"}}
+	if err := assertActionSuccess(failResp); err == nil {
 		t.Fatal("expected explicit result=fail to error")
 	}
-	if err := AssertActionSuccess(map[string]any{"CODE": 1, "MESSAGE": "请求过于频繁"}); err == nil {
-		t.Fatal("expected rate limit CODE=1 to error")
+	banErr := assertActionSuccess(&ActionResponse{Code: "1", Message: "请求过于频繁"})
+	if !IsBanned(banErr) {
+		t.Fatalf("expected rate limit CODE=1 classified as IsBanned, got %v", banErr)
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
