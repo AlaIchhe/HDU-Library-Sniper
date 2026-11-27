@@ -3,6 +3,8 @@ package booking
 import (
 	"context"
 	"time"
+
+	"hdu-library-sniper/internal/hdu"
 )
 
 const (
@@ -11,17 +13,17 @@ const (
 	AccountBan    = 10 * time.Minute
 )
 
-// Client defines the library operations required by BookingExecutor.
+// Client defines the strongly-typed library operations required by Executor.
 type Client interface {
-	Bookings(ctx context.Context) ([]map[string]any, error)
-	Floors(ctx context.Context, roomQuery string, lookupTime time.Time, durationHours int64) ([]map[string]any, error)
-	BookSeat(ctx context.Context, seatID string, beginTime time.Time, durationHours int64) (map[string]any, error)
-	LockSeat(ctx context.Context, seatID string, beginTime time.Time, durationHours int64) (map[string]any, error)
-	UnlockAllSeats(ctx context.Context) (map[string]any, error)
+	Bookings(ctx context.Context) ([]hdu.RawBooking, error)
+	Floors(ctx context.Context, roomQuery string, lookupTime time.Time, durationHours int64) ([]hdu.FloorNode, error)
+	BookSeat(ctx context.Context, seatID string, beginTime time.Time, durationHours int64) (hdu.ActionResult, error)
+	LockSeat(ctx context.Context, seatID string, beginTime time.Time, durationHours int64) (hdu.ActionResult, error)
+	UnlockAllSeats(ctx context.Context) (hdu.ActionResult, error)
 }
 
-type MemberResult struct {
-	PlanID        string `json:"planId"`
+type SlotResult struct {
+	SlotID        string `json:"slotId"`
 	SeatNum       string `json:"seatNum,omitempty"`
 	Success       bool   `json:"success"`
 	Message       string `json:"message"`
@@ -32,15 +34,14 @@ type MemberResult struct {
 }
 
 type RunResult struct {
-	PlanID  string         `json:"planId,omitempty"`
-	Kind    string         `json:"kind,omitempty"`
-	Success bool           `json:"success"`
-	Message string         `json:"message"`
-	Members []MemberResult `json:"members"`
+	PlanID  string       `json:"planId,omitempty"`
+	Success bool         `json:"success"`
+	Message string       `json:"message"`
+	Slots   []SlotResult `json:"slots"`
 }
 
 type Lock struct {
-	PlanID        string `json:"planId"`
+	SlotID        string `json:"slotId"`
 	SeatID        string `json:"seatId"`
 	SeatNum       string `json:"seatNum"`
 	BeginSeconds  int64  `json:"beginSeconds"`
@@ -50,7 +51,6 @@ type Lock struct {
 
 type LockResult struct {
 	PlanID   string `json:"planId,omitempty"`
-	Kind     string `json:"kind,omitempty"`
 	Success  bool   `json:"success"`
 	Message  string `json:"message"`
 	Locks    []Lock `json:"locks"`

@@ -1,6 +1,10 @@
 package server
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -13,6 +17,8 @@ import (
 	"hdu-library-sniper/internal/api"
 	"hdu-library-sniper/internal/hdu"
 )
+
+const panelCookieName = "hdu_panel_session"
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -74,10 +80,11 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 		}
 
 		origin := strings.TrimSpace(r.Header.Get("Origin"))
-		if origin == "http://localhost:5173" || origin == "http://127.0.0.1:5173" {
+		if isCORSAllowedOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Vary", "Origin")
 		}
 		if r.Method == http.MethodOptions {
@@ -85,11 +92,11 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site") {
+		if origin != "" && !isTrustedOrigin(origin, r.Host, allowedHosts) {
 			writeError(w, http.StatusForbidden, "cross-origin request rejected")
 			return
 		}
-		if origin != "" && !isTrustedOrigin(origin, r.Host, allowedHosts) {
+		if strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site") && !isDesktopOrigin(origin) {
 			writeError(w, http.StatusForbidden, "cross-origin request rejected")
 			return
 		}
@@ -98,6 +105,22 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 			bucket, limit := rateBucketFor(path)
 			if !s.limiter.Allow(bucket, limit) {
 				writeError(w, http.StatusTooManyRequests, "请求过于频繁，请稍后再试")
+				return
+			}
+		}
+
+		// Desktop mode: every API call except /api/health must carry the per-launch token.
+		if s.desktopToken != "" && path != api.PathHealth {
+			if !s.hasValidDesktopToken(r) {
+				writeError(w, http.StatusUnauthorized, "invalid desktop token")
+				return
+			}
+		}
+
+		// Container/Web mode: when HDU_PANEL_PASSWORD is set, gate all API routes behind panel auth.
+		if s.panelPassword != "" && path != api.PathHealth && path != api.PathPanelAuthStatus && path != api.PathPanelAuthLogin {
+			if !s.isPanelAuthenticated(r) {
+				writeError(w, http.StatusUnauthorized, "panel authentication required")
 				return
 			}
 		}
@@ -116,15 +139,50 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func (s *Server) hasValidDesktopToken(r *http.Request) bool {
+	if s.desktopToken == "" {
+		return true
+	}
+	token := ""
+	if authz := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(authz, "Bearer ") {
+		token = strings.TrimSpace(strings.TrimPrefix(authz, "Bearer "))
+	} else if q := strings.TrimSpace(r.URL.Query().Get("token")); q != "" {
+		token = q
+	}
+	return len(token) == len(s.desktopToken) &&
+		subtle.ConstantTimeCompare([]byte(token), []byte(s.desktopToken)) == 1
+}
+
+func (s *Server) panelCookieToken() string {
+	mac := hmac.New(sha256.New, s.panelSignKey)
+	_, _ = mac.Write([]byte("panel:" + s.panelPassword))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (s *Server) isPanelAuthenticated(r *http.Request) bool {
+	if s.panelPassword == "" {
+		return true
+	}
+	expected := s.panelCookieToken()
+	if c, err := r.Cookie(panelCookieName); err == nil {
+		if len(c.Value) == len(expected) && subtle.ConstantTimeCompare([]byte(c.Value), []byte(expected)) == 1 {
+			return true
+		}
+	}
+	if authz := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(authz, "Bearer ") {
+		raw := strings.TrimSpace(strings.TrimPrefix(authz, "Bearer "))
+		if len(raw) == len(s.panelPassword) && subtle.ConstantTimeCompare([]byte(raw), []byte(s.panelPassword)) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
 func rateBucketFor(path string) (string, int) {
 	switch path {
-	case api.PathSessionLogin, api.PathSessionOpenID:
+	case api.PathSessionLogin, api.PathSessionOpenID, api.PathPanelAuthLogin:
 		return "login", 5
 	case api.PathSessionQR:
-		// 前端二维码到期（90s）会自动换码，加上用户手动「刷新二维码」，
-		// 每分钟 3 次太紧：换码一旦赶上旧会话未释放就会 429，
-		// 登录页随即卡在取码失败状态。这里按「换码 + 人工重试」的合理上限放宽，
-		// 真正的并发保护由 ScanService 的扫码槽位（qrSem）负责。
 		return "qr", 10
 	case api.PathCheckInEnable, api.PathCheckInDisable:
 		return "checkin", 10
@@ -147,9 +205,18 @@ func parseAllowedHosts(raw string) map[string]bool {
 	return out
 }
 
+func isDesktopOrigin(origin string) bool {
+	return origin == "mygo://localhost" || origin == "http://mygo.localhost"
+}
+
+func isCORSAllowedOrigin(origin string) bool {
+	return isDesktopOrigin(origin) ||
+		origin == "http://localhost:5173" ||
+		origin == "http://127.0.0.1:5173"
+}
+
 func isTrustedOrigin(origin, reqHost string, extra map[string]bool) bool {
-	if origin == "mygo://localhost" || origin == "http://mygo.localhost" ||
-		origin == "http://localhost:5173" || origin == "http://127.0.0.1:5173" {
+	if isCORSAllowedOrigin(origin) {
 		return true
 	}
 	u, err := url.Parse(origin)
@@ -160,7 +227,7 @@ func isTrustedOrigin(origin, reqHost string, extra map[string]bool) bool {
 	if originHost == "" {
 		return false
 	}
-	if originHost == "localhost" || originHost == "127.0.0.1" || originHost == "::1" || net.ParseIP(originHost) != nil {
+	if originHost == "localhost" || originHost == "127.0.0.1" || originHost == "::1" {
 		return true
 	}
 	reqHostname := strings.ToLower(stripPort(reqHost))

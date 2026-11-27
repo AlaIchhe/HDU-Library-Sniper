@@ -5,7 +5,8 @@ export interface LoginFormValues {
   password: string
 }
 
-export interface PlanFormValues {
+export interface PlanSlotFormValues {
+  id?: string
   roomType: string
   roomQuery: string
   floorId: number
@@ -14,12 +15,12 @@ export interface PlanFormValues {
   fallback?: string
   startHour: string
   duration: string
-  weekdays: string[]
 }
 
-export interface GroupFormValues {
+export interface PlanFormValues {
   name: string
-  ids: string[]
+  slots: PlanSlotFormValues[]
+  weekdays: string[]
 }
 
 type FieldError = { type: string; message: string }
@@ -136,25 +137,45 @@ export const loginResolver = makeResolver<LoginFormValues>((raw) => {
 })
 
 export const planResolver = makeResolver<PlanFormValues>((raw) => {
-  const floorId = Number(raw.floorId)
-  const seatNum = raw.seatNum.trim()
-  const errors: FieldErrors<PlanFormValues> = {}
-  if (!raw.roomType) errors.roomType = { type: "required", message: "请选择房间类型" }
-  if (!raw.roomQuery) errors.roomQuery = { type: "required", message: "请选择房间类型" }
-  if (!Number.isInteger(floorId) || floorId <= 0) {
-    errors.floorId = { type: "validate", message: "请选择楼层" }
-  }
-  if (!seatNum) errors.seatNum = { type: "required", message: "请输入座位号" }
-  if (!raw.startHour) errors.startHour = { type: "required", message: "请选择开始时间" }
-  if (!raw.duration) errors.duration = { type: "required", message: "请选择时长" }
-  if (raw.weekdays.length < 1) errors.weekdays = { type: "minLength", message: "至少选择一个星期" }
-  return { data: { ...raw, floorId, seatNum }, errors }
-})
-
-export const groupResolver = makeResolver<GroupFormValues>((raw) => {
   const name = raw.name.trim()
-  const errors: FieldErrors<GroupFormValues> = {}
-  if (!name) errors.name = { type: "required", message: "请输入组合名称" }
-  if (raw.ids.length < 2) errors.ids = { type: "minLength", message: "至少选择两个方案" }
-  return { data: { name, ids: raw.ids }, errors }
+  const errors: FieldErrors<PlanFormValues> = {}
+  if (raw.slots.length === 0) {
+    errors.slots = { type: "minLength", message: "至少添加一个预约时段" }
+  }
+  if (raw.slots.length > 1 && !name) {
+    errors.name = { type: "required", message: "多时段方案请输入方案名称" }
+  }
+  const normalizedSlots: PlanSlotFormValues[] = []
+  for (let i = 0; i < raw.slots.length; i++) {
+    const slot = raw.slots[i]
+    const prefix = raw.slots.length > 1 ? `时段 ${i + 1}：` : ""
+    const floorId = Number(slot.floorId)
+    const seatNum = slot.seatNum.trim()
+    if (!slot.roomType || !slot.roomQuery) {
+      errors.slots ??= { type: "required", message: `${prefix}请选择房间类型` }
+    } else if (!Number.isInteger(floorId) || floorId <= 0) {
+      errors.slots ??= { type: "validate", message: `${prefix}请选择楼层` }
+    } else if (!seatNum) {
+      errors.slots ??= { type: "required", message: `${prefix}请输入座位号` }
+    } else if (!slot.startHour) {
+      errors.slots ??= { type: "required", message: `${prefix}请选择开始时间` }
+    } else if (!slot.duration) {
+      errors.slots ??= { type: "required", message: `${prefix}请选择时长` }
+    }
+    normalizedSlots.push({ ...slot, floorId, seatNum })
+  }
+  if (!errors.slots && normalizedSlots.length > 1) {
+    const sorted = [...normalizedSlots].sort((a, b) => Number(a.startHour) - Number(b.startHour))
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1]
+      if (Number(prev.startHour) + Number(prev.duration) > Number(sorted[i].startHour)) {
+        errors.slots = { type: "validate", message: "方案内各时段不能重叠" }
+        break
+      }
+    }
+  }
+  if (raw.weekdays.length < 1) {
+    errors.weekdays = { type: "minLength", message: "至少选择一个星期" }
+  }
+  return { data: { name, slots: normalizedSlots, weekdays: raw.weekdays }, errors }
 })

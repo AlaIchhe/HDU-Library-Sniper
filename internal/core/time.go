@@ -1,6 +1,7 @@
 package core
 
 import (
+	"slices"
 	"strings"
 	"time"
 	_ "time/tzdata"
@@ -13,6 +14,16 @@ const (
 	WriteTimeout              = 30 * time.Second
 	ReadTimeout               = 5 * time.Second
 )
+
+// Clock abstracts wall-clock reads for deterministic testing across scheduler and booking components.
+type Clock interface {
+	Now() time.Time
+}
+
+// RealClock returns the current system time.
+type RealClock struct{}
+
+func (RealClock) Now() time.Time { return time.Now() }
 
 // Shanghai is the HDU campus timezone embedded via time/tzdata for scratch/Windows safety.
 var Shanghai = mustLoadShanghai()
@@ -31,6 +42,40 @@ func BookingDayOffsetFor(roomType string) int {
 		return 1
 	}
 	return BookingDayOffset
+}
+
+func ISOWeekday(t time.Time) int {
+	wd := int(t.Weekday())
+	if wd == 0 {
+		return 7
+	}
+	return wd
+}
+
+// NextPlanAnchor finds the next 20:00 Shanghai timestamp when at least one slot of plan will run.
+func NextPlanAnchor(now time.Time, plan *BookingPlan) (time.Time, bool) {
+	if plan == nil || len(plan.Slots) == 0 || len(plan.Weekdays) == 0 {
+		return time.Time{}, false
+	}
+	localNow := now.In(Shanghai)
+	todayAnchor := time.Date(
+		localNow.Year(), localNow.Month(), localNow.Day(),
+		BookingAnchorHour, 0, 0, 0, Shanghai,
+	)
+	startDay := 0
+	if !localNow.Before(todayAnchor) {
+		startDay = 1
+	}
+	for d := startDay; d < startDay+7; d++ {
+		candidate := todayAnchor.AddDate(0, 0, d)
+		for i := range plan.Slots {
+			targetDay := candidate.AddDate(0, 0, BookingDayOffsetFor(plan.Slots[i].RoomType))
+			if slices.Contains(plan.Weekdays, ISOWeekday(targetDay)) {
+				return candidate, true
+			}
+		}
+	}
+	return time.Time{}, false
 }
 
 func ShanghaiSecondsOfDay(now time.Time) int64 {

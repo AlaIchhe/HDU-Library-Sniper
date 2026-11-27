@@ -3,44 +3,47 @@ import {
   API_ROUTES,
   type ActionResponse,
   type Booking,
-  type BookingGroup,
   type BookingPlan,
   type BookingsListResponse,
   type CheckInStatus,
   type DurationOptions,
   type FloorsResponse,
-  type GroupResponse,
-  type GroupUpsertRequest,
   type NextExecutionTarget,
-  type PlanListItem,
+  type PanelAuthStatusResponse,
+  type PlanResponse,
+  type PlanSlotInput,
   type PlansListResponse,
   type RoomTypesResponse,
   type RuntimeStatus,
   type SessionStatus,
-  type SinglePlanResponse,
   type SuccessResponse,
   type TogglePlanResponse,
 } from "../../src/shared/api.generated";
 
 type MockAppState = {
-  plans?: PlanListItem[];
+  plans?: BookingPlan[];
   bookings?: Booking[];
   disabledOnEnable?: Record<string, string[]>;
   failFloors?: boolean;
 };
 
-export function makePlan(id: string, seatNum: string, enabled: boolean): BookingPlan {
+export function makePlan(id: string, seatNum: string, enabled: boolean, name = "自习室"): BookingPlan {
   return {
     id,
-    kind: "single",
-    roomType: "自习室",
-    roomQuery: "q=76",
-    floorId: 4,
-    floorName: "四楼",
-    seatNum,
-    fallbackSeats: [],
-    startHour: 8,
-    durationHours: 4,
+    name,
+    slots: [
+      {
+        id: `${id}-s1`,
+        roomType: "自习室",
+        roomQuery: "q=76",
+        floorId: 4,
+        floorName: "四楼",
+        seatNum,
+        fallbackSeats: [],
+        startHour: 8,
+        durationHours: 4,
+      },
+    ],
     weekdays: [1, 2, 3, 4, 5],
     enabled,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -49,12 +52,16 @@ export function makePlan(id: string, seatNum: string, enabled: boolean): Booking
 }
 
 export async function mockAuthenticatedApp(page: Page, initial: MockAppState = {}) {
-  let plans: PlanListItem[] = [...(initial.plans ?? [])];
+  let plans: BookingPlan[] = [...(initial.plans ?? [])];
   let bookings: Booking[] = [...(initial.bookings ?? [])];
   let createdPlanSeq = 0;
-  let createdGroupSeq = 0;
 
   await page.route("**/api/**", async (route) => route.fulfill({ json: {} }));
+  await page.route(`**${API_ROUTES.panelAuthStatus.pattern}`, async (route) =>
+    route.fulfill({
+      json: { required: false, authenticated: true } satisfies PanelAuthStatusResponse,
+    }),
+  );
   await page.route(`**${API_ROUTES.events.pattern}`, async (route) =>
     route.fulfill({
       status: 200,
@@ -105,19 +112,31 @@ export async function mockAuthenticatedApp(page: Page, initial: MockAppState = {
     if (route.request().method() === "GET") {
       return route.fulfill({ json: { plans } satisfies PlansListResponse });
     }
-    const body = route.request().postDataJSON() as Record<string, unknown>;
+    const body = route.request().postDataJSON() as { name?: string; slots?: PlanSlotInput[] };
     createdPlanSeq += 1;
+    const id = `p-new-${createdPlanSeq}`;
+    const slots = (body.slots ?? []).map((s, idx) => ({
+      id: s.id || `${id}-s${idx + 1}`,
+      roomType: s.roomType,
+      roomQuery: s.roomQuery,
+      floorId: s.floorId,
+      floorName: s.floorName ?? "三楼",
+      seatNum: s.seatNum,
+      fallbackSeats: s.fallbackSeats ?? [],
+      startHour: s.startHour,
+      durationHours: s.durationHours,
+    }));
     const created: BookingPlan = {
-      ...makePlan(`p-new-${createdPlanSeq}`, String(body.seatNum ?? "101"), false),
-      roomType: String(body.roomType ?? "阅览室"),
-      roomQuery: String(body.roomQuery ?? "q=76"),
-      floorId: Number(body.floorId ?? 3),
-      floorName: String(body.floorName ?? "三楼"),
-      startHour: Number(body.startHour ?? 8),
-      durationHours: Number(body.durationHours ?? 4),
+      id,
+      name: body.name || slots[0]?.roomType || "阅览室",
+      slots,
+      weekdays: [1, 2, 3, 4, 5],
+      enabled: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
     };
     plans = [...plans, created];
-    return route.fulfill({ json: { plan: created } satisfies SinglePlanResponse });
+    return route.fulfill({ json: { plan: created } satisfies PlanResponse });
   });
   await page.route("**/api/plans/*", async (route) => {
     const id = new URL(route.request().url()).pathname.split("/").pop() ?? "";
@@ -126,26 +145,33 @@ export async function mockAuthenticatedApp(page: Page, initial: MockAppState = {
       return route.fulfill({ json: { success: true } satisfies SuccessResponse });
     }
     if (route.request().method() === "PATCH") {
-      const body = route.request().postDataJSON() as Record<string, unknown>;
+      const body = route.request().postDataJSON() as { name?: string; slots?: PlanSlotInput[] };
       let updated: BookingPlan | undefined;
       plans = plans.map((p) => {
-        if (p.id !== id || p.kind !== "single") return p;
+        if (p.id !== id) return p;
         updated = {
           ...p,
-          roomType: String(body.roomType ?? p.roomType),
-          roomQuery: String(body.roomQuery ?? p.roomQuery),
-          floorId: Number(body.floorId ?? p.floorId),
-          floorName: String(body.floorName ?? p.floorName),
-          seatNum: String(body.seatNum ?? p.seatNum),
-          startHour: Number(body.startHour ?? p.startHour),
-          durationHours: Number(body.durationHours ?? p.durationHours),
+          name: body.name ?? p.name,
+          slots: body.slots
+            ? body.slots.map((s, idx) => ({
+                id: s.id || `${id}-s${idx + 1}`,
+                roomType: s.roomType,
+                roomQuery: s.roomQuery,
+                floorId: s.floorId,
+                floorName: s.floorName ?? "",
+                seatNum: s.seatNum,
+                fallbackSeats: s.fallbackSeats ?? [],
+                startHour: s.startHour,
+                durationHours: s.durationHours,
+              }))
+            : p.slots,
         };
         return updated;
       });
       return route.fulfill({
         json: {
-          plan: updated ?? makePlan(id, String(body.seatNum ?? "101"), false),
-        } satisfies SinglePlanResponse,
+          plan: updated ?? makePlan(id, "101", false),
+        } satisfies PlanResponse,
       });
     }
     return route.fulfill({ json: {} });
@@ -162,49 +188,6 @@ export async function mockAuthenticatedApp(page: Page, initial: MockAppState = {
     });
     const plan = plans.find((p) => p.id === id) ?? plans[0];
     return route.fulfill({ json: { plan, disabledPlanIds } satisfies TogglePlanResponse });
-  });
-  await page.route(`**${API_ROUTES.groupsCreate.pattern}`, async (route) => {
-    const body = route.request().postDataJSON() as GroupUpsertRequest;
-    createdGroupSeq += 1;
-    const group: BookingGroup = {
-      id: `g-new-${createdGroupSeq}`,
-      kind: "group",
-      name: body.name,
-      memberPlanIds: body.memberPlanIds,
-      weekdays: [1, 2, 3, 4, 5],
-      enabled: false,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    };
-    plans = [...plans, group];
-    return route.fulfill({ json: { plan: group } satisfies GroupResponse });
-  });
-  await page.route("**/api/groups/*", async (route) => {
-    const id = new URL(route.request().url()).pathname.split("/").pop() ?? "";
-    if (route.request().method() === "PATCH") {
-      const body = route.request().postDataJSON() as GroupUpsertRequest;
-      let updated: BookingGroup | undefined;
-      plans = plans.map((p) => {
-        if (p.id !== id || p.kind !== "group") return p;
-        updated = { ...p, name: body.name, memberPlanIds: body.memberPlanIds };
-        return updated;
-      });
-      return route.fulfill({
-        json: {
-          plan: updated ?? {
-            id,
-            kind: "group",
-            name: body.name,
-            memberPlanIds: body.memberPlanIds,
-            weekdays: [1, 2, 3, 4, 5],
-            enabled: false,
-            createdAt: "2026-01-01T00:00:00.000Z",
-            updatedAt: "2026-01-01T00:00:00.000Z",
-          },
-        } satisfies GroupResponse,
-      });
-    }
-    return route.fulfill({ json: {} });
   });
   await page.route(`**${API_ROUTES.catalogRoomTypes.pattern}`, async (route) =>
     route.fulfill({

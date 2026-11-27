@@ -21,29 +21,26 @@ const (
 	ActionLeave    Action = "leave"
 )
 
-func (c *LibraryClient) Bookings(ctx context.Context) ([]map[string]any, error) {
-	body, err := c.requestJSON(ctx, "/Seat/Index/myBookingList?fromType=web&LAB_JSON=1", http.MethodGet, nil, nil, false)
-	if err != nil {
+func (c *LibraryClient) Bookings(ctx context.Context) ([]RawBooking, error) {
+	var env bookingListEnvelope
+	if err := c.requestInto(
+		ctx,
+		"/Seat/Index/myBookingList?fromType=web&LAB_JSON=1",
+		http.MethodGet, nil, nil, false, &env,
+	); err != nil {
 		return nil, err
 	}
-	items := core.AsSlice(core.Get(body, "content", "defaultItems"))
-	if items == nil {
+	if env.Content == nil || env.Content.DefaultItems == nil {
 		return nil, LibraryError("预约列表解析失败")
 	}
-	out := make([]map[string]any, 0, len(items))
-	for _, it := range items {
-		if m := core.AsMap(it); m != nil {
-			out = append(out, m)
-		}
-	}
-	return out, nil
+	return env.Content.DefaultItems, nil
 }
 
-func (c *LibraryClient) BookSeat(ctx context.Context, seatID string, beginTime time.Time, durationHours int64) (map[string]any, error) {
+func (c *LibraryClient) BookSeat(ctx context.Context, seatID string, beginTime time.Time, durationHours int64) (ActionResult, error) {
 	uid := c.UID()
 	if uid == "" {
 		if !c.Validate(ctx) {
-			return nil, AuthExpired("图书馆登录状态已失效")
+			return ActionResult{}, AuthExpired("图书馆登录状态已失效")
 		}
 		uid = c.UID()
 	}
@@ -61,55 +58,85 @@ func (c *LibraryClient) BookSeat(ctx context.Context, seatID string, beginTime t
 
 	headers := http.Header{}
 	headers.Set("Api-Token", ApiToken(seatID, uid, begin, duration, apiTime))
-	return c.requestJSON(ctx, "/Seat/Index/bookSeats?LAB_JSON=1", http.MethodPost, form, headers, true)
+	var resp ActionResponse
+	if err := c.requestInto(ctx, "/Seat/Index/bookSeats?LAB_JSON=1", http.MethodPost, form, headers, true, &resp); err != nil {
+		return ActionResult{}, err
+	}
+	msg := resp.ErrorMessage("")
+	ok := resp.IsOK() && (strings.EqualFold(resp.Result(), "success") || strings.Contains(msg, "成功"))
+	return ActionResult{
+		OK:      ok,
+		Result:  resp.Result(),
+		Message: msg,
+	}, nil
 }
 
-func (c *LibraryClient) LockSeat(ctx context.Context, seatID string, beginTime time.Time, durationHours int64) (map[string]any, error) {
+func (c *LibraryClient) LockSeat(ctx context.Context, seatID string, beginTime time.Time, durationHours int64) (ActionResult, error) {
 	form := url.Values{}
 	form.Set("beginTime", strconv.FormatInt(beginTime.Unix(), 10))
 	form.Set("duration", strconv.FormatInt(durationHours*3600, 10))
 	form.Set("is_recommend", "0")
 	form.Set("api_time", strconv.FormatInt(time.Now().Unix(), 10))
 	form.Set("seats[0]", seatID)
-	return c.requestJSON(ctx, "/Seat/Index/lockSeats?LAB_JSON=1", http.MethodPost, form, nil, true)
+
+	var resp ActionResponse
+	if err := c.requestInto(ctx, "/Seat/Index/lockSeats?LAB_JSON=1", http.MethodPost, form, nil, true, &resp); err != nil {
+		return ActionResult{}, err
+	}
+	return ActionResult{
+		OK:      resp.IsOK(),
+		Result:  resp.Result(),
+		Message: resp.ErrorMessage(""),
+	}, nil
 }
 
-func (c *LibraryClient) UnlockAllSeats(ctx context.Context) (map[string]any, error) {
-	return c.requestJSON(ctx, "/Seat/Index/unlockAllSeats?LAB_JSON=1", http.MethodPost, url.Values{}, nil, true)
+func (c *LibraryClient) UnlockAllSeats(ctx context.Context) (ActionResult, error) {
+	var resp ActionResponse
+	if err := c.requestInto(ctx, "/Seat/Index/unlockAllSeats?LAB_JSON=1", http.MethodPost, url.Values{}, nil, true, &resp); err != nil {
+		return ActionResult{}, err
+	}
+	return ActionResult{
+		OK:      resp.IsOK(),
+		Result:  resp.Result(),
+		Message: resp.ErrorMessage(""),
+	}, nil
 }
 
-func (c *LibraryClient) Action(ctx context.Context, action Action, bookingID string) (map[string]any, error) {
+func (c *LibraryClient) Action(ctx context.Context, action Action, bookingID string) (ActionResult, error) {
 	encoded := url.QueryEscape(bookingID)
 	if action == ActionLeave {
-		latest, err := c.requestJSON(
+		var latest ActionResponse
+		if err := c.requestInto(
 			ctx,
 			"/Seat/Index/stepOutLatestComeBackTime?bookingId="+encoded+"&LAB_JSON=1",
-			http.MethodPost, url.Values{}, nil, true,
-		)
-		if err != nil {
-			return nil, err
+			http.MethodPost, url.Values{}, nil, true, &latest,
+		); err != nil {
+			return ActionResult{}, err
 		}
-		if err := AssertActionSuccess(latest); err != nil {
-			return nil, err
+		if err := assertActionSuccess(&latest); err != nil {
+			return ActionResult{}, err
 		}
-		comeBack := core.GetInt64(latest, "DATA", "latest_come_back_time")
+		var comeBack int64
+		if latest.Data != nil {
+			comeBack = int64(latest.Data.LatestComeBackTime)
+		}
 		if comeBack <= 0 {
-			return nil, LibraryError("暂离返回时间无效")
+			return ActionResult{}, LibraryError("暂离返回时间无效")
 		}
 		form := url.Values{}
 		form.Set("comeBackTime", strconv.FormatInt(comeBack, 10))
-		resp, err := c.requestJSON(
+		var resp ActionResponse
+		if err := c.requestInto(
 			ctx,
 			"/Seat/Index/stepOut?bookingId="+encoded+"&LAB_JSON=1",
-			http.MethodPost, form, nil, true,
-		)
-		if err != nil {
-			return nil, err
+			http.MethodPost, form, nil, true, &resp,
+		); err != nil {
+			return ActionResult{}, err
 		}
-		if err := AssertActionSuccess(resp); err != nil {
-			return nil, err
+		if err := assertActionSuccess(&resp); err != nil {
+			return ActionResult{}, err
 		}
-		return resp, nil
+		return ActionResult{OK: true, Result: resp.Result(), Message: resp.ErrorMessage("")}, nil
 	}
 
 	var endpoint string
@@ -123,57 +150,43 @@ func (c *LibraryClient) Action(ctx context.Context, action Action, bookingID str
 	case ActionSignOut:
 		endpoint = "/Seat/Index/checkOut"
 	default:
-		return nil, LibraryError("不支持的操作类型")
+		return ActionResult{}, LibraryError("不支持的操作类型")
 	}
-	resp, err := c.requestJSON(
+	var resp ActionResponse
+	if err := c.requestInto(
 		ctx,
 		endpoint+"?bookingId="+encoded+"&LAB_JSON=1",
-		http.MethodPost, url.Values{}, nil, true,
-	)
-	if err != nil {
-		return nil, err
+		http.MethodPost, url.Values{}, nil, true, &resp,
+	); err != nil {
+		return ActionResult{}, err
 	}
-	if err := AssertActionSuccess(resp); err != nil {
-		return nil, err
+	if err := assertActionSuccess(&resp); err != nil {
+		return ActionResult{}, err
 	}
-	return resp, nil
+	return ActionResult{OK: true, Result: resp.Result(), Message: resp.ErrorMessage("")}, nil
 }
 
-// AssertActionSuccess validates HDU action responses, tolerating empty DATA.result (as in cancelBooking).
-func AssertActionSuccess(body map[string]any) error {
-	code := core.ToString(body["CODE"])
-	result := core.GetString(body, "DATA", "result")
-	if strings.EqualFold(code, "ok") && (result == "" || strings.EqualFold(result, "success")) {
+func assertActionSuccess(resp *ActionResponse) error {
+	if resp.IsOK() && (resp.Result() == "" || strings.EqualFold(resp.Result(), "success")) {
 		return nil
 	}
-	return LibraryError(responseErrorMessage(body, "馆方操作失败"))
+	return LibraryError(resp.ErrorMessage("馆方操作失败"))
 }
 
-func responseErrorMessage(body map[string]any, fallback string) string {
-	msg := strings.TrimSpace(core.GetString(body, "DATA", "msg"))
-	if msg == "" {
-		msg = strings.TrimSpace(core.ToString(body["MESSAGE"]))
-	}
-	if msg == "" || strings.EqualFold(msg, "ok") || strings.EqualFold(msg, "success") {
-		return fallback
-	}
-	return msg
-}
-
-// BookingFromRaw maps a raw myBookingList entry into the frontend DTO, returning nil for historical states.
-func BookingFromRaw(item map[string]any, now time.Time) *core.Booking {
-	status := strings.TrimSpace(core.ToString(item["status"]))
+// BookingFromRaw maps a strongly-typed RawBooking into the frontend DTO, returning nil for historical states.
+func BookingFromRaw(item RawBooking, now time.Time) *core.Booking {
+	status := strings.TrimSpace(item.Status.String())
 	switch status {
 	case "3", "4", "5", "6", "7", "9":
 		return nil
 	}
-	begin := core.ToInt64(item["time"])
+	begin := int64(item.Time)
 	if begin <= 0 {
 		begin = now.Unix()
 	}
-	duration := core.ToInt64(item["duration"])
-	limitAgo := core.ToInt64(item["limitSignAgo"])
-	limitBack := core.ToInt64(item["limitSignBack"])
+	duration := int64(item.Duration)
+	limitAgo := int64(item.LimitSignAgo)
+	limitBack := int64(item.LimitSignBack)
 	nowSec := now.Unix()
 	canCheckIn := status == "0" && nowSec >= begin-limitAgo && nowSec <= begin+limitBack
 
@@ -193,11 +206,11 @@ func BookingFromRaw(item map[string]any, now time.Time) *core.Booking {
 		}
 	}
 
-	roomName := strings.TrimSpace(core.ToString(item["roomName"]))
+	roomName := strings.TrimSpace(item.RoomName.String())
 	if roomName == "" {
 		roomName = "未知房间"
 	}
-	seatNum := strings.TrimSpace(core.ToString(item["seatNum"]))
+	seatNum := strings.TrimSpace(item.SeatNum.String())
 	if seatNum == "" {
 		seatNum = "-"
 	}
@@ -207,7 +220,7 @@ func BookingFromRaw(item map[string]any, now time.Time) *core.Booking {
 	}
 
 	return &core.Booking{
-		BookingID:    core.ToString(item["id"]),
+		BookingID:    strings.TrimSpace(item.ID.String()),
 		RoomName:     roomName,
 		SeatNum:      seatNum,
 		StartText:    core.FormatZhUnix(begin),

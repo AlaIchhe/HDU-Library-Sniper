@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -16,14 +14,35 @@ import (
 	"hdu-library-sniper/internal/core"
 )
 
-const schemaVersion = 2
+const (
+	defaultAccountID = "default"
+	auditRetention   = 500
+)
 
-const baseSchema = `
-CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+type migration struct {
+	version int
+	sql     string
+}
+
+var migrations = []migration{
+	{
+		version: 1,
+		sql: `
 CREATE TABLE IF NOT EXISTS plans (
 	id TEXT PRIMARY KEY,
-	kind TEXT NOT NULL DEFAULT 'single',
-	name TEXT,
+	account_id TEXT NOT NULL DEFAULT 'default',
+	name TEXT NOT NULL DEFAULT '',
+	weekdays TEXT NOT NULL DEFAULT '[1,2,3,4,5,6,7]',
+	enabled INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plans_account ON plans(account_id, created_at);
+
+CREATE TABLE IF NOT EXISTS plan_slots (
+	id TEXT PRIMARY KEY,
+	plan_id TEXT NOT NULL,
+	position INTEGER NOT NULL,
 	room_type TEXT NOT NULL,
 	room_query TEXT NOT NULL,
 	floor_id INTEGER NOT NULL,
@@ -32,43 +51,53 @@ CREATE TABLE IF NOT EXISTS plans (
 	fallback_seats TEXT NOT NULL DEFAULT '[]',
 	start_hour INTEGER NOT NULL,
 	duration_hours INTEGER NOT NULL,
-	weekdays TEXT NOT NULL DEFAULT '[1,2,3,4,5,6,7]',
-	enabled INTEGER NOT NULL DEFAULT 1,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
+	FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
 );
-CREATE TABLE IF NOT EXISTS session (
-	id INTEGER PRIMARY KEY CHECK (id = 1),
+CREATE INDEX IF NOT EXISTS idx_plan_slots_plan ON plan_slots(plan_id, position);
+
+CREATE TABLE IF NOT EXISTS sessions (
+	account_id TEXT PRIMARY KEY DEFAULT 'default',
 	uid TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL DEFAULT '',
-	student_id TEXT NOT NULL DEFAULT '',
-	password TEXT NOT NULL DEFAULT '',
-	openid TEXT NOT NULL DEFAULT '',
 	cookies TEXT NOT NULL DEFAULT '[]',
-	updated_at TEXT NOT NULL,
 	credentials_enc TEXT NOT NULL DEFAULT '',
-	credentials_scheme TEXT NOT NULL DEFAULT ''
+	credentials_scheme TEXT NOT NULL DEFAULT '',
+	updated_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS audit (
+
+CREATE TABLE IF NOT EXISTS settings (
+	key TEXT PRIMARY KEY,
+	value TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS catalog_cache (
+	key TEXT PRIMARY KEY,
+	payload TEXT NOT NULL,
+	fetched_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pending_checkins (
+	booking_id TEXT PRIMARY KEY,
+	begin_ms INTEGER NOT NULL,
+	deadline_ms INTEGER NOT NULL,
+	attempts INTEGER NOT NULL DEFAULT 0,
+	next_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_events (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	event TEXT NOT NULL,
 	payload TEXT NOT NULL,
 	created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS group_members (
-	group_id TEXT NOT NULL,
-	plan_id TEXT NOT NULL,
-	position INTEGER NOT NULL,
-	PRIMARY KEY (group_id, plan_id),
-	FOREIGN KEY (group_id) REFERENCES plans(id) ON DELETE CASCADE,
-	FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
-);`
+);`,
+	},
+}
 
-// Store provides thread-safe SQLite persistence for plans, groups, sessions, meta, and audit logs.
+// Store provides SQLite persistence for plans, slots, sessions, settings, catalog cache, pending check-ins, and audits.
+// SQLite connection pool is serialized with MaxOpenConns(1) + busy_timeout so no coarse Go-level mutex is required.
 type Store struct {
-	mu      sync.Mutex
-	db      *sql.DB
-	onAudit func(event string, payload map[string]any)
+	db *sql.DB
 }
 
 func Open(path string) (*Store, error) {
@@ -109,95 +138,79 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// SetOnAudit registers a hook called whenever a new audit event is written.
-func (s *Store) SetOnAudit(fn func(event string, payload map[string]any)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.onAudit = fn
-}
-
 func (s *Store) migrate() error {
-	if _, err := s.db.Exec(baseSchema); err != nil {
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version INTEGER PRIMARY KEY,
+		applied_at TEXT NOT NULL
+	)`); err != nil {
 		return err
 	}
-	var verStr string
-	err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&verStr)
-	if err == nil {
-		if ver, convErr := strconv.Atoi(verStr); convErr == nil && ver >= schemaVersion {
-			return nil
+	var current int
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&current); err != nil {
+		return err
+	}
+	for _, m := range migrations {
+		if m.version <= current {
+			continue
 		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-
-	cols := [][3]string{
-		{"plans", "kind", "TEXT NOT NULL DEFAULT 'single'"},
-		{"plans", "name", "TEXT"},
-		{"session", "uid", "TEXT NOT NULL DEFAULT ''"},
-		{"session", "name", "TEXT NOT NULL DEFAULT ''"},
-		{"session", "student_id", "TEXT NOT NULL DEFAULT ''"},
-		{"session", "password", "TEXT NOT NULL DEFAULT ''"},
-		{"session", "openid", "TEXT NOT NULL DEFAULT ''"},
-		{"session", "cookies", "TEXT NOT NULL DEFAULT '[]'"},
-		{"session", "updated_at", "TEXT NOT NULL DEFAULT ''"},
-		{"session", "credentials_enc", "TEXT NOT NULL DEFAULT ''"},
-		{"session", "credentials_scheme", "TEXT NOT NULL DEFAULT ''"},
-	}
-	for _, c := range cols {
-		if err := s.ensureColumn(c[0], c[1], c[2]); err != nil {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(m.sql); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration v%d: %w", m.version, err)
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)`,
+			m.version, core.FormatISO(time.Now()),
+		); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
 			return err
 		}
 	}
-	_, err = s.db.Exec(
-		`INSERT INTO meta(key, value) VALUES('schema_version', ?)
-		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-		strconv.Itoa(schemaVersion),
-	)
-	return err
+	return nil
 }
 
-func (s *Store) ensureColumn(table, column, def string) error {
-	rows, err := s.db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notNull, pk int
-		var dflt sql.NullString
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
-			return err
-		}
-		if name == column {
-			return nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	_, err = s.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, def))
-	return err
-}
-
-func (s *Store) GetMeta(key string) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Store) GetSetting(key string) (string, error) {
 	var val string
-	err := s.db.QueryRow(`SELECT value FROM meta WHERE key = ?`, key).Scan(&val)
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&val)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	return val, err
 }
 
-func (s *Store) SetMeta(key, value string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Store) SetSetting(key, value string) error {
 	_, err := s.db.Exec(
-		`INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-		key, value,
+		`INSERT INTO settings(key, value, updated_at) VALUES(?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+		key, value, core.FormatISO(time.Now()),
+	)
+	return err
+}
+
+func (s *Store) GetCatalogCache(key string) (payload string, fetchedAt int64, ok bool, err error) {
+	err = s.db.QueryRow(
+		`SELECT payload, fetched_at FROM catalog_cache WHERE key = ?`, key,
+	).Scan(&payload, &fetchedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", 0, false, nil
+	}
+	if err != nil {
+		return "", 0, false, err
+	}
+	return payload, fetchedAt, true, nil
+}
+
+func (s *Store) SetCatalogCache(key, payload string, fetchedAt int64) error {
+	_, err := s.db.Exec(
+		`INSERT INTO catalog_cache(key, payload, fetched_at) VALUES(?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at`,
+		key, payload, fetchedAt,
 	)
 	return err
 }
@@ -208,19 +221,25 @@ func (s *Store) WriteAudit(event string, payload any) error {
 		return err
 	}
 	now := core.FormatISO(time.Now())
-	s.mu.Lock()
-	_, err = s.db.Exec(
-		`INSERT INTO audit(event, payload, created_at) VALUES(?, ?, ?)`,
-		event, string(raw), now,
-	)
-	hook := s.onAudit
-	s.mu.Unlock()
-	if err == nil && hook != nil {
-		var m map[string]any
-		_ = json.Unmarshal(raw, &m)
-		go hook(event, m)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
 	}
-	return err
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(
+		`INSERT INTO audit_events(event, payload, created_at) VALUES(?, ?, ?)`,
+		event, string(raw), now,
+	); err != nil {
+		return err
+	}
+	// Keep audit_events bounded so long-running daemons never grow unbounded.
+	if _, err := tx.Exec(
+		`DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY id DESC LIMIT ?)`,
+		auditRetention,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ListAudit(limit int) ([]core.AuditEvent, error) {
@@ -229,10 +248,8 @@ func (s *Store) ListAudit(limit int) ([]core.AuditEvent, error) {
 	} else if limit > 200 {
 		limit = 200
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	rows, err := s.db.Query(
-		`SELECT id, event, payload, created_at FROM audit ORDER BY id DESC LIMIT ?`,
+		`SELECT id, event, payload, created_at FROM audit_events ORDER BY id DESC LIMIT ?`,
 		limit,
 	)
 	if err != nil {

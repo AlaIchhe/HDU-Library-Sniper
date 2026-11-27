@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
-import { isMyGo } from "mygo-runtime"
 import { MotionConfig } from "motion/react"
 
 import {
@@ -36,7 +35,7 @@ import {
 } from "@/ui/sidebar"
 import { toastManager, ToastProvider } from "@/ui/toast"
 import { type QueryClient, useQueryClient } from "@tanstack/react-query"
-import type { AuditNotification, InvalidateTarget } from "../../shared/types"
+import type { InvalidateTarget, Notification, SessionStatus } from "../../shared/types"
 import { useAppStore } from "../data/store"
 import { queryKeys, useRuntime, useSession } from "../data/queries"
 import { api } from "../data/api"
@@ -71,78 +70,30 @@ function applyInvalidateTargets(queryClient: QueryClient, targets: readonly Inva
   }
 }
 
-function notifyAuditToast(audit: AuditNotification) {
-  const payload = audit.payload ?? {}
-  switch (audit.event) {
-    case "booking_run_finished": {
-      const success = Boolean(payload.success)
-      const message = typeof payload.message === "string" ? payload.message : ""
-      if (success) fireSideCannons()
-      toastManager.add({
-        type: success ? "success" : "error",
-        title: success ? "预约成功" : "预约失败",
-        description: message || undefined,
-      })
-      break
-    }
-    case "checkin_succeeded": {
-      if (payload.source === "manual") return
-      const bookingId = typeof payload.bookingId === "string" ? payload.bookingId : ""
-      toastManager.add({
-        type: "success",
-        title: "自动签到成功",
-        description: bookingId ? `预约 ${bookingId} 已完成签到` : undefined,
-      })
-      break
-    }
-    case "checkin_missed": {
-      const reason = typeof payload.reason === "string" ? payload.reason : ""
-      toastManager.add({
-        type: "warning",
-        title: "自动签到超时",
-        description: reason || undefined,
-      })
-      break
-    }
-    case "checkin_failed": {
-      if (!payload.terminal) return
-      const error = typeof payload.error === "string" ? payload.error : ""
-      toastManager.add({
-        type: "error",
-        title: "自动签到已停止",
-        description: error || undefined,
-      })
-      break
-    }
-  }
+function showNotificationToast(notif: Notification) {
+  if (notif.celebrate) fireSideCannons()
+  toastManager.add({
+    type: notif.level,
+    title: notif.title,
+    description: notif.body || undefined,
+  })
 }
 
 export function AppShell() {
   const pathname = useRouterState({
     select: (state) => state.location.pathname as string,
   })
-  const session = useAppStore((state) => state.session)
-  const setSession = useAppStore((state) => state.setSession)
-  // 深链接进来时登录页并不在，会话要由这里取一次，否则守卫永远是"未登录"。
   const sessionQuery = useSession()
+  const session = sessionQuery.data ?? null
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const theme = useAppStore((state) => state.theme)
-  const requestRefresh = useAppStore((state) => state.requestRefresh)
   const runtime = useRuntime()
   const navMode = useNavMode()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const authenticated = Boolean(session?.authenticated)
 
-  const lastSeededAt = useRef(0)
   const wasAuthenticated = useRef(false)
-
-  // 只补种一次：401 清空 store 后若 query 尚未更新，不能把陈旧缓存重新塞回 store。
-  useEffect(() => {
-    if (!sessionQuery.data || sessionQuery.dataUpdatedAt === lastSeededAt.current) return
-    lastSeededAt.current = sessionQuery.dataUpdatedAt
-    setSession(sessionQuery.data)
-  }, [sessionQuery.data, sessionQuery.dataUpdatedAt, setSession])
 
   useEffect(() => {
     if (session?.authenticated) {
@@ -153,37 +104,28 @@ export function AppShell() {
   // 会话确认可用之前不跳转，否则深链接会先被弹回首页；已登录后若因 401/事件失活则跳回登录页。
   useEffect(() => {
     if (session?.authenticated) return
-    if (
-      !session &&
-      !wasAuthenticated.current &&
-      (!sessionQuery.isSuccess || sessionQuery.data?.authenticated)
-    ) {
+    if (!wasAuthenticated.current && (!sessionQuery.isSuccess || sessionQuery.data?.authenticated)) {
       return
     }
     wasAuthenticated.current = false
-    if (session === null && sessionQuery.data?.authenticated) {
-      queryClient.setQueryData(queryKeys.session, { authenticated: false, refreshing: false })
-    }
     if (pathname === "/") return
     rememberReturnTo(pathname)
     navigate({ to: "/", replace: true })
-  }, [session, sessionQuery.isSuccess, sessionQuery.data?.authenticated, pathname, navigate, queryClient])
+  }, [session?.authenticated, sessionQuery.isSuccess, sessionQuery.data?.authenticated, pathname, navigate])
 
   // 已经落在目标页，把"登录后返回"的记录清掉。
   useEffect(() => {
     if (authenticated && pathname !== "/") forgetReturnTo()
   }, [authenticated, pathname])
 
-  // 订阅后端实时事件：Web 走 SSE（登录后连接），桌面端走 MyGo IPC（常驻接收启动期异步登录态恢复）。
-  const eventsEnabled = authenticated || isMyGo()
+  // 订阅后端实时事件：Web 与桌面端统一走 SSE。
   useEffect(() => {
-    if (!eventsEnabled) return
+    if (!authenticated) return
     return subscribeAppEvents({
       onEvent: (event) => {
         if (event.kind === "session" && event.session) {
-          const prevAuth = Boolean(useAppStore.getState().session?.authenticated)
+          const prevAuth = Boolean(queryClient.getQueryData<SessionStatus>(queryKeys.session)?.authenticated)
           queryClient.setQueryData(queryKeys.session, event.session)
-          setSession(event.session)
           if (!event.session.authenticated && prevAuth && event.session.lastError) {
             toastManager.add({ type: "warning", title: event.session.lastError })
           }
@@ -197,14 +139,13 @@ export function AppShell() {
         if (event.invalidate?.length) {
           applyInvalidateTargets(queryClient, event.invalidate)
         }
-        if (event.kind === "audit" && event.audit) {
-          notifyAuditToast(event.audit)
+        if (event.kind === "notification" && event.notification) {
+          showNotificationToast(event.notification)
         }
       },
       onSessionExpired: (sess) => {
-        const prevAuth = Boolean(useAppStore.getState().session?.authenticated)
+        const prevAuth = Boolean(queryClient.getQueryData<SessionStatus>(queryKeys.session)?.authenticated)
         queryClient.setQueryData(queryKeys.session, sess)
-        setSession(sess)
         if (prevAuth) {
           toastManager.add({
             type: "warning",
@@ -216,16 +157,16 @@ export function AppShell() {
         applyInvalidateTargets(queryClient, ["plans", "bookings", "nextTarget", "checkin", "runtime"])
       },
     })
-  }, [eventsEnabled, queryClient, setSession])
+  }, [authenticated, queryClient])
 
   const logout = useCallback(async () => {
     try {
       await api.logout()
       wasAuthenticated.current = false
-      lastSeededAt.current = 0
-      // 清掉 session 查询缓存，避免登录页用陈旧缓存复活已登出的会话
-      queryClient.removeQueries({ queryKey: queryKeys.session })
-      setSession(null)
+      queryClient.setQueryData<SessionStatus>(queryKeys.session, {
+        authenticated: false,
+        refreshing: false,
+      })
       navigate({ to: "/", replace: true })
     } catch (cause) {
       toastManager.add({
@@ -233,14 +174,18 @@ export function AppShell() {
         title: cause instanceof Error ? cause.message : "退出登录失败",
       })
     }
-  }, [navigate, queryClient, setSession])
+  }, [navigate, queryClient])
 
-  /** 刷新当前页：通过 store 广播，各页自行响应，不做 DOM 查询。 */
+  /** 刷新当前页：直接通过 TanStack Query invalidate 当前路由数据。 */
   const refreshCurrentPage = useCallback(() => {
-    requestRefresh()
+    if (pathname === "/bookings") {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bookings })
+    } else {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.plans })
+    }
     void queryClient.invalidateQueries({ queryKey: queryKeys.nextTarget })
     void queryClient.invalidateQueries({ queryKey: queryKeys.runtime })
-  }, [queryClient, requestRefresh])
+  }, [pathname, queryClient])
 
   useHotkeys(
     {

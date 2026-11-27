@@ -5,29 +5,24 @@ import (
 	"errors"
 )
 
-// SessionRecord mirrors the single persisted row (id = 1) in the session table.
+// SessionRecord mirrors the encrypted session row in the sessions table (no plaintext credential columns).
 type SessionRecord struct {
 	UID               string `json:"uid"`
 	Name              string `json:"name"`
-	StudentID         string `json:"studentId"`
-	Password          string `json:"password"`
-	OpenID            string `json:"openid"`
 	Cookies           string `json:"cookies"`
-	UpdatedAt         string `json:"updatedAt"`
 	CredentialsEnc    string `json:"credentialsEnc"`
 	CredentialsScheme string `json:"credentialsScheme"`
+	UpdatedAt         string `json:"updatedAt"`
 }
 
 func (s *Store) LoadSession() (*SessionRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var rec SessionRecord
 	err := s.db.QueryRow(
-		`SELECT uid, name, student_id, password, openid, cookies, updated_at, credentials_enc, credentials_scheme
-		 FROM session WHERE id = 1`,
+		`SELECT uid, name, cookies, credentials_enc, credentials_scheme, updated_at
+		 FROM sessions WHERE account_id = ?`,
+		defaultAccountID,
 	).Scan(
-		&rec.UID, &rec.Name, &rec.StudentID, &rec.Password, &rec.OpenID,
-		&rec.Cookies, &rec.UpdatedAt, &rec.CredentialsEnc, &rec.CredentialsScheme,
+		&rec.UID, &rec.Name, &rec.Cookies, &rec.CredentialsEnc, &rec.CredentialsScheme, &rec.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -39,28 +34,26 @@ func (s *Store) LoadSession() (*SessionRecord, error) {
 }
 
 func (s *Store) SaveSession(rec *SessionRecord) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	cookies := rec.Cookies
 	if cookies == "" {
 		cookies = "[]"
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO session (id, uid, name, student_id, password, openid, cookies, updated_at, credentials_enc, credentials_scheme)
-		 VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET
-			uid=excluded.uid, name=excluded.name, student_id=excluded.student_id, password=excluded.password,
-			openid=excluded.openid, cookies=excluded.cookies, updated_at=excluded.updated_at,
-			credentials_enc=excluded.credentials_enc, credentials_scheme=excluded.credentials_scheme`,
-		rec.UID, rec.Name, rec.StudentID, rec.Password, rec.OpenID,
-		cookies, rec.UpdatedAt, rec.CredentialsEnc, rec.CredentialsScheme,
+		`INSERT INTO sessions (account_id, uid, name, cookies, credentials_enc, credentials_scheme, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(account_id) DO UPDATE SET
+			uid = excluded.uid,
+			name = excluded.name,
+			cookies = excluded.cookies,
+			credentials_enc = excluded.credentials_enc,
+			credentials_scheme = excluded.credentials_scheme,
+			updated_at = excluded.updated_at`,
+		defaultAccountID, rec.UID, rec.Name, cookies, rec.CredentialsEnc, rec.CredentialsScheme, rec.UpdatedAt,
 	)
 	return err
 }
 
 func (s *Store) ClearSession() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, err := s.db.Exec(`DELETE FROM session`)
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE account_id = ?`, defaultAccountID)
 	return err
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/rand"
 	"io"
 	"io/fs"
 	"net/http"
@@ -15,38 +16,73 @@ import (
 	"hdu-library-sniper/internal/store"
 )
 
+// Options configures optional server security boundaries.
+type Options struct {
+	// DesktopToken enforces per-launch Bearer/query token authentication for local desktop WebViews.
+	DesktopToken string
+	// PanelPassword enables independent HttpOnly cookie authentication for Web/Container deployments.
+	PanelPassword string
+}
+
 // Server wires the REST API router and optional embedded SPA assets.
 type Server struct {
-	Store     *store.Store
-	Auth      *auth.Service
-	Booking   *booking.Executor
-	Scheduler *scheduler.Scheduler
-	Events    *events.Bus
-	Frontend  fs.FS
-	limiter   *RateLimiter
-	catalog   *catalogFlights
+	Store         *store.Store
+	Auth          *auth.Service
+	Booking       *booking.Executor
+	Scheduler     *scheduler.Scheduler
+	Events        *events.Bus
+	Frontend      fs.FS
+	desktopToken  string
+	panelPassword string
+	panelSignKey  []byte
+	limiter       *RateLimiter
+	catalog       *catalogFlights
 }
 
 func New(st *store.Store, authSvc *auth.Service, exec *booking.Executor, sched *scheduler.Scheduler, frontend fs.FS) *Server {
+	return NewWithOptions(st, authSvc, exec, sched, events.NewBus(), frontend, Options{})
+}
+
+func NewWithOptions(
+	st *store.Store,
+	authSvc *auth.Service,
+	exec *booking.Executor,
+	sched *scheduler.Scheduler,
+	bus *events.Bus,
+	frontend fs.FS,
+	opts Options,
+) *Server {
+	if bus == nil {
+		bus = events.NewBus()
+	}
+	signKey := make([]byte, 32)
+	_, _ = rand.Read(signKey)
 	return &Server{
-		Store:     st,
-		Auth:      authSvc,
-		Booking:   exec,
-		Scheduler: sched,
-		Events:    events.NewBus(),
-		Frontend:  frontend,
-		limiter:   NewRateLimiter(),
-		catalog:   newCatalogFlights(),
+		Store:         st,
+		Auth:          authSvc,
+		Booking:       exec,
+		Scheduler:     sched,
+		Events:        bus,
+		Frontend:      frontend,
+		desktopToken:  strings.TrimSpace(opts.DesktopToken),
+		panelPassword: strings.TrimSpace(opts.PanelPassword),
+		panelSignKey:  signKey,
+		limiter:       NewRateLimiter(),
+		catalog:       newCatalogFlights(),
 	}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Public session & health routes
+	// Public health & panel auth routes
 	mux.HandleFunc("GET "+api.PathHealth, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, api.HealthResponse{Status: "ok"})
 	})
+	mux.HandleFunc("GET "+api.PathPanelAuthStatus, s.handlePanelAuthStatus)
+	mux.HandleFunc("POST "+api.PathPanelAuthLogin, s.handlePanelAuthLogin)
+
+	// Session routes (require panel auth when enabled, public wrt HDU session)
 	mux.HandleFunc("GET "+api.PathSessionStatus, s.handleSessionStatus)
 	mux.HandleFunc("POST "+api.PathSessionLogin, s.handleSessionLogin)
 	mux.HandleFunc("POST "+api.PathSessionOpenID, s.handleSessionOpenID)
@@ -56,7 +92,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+api.PathSessionQRCancel, s.handleSessionQRCancel)
 	mux.HandleFunc("POST "+api.PathSessionLogout, s.handleSessionLogout)
 
-	// Protected workspace routes
+	// Protected workspace routes (require HDU session)
 	mux.HandleFunc("GET "+api.PathEvents, s.requireAuth(s.handleEvents))
 	mux.HandleFunc("GET "+api.PathAudit, s.requireAuth(s.handleListAudit))
 	mux.HandleFunc("GET "+api.PathPlans, s.requireAuth(s.handleListPlans))
@@ -65,11 +101,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH "+api.PathPlanByID, s.requireAuth(s.handleUpdatePlan))
 	mux.HandleFunc("DELETE "+api.PathPlanByID, s.requireAuth(s.handleDeletePlan))
 	mux.HandleFunc("POST "+api.PathPlanToggle, s.requireAuth(s.handleTogglePlan))
-
-	mux.HandleFunc("POST "+api.PathGroups, s.requireAuth(s.handleCreateGroup))
-	mux.HandleFunc("GET "+api.PathGroupByID, s.requireAuth(s.handleGetGroup))
-	mux.HandleFunc("PATCH "+api.PathGroupByID, s.requireAuth(s.handleUpdateGroup))
-	mux.HandleFunc("DELETE "+api.PathGroupByID, s.requireAuth(s.handleDeleteGroup))
 
 	mux.HandleFunc("GET "+api.PathCatalogRoomTypes, s.requireAuth(s.handleRoomTypes))
 	mux.HandleFunc("GET "+api.PathCatalogFloors, s.requireAuth(s.handleFloors))

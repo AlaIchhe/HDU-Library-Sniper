@@ -32,7 +32,6 @@ import { PageHeader, PageShell, PageState } from "./page-layout"
 import { cn } from "@/lib/utils"
 import type { Booking, BookingAction } from "../../shared/types"
 import { useBookingAction, useBookings } from "../data/queries"
-import { useRefreshSignal } from "../data/store"
 import { NoData } from "../shared"
 
 const COLUMNS = "sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(9rem,auto)]"
@@ -96,9 +95,6 @@ export function BookingsPage() {
   const bookings = useBookings()
   const action = useBookingAction()
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
-
-  // ⌘K 面板 / `r` 快捷键请求刷新时重拉预约
-  useRefreshSignal(() => void bookings.refetch())
 
   async function run(booking: Booking, config: ActionConfig, trigger?: Element | null) {
     try {

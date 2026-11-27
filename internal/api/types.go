@@ -1,10 +1,9 @@
-// Package api defines the canonical HTTP/IPC wire contracts shared between the Go server and TypeScript client.
+// Package api defines the canonical HTTP/SSE wire contracts shared between the Go server and TypeScript client.
 package api
 
 import "hdu-library-sniper/internal/core"
 
 // Enum types and canonical wire values exported to the TypeScript contract generator.
-type PlanKind string
 type PlanToggleAction string
 type BookingAction string
 type BookingState string
@@ -12,12 +11,10 @@ type NextTargetKind string
 type QrLoginPhase string
 type AppEventKind string
 type InvalidateTarget string
+type NotificationLevel string
 type Weekday int
 
 const (
-	PlanKindSingle PlanKind = core.PlanKindSingle
-	PlanKindGroup  PlanKind = core.PlanKindGroup
-
 	PlanActionEnable  PlanToggleAction = "enable"
 	PlanActionDisable PlanToggleAction = "disable"
 
@@ -41,16 +38,21 @@ const (
 	QrLoginExpired QrLoginPhase = "expired"
 	QrLoginError   QrLoginPhase = "error"
 
-	AppEventSession    AppEventKind = "session"
-	AppEventRuntime    AppEventKind = "runtime"
-	AppEventInvalidate AppEventKind = "invalidate"
-	AppEventAudit      AppEventKind = "audit"
+	AppEventSession      AppEventKind = "session"
+	AppEventRuntime      AppEventKind = "runtime"
+	AppEventInvalidate   AppEventKind = "invalidate"
+	AppEventNotification AppEventKind = "notification"
 
 	InvalidatePlans      InvalidateTarget = "plans"
 	InvalidateBookings   InvalidateTarget = "bookings"
 	InvalidateNextTarget InvalidateTarget = "nextTarget"
 	InvalidateCheckIn    InvalidateTarget = "checkin"
 	InvalidateRuntime    InvalidateTarget = "runtime"
+
+	NotificationSuccess NotificationLevel = core.NotifySuccess
+	NotificationWarning NotificationLevel = core.NotifyWarning
+	NotificationError   NotificationLevel = core.NotifyError
+	NotificationInfo    NotificationLevel = core.NotifyInfo
 )
 
 type ErrorResponse struct {
@@ -59,6 +61,15 @@ type ErrorResponse struct {
 
 type HealthResponse struct {
 	Status string `json:"status"`
+}
+
+type PanelAuthStatusResponse struct {
+	Required      bool `json:"required"`
+	Authenticated bool `json:"authenticated"`
+}
+
+type PanelAuthRequest struct {
+	Password string `json:"password"`
 }
 
 type SuccessResponse struct {
@@ -96,56 +107,44 @@ type QrStatusEvent struct {
 	Session *core.SessionStatus `json:"session,omitempty"`
 }
 
-type AuditNotification struct {
-	Event   string         `json:"event"`
-	Payload map[string]any `json:"payload"`
+type AppEvent struct {
+	Kind         AppEventKind        `json:"kind"`
+	Session      *core.SessionStatus `json:"session,omitempty"`
+	Runtime      *core.RuntimeStatus `json:"runtime,omitempty"`
+	Invalidate   []InvalidateTarget  `json:"invalidate,omitempty"`
+	Notification *core.Notification  `json:"notification,omitempty"`
 }
 
-type AppEvent struct {
-	Kind       AppEventKind        `json:"kind"`
-	Session    *core.SessionStatus `json:"session,omitempty"`
-	Runtime    *core.RuntimeStatus `json:"runtime,omitempty"`
-	Invalidate []InvalidateTarget  `json:"invalidate,omitempty"`
-	Audit      *AuditNotification  `json:"audit,omitempty"`
+type PlanSlotInput struct {
+	ID            string   `json:"id,omitempty"`
+	RoomType      string   `json:"roomType"`
+	RoomQuery     string   `json:"roomQuery"`
+	FloorID       int64    `json:"floorId"`
+	FloorName     string   `json:"floorName,omitempty"`
+	SeatNum       string   `json:"seatNum"`
+	FallbackSeats []string `json:"fallbackSeats,omitempty"`
+	StartHour     int64    `json:"startHour"`
+	DurationHours int64    `json:"durationHours"`
 }
 
 type PlanUpsertRequest struct {
-	RoomType      *string  `json:"roomType,omitempty"`
-	RoomQuery     *string  `json:"roomQuery,omitempty"`
-	FloorID       *int64   `json:"floorId,omitempty"`
-	FloorName     *string  `json:"floorName,omitempty"`
-	SeatNum       *string  `json:"seatNum,omitempty"`
-	FallbackSeats []string `json:"fallbackSeats,omitempty"`
-	StartHour     *int64   `json:"startHour,omitempty"`
-	DurationHours *int64   `json:"durationHours,omitempty"`
-	Weekdays      []int    `json:"weekdays,omitempty" contract:"Weekday[]"`
-	Enabled       *bool    `json:"enabled,omitempty"`
+	Name     *string         `json:"name,omitempty"`
+	Slots    []PlanSlotInput `json:"slots,omitempty"`
+	Weekdays []int           `json:"weekdays,omitempty" contract:"Weekday[]"`
+	Enabled  *bool           `json:"enabled,omitempty"`
 }
 
 type PlansListResponse struct {
-	Plans []core.PlanListItem `json:"plans"`
+	Plans []core.BookingPlan `json:"plans"`
 }
 
-type PlanItemResponse struct {
-	Plan core.PlanListItem `json:"plan"`
-}
-
-type SinglePlanResponse struct {
+type PlanResponse struct {
 	Plan core.BookingPlan `json:"plan"`
 }
 
 type TogglePlanResponse struct {
-	Plan            core.PlanListItem `json:"plan"`
-	DisabledPlanIDs []string          `json:"disabledPlanIds"`
-}
-
-type GroupUpsertRequest struct {
-	Name          string   `json:"name"`
-	MemberPlanIDs []string `json:"memberPlanIds"`
-}
-
-type GroupResponse struct {
-	Plan core.BookingGroup `json:"plan"`
+	Plan            core.BookingPlan `json:"plan"`
+	DisabledPlanIDs []string         `json:"disabledPlanIds"`
 }
 
 type RoomTypesResponse struct {

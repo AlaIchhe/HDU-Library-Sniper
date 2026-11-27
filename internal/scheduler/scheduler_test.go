@@ -9,13 +9,20 @@ import (
 	"testing"
 	"time"
 
+	"hdu-library-sniper/internal/api"
 	"hdu-library-sniper/internal/auth"
 	"hdu-library-sniper/internal/booking"
 	"hdu-library-sniper/internal/core"
+	"hdu-library-sniper/internal/events"
+	"hdu-library-sniper/internal/hdu"
 	"hdu-library-sniper/internal/store"
 )
 
-func TestObserveBookingsAndNextTarget(t *testing.T) {
+type fixedClock struct{ now time.Time }
+
+func (c fixedClock) Now() time.Time { return c.now }
+
+func TestObserveBookingsPersistsAndNextTarget(t *testing.T) {
 	st, err := store.OpenMemory()
 	if err != nil {
 		t.Fatal(err)
@@ -23,23 +30,24 @@ func TestObserveBookingsAndNextTarget(t *testing.T) {
 	defer func() { _ = st.Close() }()
 
 	authSvc := auth.NewService(st, nil)
-	exec := booking.NewExecutor(st)
-	sched := New(st, authSvc, exec)
+	bus := events.NewBus()
+	exec := booking.NewExecutor(st, bus)
+	sched := New(st, authSvc, exec, bus)
 	sched.SetAutoCheckIn(true, true)
 
 	now := time.Now()
-	sched.ObserveBookingsAt([]map[string]any{
+	sched.ObserveBookingsAt([]hdu.RawBooking{
 		{
-			"id":            "b1",
-			"time":          now.Add(2 * time.Minute).Unix(),
-			"limitSignBack": 900,
-			"status":        "0",
+			ID:            "b1",
+			Time:          hdu.FlexInt64(now.Add(2 * time.Minute).Unix()),
+			LimitSignBack: 900,
+			Status:        "0",
 		},
 		{
-			"id":            "b2",
-			"time":          now.Unix(),
-			"limitSignBack": 900,
-			"status":        "1", // in use, ignored
+			ID:            "b2",
+			Time:          hdu.FlexInt64(now.Unix()),
+			LimitSignBack: 900,
+			Status:        "1", // in use, ignored
 		},
 	}, now)
 
@@ -47,6 +55,12 @@ func TestObserveBookingsAndNextTarget(t *testing.T) {
 	if !ok || bid != "b1" {
 		t.Fatalf("expected b1 pending check-in, got bid=%q ok=%v", bid, ok)
 	}
+	// Verify pending check-in survived restart by constructing a new Scheduler over the same Store.
+	restarted := New(st, authSvc, exec, bus)
+	if rBid, _, rOk := restarted.NextCheckIn(); !rOk || rBid != "b1" {
+		t.Fatalf("expected persisted pending check-in b1 after restart, got %q %v", rBid, rOk)
+	}
+
 	target := sched.NextExecutionTarget()
 	if target.Kind != core.NextTargetCheckIn || target.BookingID != "b1" {
 		t.Fatalf("NextExecutionTarget = %+v", target)
@@ -55,7 +69,6 @@ func TestObserveBookingsAndNextTarget(t *testing.T) {
 	if _, _, ok := sched.NextCheckIn(); ok {
 		t.Fatal("expected pending queue cleared after NoteCheckedIn")
 	}
-	// Disabled auto-checkin clears queued polls.
 	sched.SetAutoCheckIn(false, false)
 	sched.SyncCheckIns(context.Background())
 	if _, _, ok := sched.NextCheckIn(); ok {
@@ -89,7 +102,8 @@ func newTestSyncScheduler(t *testing.T, handler func(w http.ResponseWriter, r *h
 	if res := authSvc.LoginOpenID(context.Background(), "test_openid"); !res.Success {
 		t.Fatalf("LoginOpenID failed: %+v", res)
 	}
-	sched := New(st, authSvc, booking.NewExecutor(st))
+	bus := events.NewBus()
+	sched := New(st, authSvc, booking.NewExecutor(st, bus), bus)
 	sched.SetAutoCheckIn(true, true)
 	return sched, st
 }
@@ -100,31 +114,11 @@ func TestSyncPeakDelay(t *testing.T) {
 		now  time.Time
 		want time.Duration
 	}{
-		{
-			name: "before anchor",
-			now:  time.Date(2026, 11, 15, 19, 59, 59, 0, core.Shanghai),
-			want: 0,
-		},
-		{
-			name: "at anchor",
-			now:  time.Date(2026, 11, 15, 20, 0, 0, 0, core.Shanghai),
-			want: 60 * time.Second,
-		},
-		{
-			name: "inside peak",
-			now:  time.Date(2026, 11, 15, 20, 0, 11, 491_000_000, core.Shanghai),
-			want: 48*time.Second + 509*time.Millisecond,
-		},
-		{
-			name: "at peak end",
-			now:  time.Date(2026, 11, 15, 20, 1, 0, 0, core.Shanghai),
-			want: 0,
-		},
-		{
-			name: "off peak",
-			now:  time.Date(2026, 11, 15, 12, 0, 0, 0, core.Shanghai),
-			want: 0,
-		},
+		{name: "before anchor", now: time.Date(2026, 11, 15, 19, 59, 59, 0, core.Shanghai), want: 0},
+		{name: "at anchor", now: time.Date(2026, 11, 15, 20, 0, 0, 0, core.Shanghai), want: 60 * time.Second},
+		{name: "inside peak", now: time.Date(2026, 11, 15, 20, 0, 11, 491_000_000, core.Shanghai), want: 48*time.Second + 509*time.Millisecond},
+		{name: "at peak end", now: time.Date(2026, 11, 15, 20, 1, 0, 0, core.Shanghai), want: 0},
+		{name: "off peak", now: time.Date(2026, 11, 15, 12, 0, 0, 0, core.Shanghai), want: 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -137,7 +131,7 @@ func TestSyncPeakDelay(t *testing.T) {
 
 func TestSyncCheckInsDefersPeakAndRecoversQuietly(t *testing.T) {
 	var attempts int
-	bookingTime := time.Now().Add(2 * time.Hour).Unix()
+	bookingTime := time.Date(2026, 11, 15, 22, 0, 0, 0, core.Shanghai).Unix()
 	sched, st := newTestSyncScheduler(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/Seat/Index/myBookingList" {
 			http.NotFound(w, r)
@@ -163,9 +157,7 @@ func TestSyncCheckInsDefersPeakAndRecoversQuietly(t *testing.T) {
 	})
 
 	var sleeps []time.Duration
-	sched.nowFn = func() time.Time {
-		return time.Date(2026, 11, 15, 20, 0, 11, 491_000_000, core.Shanghai)
-	}
+	sched.clock = fixedClock{now: time.Date(2026, 11, 15, 20, 0, 11, 491_000_000, core.Shanghai)}
 	sched.sleepFn = func(_ context.Context, d time.Duration) bool {
 		sleeps = append(sleeps, d)
 		return true
@@ -228,7 +220,7 @@ func TestSyncCheckInsAuditsTerminalFailures(t *testing.T) {
 				w.WriteHeader(tc.statusOnTry(attempts))
 			})
 			var sleeps []time.Duration
-			sched.nowFn = func() time.Time { return time.Date(2026, 11, 15, 12, 0, 0, 0, core.Shanghai) }
+			sched.clock = fixedClock{now: time.Date(2026, 11, 15, 12, 0, 0, 0, core.Shanghai)}
 			sched.sleepFn = func(_ context.Context, d time.Duration) bool {
 				sleeps = append(sleeps, d)
 				return true
@@ -259,45 +251,38 @@ func TestSyncCheckInsAuditsTerminalFailures(t *testing.T) {
 	}
 }
 
-func TestSchedulerChangeCallbacksAndClearHelpers(t *testing.T) {
+func TestSchedulerBusEventsAndClearHelpers(t *testing.T) {
 	st, err := store.OpenMemory()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = st.Close() }()
 
+	bus := events.NewBus()
 	authSvc := auth.NewService(st, nil)
-	sched := New(st, authSvc, booking.NewExecutor(st))
+	sched := New(st, authSvc, booking.NewExecutor(st, bus), bus)
 
-	type changeEvent struct {
-		state   string
-		targets []string
-	}
-	var got []changeEvent
-	sched.SetOnChange(func(rt core.RuntimeStatus, targets []string) {
-		got = append(got, changeEvent{state: rt.State, targets: targets})
+	var got []api.AppEvent
+	unsub := bus.OnPublish(func(msg events.Message) {
+		if ev, ok := msg.Payload.(api.AppEvent); ok {
+			got = append(got, ev)
+		}
 	})
+	defer unsub()
 
 	sched.SetAutoCheckIn(true, true)
 	now := time.Now()
-	sched.ObserveBookingsAt([]map[string]any{
+	bookingList := []hdu.RawBooking{
 		{
-			"id":            "b1",
-			"time":          now.Add(2 * time.Minute).Unix(),
-			"limitSignBack": 900,
-			"status":        "0",
+			ID:            "b1",
+			Time:          hdu.FlexInt64(now.Add(2 * time.Minute).Unix()),
+			LimitSignBack: 900,
+			Status:        "0",
 		},
-	}, now)
-	// Identical ObserveBookingsAt call must not emit duplicate change.
+	}
+	sched.ObserveBookingsAt(bookingList, now)
 	countBeforeDup := len(got)
-	sched.ObserveBookingsAt([]map[string]any{
-		{
-			"id":            "b1",
-			"time":          now.Add(2 * time.Minute).Unix(),
-			"limitSignBack": 900,
-			"status":        "0",
-		},
-	}, now)
+	sched.ObserveBookingsAt(bookingList, now)
 	if len(got) != countBeforeDup {
 		t.Fatalf("duplicate ObserveBookingsAt emitted change: %+v", got)
 	}
@@ -305,7 +290,6 @@ func TestSchedulerChangeCallbacksAndClearHelpers(t *testing.T) {
 	sched.setState("auth_required")
 	sched.ClearPending()
 	sched.ClearAuthRequired()
-	// Calling ClearAuthRequired when already idle is a no-op.
 	sched.ClearAuthRequired()
 
 	if st := sched.Status(); st.State != "idle" {
@@ -315,9 +299,11 @@ func TestSchedulerChangeCallbacksAndClearHelpers(t *testing.T) {
 		t.Fatal("expected pending cleared after ClearPending")
 	}
 	if len(got) != 5 {
-		t.Fatalf("expected 5 change events, got %d: %+v", len(got), got)
+		t.Fatalf("expected 5 runtime events, got %d: %+v", len(got), got)
 	}
-	if got[0].targets[0] != "checkin" || got[1].targets[0] != "nextTarget" || got[2].state != "auth_required" || got[3].targets[0] != "nextTarget" || got[4].state != "idle" {
+	if got[0].Invalidate[0] != api.InvalidateCheckIn || got[1].Invalidate[0] != api.InvalidateNextTarget ||
+		got[2].Runtime.State != "auth_required" || got[3].Invalidate[0] != api.InvalidateNextTarget ||
+		got[4].Runtime.State != "idle" {
 		t.Fatalf("unexpected change sequence: %+v", got)
 	}
 }

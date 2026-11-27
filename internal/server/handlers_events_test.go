@@ -88,7 +88,7 @@ func TestHandleEventsAuthSnapshotsInvalidationsAndClose(t *testing.T) {
 	defer hduMock.Close()
 
 	srv.Auth = auth.NewServiceWithEndpoints(srv.Store, nil, auth.Endpoints{Library: hduMock.URL})
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -146,8 +146,11 @@ func TestHandleEventsAuthSnapshotsInvalidationsAndClose(t *testing.T) {
 
 	// Creating a plan publishes an invalidate event for plans and nextTarget.
 	planPayload, _ := json.Marshal(map[string]any{
-		"roomType": "自习室", "roomQuery": "q=1", "floorId": 3, "floorName": "三楼",
-		"seatNum": "101", "startHour": 8, "durationHours": 2, "weekdays": []int{1, 2},
+		"name": "自习室",
+		"slots": []map[string]any{
+			{"roomType": "自习室", "roomQuery": "q=1", "floorId": 3, "floorName": "三楼", "seatNum": "101", "startHour": 8, "durationHours": 2},
+		},
+		"weekdays": []int{1, 2},
 	})
 	planResp, err := http.Post(ts.URL+api.PathPlans, "application/json", bytes.NewReader(planPayload))
 	if err != nil {
@@ -214,7 +217,7 @@ func TestHandleEventsClosesAfterLogoutSessionEvent(t *testing.T) {
 		stCopy := st
 		srv.Events.Publish(events.TopicAppEvent, api.AppEvent{Kind: api.AppEventSession, Session: &stCopy})
 	})
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -457,7 +460,7 @@ func TestHandleSessionQREventsCancelClosesStream(t *testing.T) {
 func TestHandleEventsIgnoresQrTopic(t *testing.T) {
 	srv, _ := testRouter(t)
 	stubAuthUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -502,7 +505,7 @@ func TestHandleEventsIgnoresQrTopic(t *testing.T) {
 func TestHandleSessionQREventsScopesToUUID(t *testing.T) {
 	srv, _ := testRouter(t)
 	stubQrUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -550,7 +553,7 @@ func TestHandleSessionQREventsScopesToUUID(t *testing.T) {
 func TestHandleEventsReturnsOnWriteFailure(t *testing.T) {
 	srv, _ := testRouter(t)
 	stubAuthUpstream(t, srv)
-	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking)
+	srv.Scheduler = scheduler.New(srv.Store, srv.Auth, srv.Booking, srv.Events)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

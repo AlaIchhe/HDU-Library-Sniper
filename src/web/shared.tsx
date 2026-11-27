@@ -9,11 +9,10 @@ import { Spinner } from "@/ui/spinner"
 import { TextShimmer } from "@/ui/text-shimmer"
 
 export {
-  type GroupFormValues,
-  groupResolver,
   type LoginFormValues,
   loginResolver,
   type PlanFormValues,
+  type PlanSlotFormValues,
   planResolver,
   useForm,
 } from "./form-resolvers"
